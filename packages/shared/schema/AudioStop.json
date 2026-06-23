@@ -1,0 +1,27 @@
+{
+  "$ref": "#/definitions/AudioStop",
+  "definitions": {
+    "AudioStop": {
+      "type": "object",
+      "properties": {
+        "meetingId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "mic",
+            "system"
+          ]
+        }
+      },
+      "required": [
+        "meetingId",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

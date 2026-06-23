@@ -1,0 +1,36 @@
+{
+  "$ref": "#/definitions/Health",
+  "definitions": {
+    "Health": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "starting",
+            "degraded"
+          ],
+          "default": "ok"
+        },
+        "version": {
+          "type": "string",
+          "default": "0.0.0"
+        },
+        "protocolVersion": {
+          "type": "string",
+          "default": "0.1.0"
+        },
+        "models": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

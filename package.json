@@ -19,12 +19,20 @@
     "dev": "pnpm --filter @loqui/desktop dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "sidecar:dev": "uv run --project sidecar loqui-sidecar",
-    "sidecar:test": "uv run --project sidecar pytest"
+    "sidecar:test": "uv run --project sidecar pytest",
+    "smoke:foundation": "node scripts/smoke-foundation.mjs"
   },
   "devDependencies": {
-    "typescript": "^5.6.0"
+    "@eslint/js": "^9.17.0",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.18.0"
   }
 }

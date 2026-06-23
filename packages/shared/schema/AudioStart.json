@@ -1,0 +1,42 @@
+{
+  "$ref": "#/definitions/AudioStart",
+  "definitions": {
+    "AudioStart": {
+      "type": "object",
+      "properties": {
+        "meetingId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "mic",
+            "system"
+          ]
+        },
+        "sampleRate": {
+          "type": "number",
+          "const": 16000,
+          "default": 16000
+        },
+        "channels": {
+          "type": "number",
+          "const": 1,
+          "default": 1
+        },
+        "encoding": {
+          "type": "string",
+          "const": "pcm_s16le",
+          "default": "pcm_s16le"
+        }
+      },
+      "required": [
+        "meetingId",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

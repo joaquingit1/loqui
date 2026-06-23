@@ -1,0 +1,21 @@
+{
+  "$ref": "#/definitions/PingResult",
+  "definitions": {
+    "PingResult": {
+      "type": "object",
+      "properties": {
+        "pong": {
+          "type": "boolean",
+          "const": true,
+          "default": true
+        },
+        "ts": {
+          "type": "number",
+          "default": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

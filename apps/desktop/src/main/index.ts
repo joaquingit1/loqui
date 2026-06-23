@@ -1,0 +1,138 @@
+/**
+ * Electron main process entry. Creates the window with a hardened webPreferences
+ * (contextIsolation: true, nodeIntegration: false, sandbox: true), wires the
+ * IPC handlers to the sidecar supervisor + meeting store, and supervises the
+ * sidecar lifecycle.
+ *
+ * STUB: the Build phase fills in window creation, IPC registration, and the
+ * supervisor/store wiring. Imports below pin the contract.
+ */
+import { app, BrowserWindow } from "electron";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { SidecarSupervisor } from "./sidecar/supervisor.js";
+import { openStore, type MeetingStore } from "./store/index.js";
+import { pushSidecarStatus, registerIpcHandlers } from "./ipc/register.js";
+
+const __dirname = join(fileURLToPath(import.meta.url), "..");
+
+// Hardened webPreferences applied to every window.
+export const SECURE_WEB_PREFERENCES = {
+  contextIsolation: true,
+  nodeIntegration: false,
+  sandbox: true,
+} as const;
+
+export function createWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 1100,
+    height: 740,
+    show: false,
+    webPreferences: {
+      ...SECURE_WEB_PREFERENCES,
+      preload: join(__dirname, "../preload/index.js"),
+    },
+  });
+  win.once("ready-to-show", () => win.show());
+  loadRenderer(win);
+  return win;
+}
+
+/**
+ * Point the window at the renderer: the dev server (electron-vite sets
+ * ELECTRON_RENDERER_URL) when present, else the built HTML on disk.
+ */
+function loadRenderer(win: BrowserWindow): void {
+  const devUrl = process.env["ELECTRON_RENDERER_URL"];
+  if (devUrl) {
+    void win.loadURL(devUrl);
+  } else {
+    void win.loadFile(join(__dirname, "../renderer/index.html"));
+  }
+}
+
+// Module-scoped singletons so quit handlers can tear them down.
+let supervisor: SidecarSupervisor | null = null;
+let store: MeetingStore | null = null;
+let mainWindow: BrowserWindow | null = null;
+let disposeIpc: (() => void) | null = null;
+let disposeStatusPush: (() => void) | null = null;
+
+/**
+ * Create the window, open the store, start + supervise the sidecar, register
+ * the IPC handlers, push sidecar status to the renderer, and wire clean
+ * shutdown on app quit.
+ */
+export async function bootstrap(): Promise<void> {
+  await app.whenReady();
+
+  store = openStore();
+  supervisor = new SidecarSupervisor();
+
+  mainWindow = createWindow();
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+
+  // Push status changes to whatever window is live at emit time.
+  disposeStatusPush = pushSidecarStatus(supervisor, () => mainWindow);
+  disposeIpc = registerIpcHandlers({ supervisor, store });
+
+  // Start the sidecar in the background; failure surfaces via status push and
+  // must not block window creation.
+  void supervisor.start().catch((err: unknown) => {
+    console.error("[loqui] sidecar failed to start:", err);
+  });
+
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      mainWindow = createWindow();
+      mainWindow.on("closed", () => {
+        mainWindow = null;
+      });
+    }
+  });
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit();
+  });
+
+  // Graceful teardown: stop the sidecar (WS shutdown -> SIGTERM -> SIGKILL)
+  // and close the store before the process exits.
+  let shuttingDown = false;
+  app.on("before-quit", (event) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    event.preventDefault();
+    void shutdown().finally(() => app.exit(0));
+  });
+}
+
+/** Tear down IPC, the supervisor, and the store. Idempotent. */
+async function shutdown(): Promise<void> {
+  disposeIpc?.();
+  disposeIpc = null;
+  disposeStatusPush?.();
+  disposeStatusPush = null;
+  try {
+    await supervisor?.stop();
+  } catch (err) {
+    console.error("[loqui] error stopping sidecar:", err);
+  }
+  supervisor = null;
+  try {
+    store?.close();
+  } catch (err) {
+    console.error("[loqui] error closing store:", err);
+  }
+  store = null;
+}
+
+// Auto-bootstrap when run as the Electron main entry (not when imported by a
+// test). Electron sets process.versions.electron; vitest (plain node) does not.
+if (process.versions.electron) {
+  void bootstrap().catch((err: unknown) => {
+    console.error("[loqui] bootstrap failed:", err);
+    app.quit();
+  });
+}

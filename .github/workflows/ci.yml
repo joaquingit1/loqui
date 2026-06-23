@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save runner time.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+        node: [20, 22]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable pnpm
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync sidecar (Python) dependencies
+        working-directory: sidecar
+        run: uv sync
+
+      # @loqui/shared is the single source of truth: its TS build emits the
+      # type declarations + JSON Schemas that every other workspace (and the
+      # sidecar tests) resolve against. Build it before typecheck/test.
+      - name: Build shared contract
+        run: pnpm --filter @loqui/shared build
+
+      - name: Typecheck (TS)
+        run: pnpm -r typecheck
+
+      - name: Lint (TS)
+        run: pnpm -r lint
+
+      - name: Test (TS)
+        run: pnpm -r test
+
+      - name: Lint (Python sidecar)
+        working-directory: sidecar
+        run: |
+          uv run ruff check .
+          uv run black --check .
+
+      - name: Test (Python sidecar)
+        working-directory: sidecar
+        run: uv run pytest -q
+
+      # Cross-process acceptance gate (PRD-0 AC#3): spawns the REAL sidecar via
+      # uv and exercises the handshake / token / schema-validation / shutdown
+      # seams over the real wire — including that the client's token-less request
+      # envelope is accepted and a token-bearing one is rejected, and that
+      # stdin-EOF triggers graceful parent-exit shutdown. Needs uv + the built
+      # shared dist, both already present in this job.
+      - name: Smoke (foundation cross-process contract)
+        run: pnpm smoke:foundation
