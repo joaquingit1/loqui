@@ -10,6 +10,12 @@ dependencies = [
     "websockets>=13.0",
     "pydantic>=2.9.0",
     "jsonschema>=4.23.0",
+    # PRD-2 transcription engine. faster-whisper (CTranslate2) is the real ASR
+    # backend; numpy is used for PCM<->float buffer handling + the VAD/streaming
+    # math. The default unit gate uses a FAKE AsrBackend and never imports
+    # faster-whisper, so neither pulls in a model download at test time.
+    "faster-whisper>=1.0.0",
+    "numpy>=1.26.0",
 ]
 
 [project.scripts]

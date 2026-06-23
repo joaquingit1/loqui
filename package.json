@@ -26,7 +26,8 @@
     "sidecar:dev": "uv run --project sidecar loqui-sidecar",
     "sidecar:test": "uv run --project sidecar pytest",
     "smoke:foundation": "node scripts/smoke-foundation.mjs",
-    "smoke:audio": "node scripts/smoke-audio.mjs"
+    "smoke:audio": "node scripts/smoke-audio.mjs",
+    "smoke:transcription": "node scripts/smoke-transcription.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

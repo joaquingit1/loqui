@@ -13,7 +13,11 @@ import { fileURLToPath } from "node:url";
 import type { ScreenPermissionStatus } from "@loqui/shared";
 import { SidecarSupervisor } from "./sidecar/supervisor.js";
 import { openStore, type MeetingStore } from "./store/index.js";
-import { pushSidecarStatus, registerIpcHandlers } from "./ipc/register.js";
+import {
+  pushSidecarStatus,
+  pushTranscriptSegments,
+  registerIpcHandlers,
+} from "./ipc/register.js";
 import { registerAudioIpc } from "./audio/register.js";
 
 const __dirname = join(fileURLToPath(import.meta.url), "..");
@@ -96,6 +100,7 @@ let store: MeetingStore | null = null;
 let mainWindow: BrowserWindow | null = null;
 let disposeIpc: (() => void) | null = null;
 let disposeStatusPush: (() => void) | null = null;
+let disposeTranscriptPush: (() => void) | null = null;
 let disposeAudioIpc: (() => void) | null = null;
 
 /**
@@ -119,6 +124,8 @@ export async function bootstrap(): Promise<void> {
 
   // Push status changes to whatever window is live at emit time.
   disposeStatusPush = pushSidecarStatus(supervisor, () => mainWindow);
+  // Forward sidecar transcriptSegment notifications to the renderer (PRD-2).
+  disposeTranscriptPush = pushTranscriptSegments(supervisor, () => mainWindow);
   disposeIpc = registerIpcHandlers({ supervisor, store });
   disposeAudioIpc = registerAudioIpc({
     supervisor,
@@ -163,6 +170,8 @@ async function shutdown(): Promise<void> {
   disposeAudioIpc = null;
   disposeStatusPush?.();
   disposeStatusPush = null;
+  disposeTranscriptPush?.();
+  disposeTranscriptPush = null;
   try {
     await supervisor?.stop();
   } catch (err) {

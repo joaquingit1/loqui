@@ -23,6 +23,13 @@ from dataclasses import dataclass
 
 import pytest
 
+# Keep the default unit gate HERMETIC + OFFLINE: force the FAKE ASR backend for
+# every test (in-process and every spawned sidecar) so nothing downloads a model
+# or runs real inference. The opt-in real-model smoke
+# (tests/test_asr_real_model.py) constructs FasterWhisperBackend directly and is
+# unaffected by this flag. Set before any sidecar import / spawn.
+os.environ.setdefault("LOQUI_FAKE_ASR", "1")
+
 
 @dataclass
 class SidecarHandle:

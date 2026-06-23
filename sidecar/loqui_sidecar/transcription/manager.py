@@ -1,0 +1,331 @@
+"""TranscriptionManager — the :class:`~loqui_sidecar.audio_ingest.FrameConsumer`
+that owns one transcription pipeline per ``(meeting_id, source)`` and emits
+``TranscriptSegment`` notifications.
+
+This is the Foundation wiring. It:
+
+* implements the ``FrameConsumer`` protocol (``on_start`` / ``on_frame`` /
+  ``on_stop``) so it can be handed to ``AudioIngest.add_consumer(...)`` — the
+  PRD-1 per-(meeting,source) decoded-PCM hook;
+* creates ONE pipeline per ``(meeting_id, source)`` via an injectable
+  ``pipeline_factory`` so mic ("You") and system ("They") run as INDEPENDENT
+  pipelines that never share buffers or policy state;
+* hands each pipeline a :data:`SegmentEmitter` that the manager wires to a WS
+  sender, turning every produced segment into one ``transcriptSegment``
+  notification;
+* guards every pipeline call so a transcription error degrades to a logged drop
+  and never tears down audio ingest or the WS control channel (same robustness
+  contract as :class:`~loqui_sidecar.audio_ingest.AudioIngest`).
+
+The PRD-2 pipeline build unit provides the real ``TranscriptionPipeline``
+(VAD + AsrBackend + StreamingPolicy). Foundation ships a no-op default pipeline
+so wiring the manager into the running sidecar does NOT change PRD-1 behavior
+(no segments are emitted until the real pipeline lands).
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import threading
+from dataclasses import dataclass
+from typing import Callable, Optional, Protocol
+
+from ..audio_ingest import DecodedFrame
+from .fake_backend import FakeAsrBackend
+from .types import AsrBackend, SegmentEmitter, TranscriptSegment
+
+logger = logging.getLogger("loqui_sidecar.transcription")
+
+#: Env flag that forces the hermetic FAKE ASR backend (no model, no network, no
+#: inference). Set it for the unit gate (see tests/conftest.py) and the
+#: ``smoke:transcription`` harness. When UNSET, the live sidecar uses the real
+#: faster-whisper backend (production default).
+FAKE_ASR_ENV = "LOQUI_FAKE_ASR"
+
+
+def _fake_asr_enabled() -> bool:
+    val = os.environ.get(FAKE_ASR_ENV)
+    return bool(val) and val not in ("0", "false", "False", "")
+
+
+@dataclass
+class TranscriptionConfig:
+    """Engine settings (PRD-2 §"Config & performance"). Defaulted so the manager
+    constructs hermetically; the real backend reads the rest.
+
+    Defaults target CPU-only laptops. On Apple Silicon CTranslate2 has no
+    Metal/MPS path, so the real backend uses ``device="cpu"`` + ``int8``.
+
+    Measured (default ``small`` / ``int8`` on an M-series CPU, 16 kHz mono;
+    to be re-measured by the real-backend build unit and recorded here):
+    document RTF, added end-to-end latency, peak RSS, and the "lite" preset
+    numbers in this docstring + the package README when the real backend lands.
+    """
+
+    model_size: str = "small"
+    device: str = "cpu"  # "cpu" | "cuda" | "auto"
+    compute_type: str = "int8"  # "int8" on CPU, "float16" on GPU
+    language: Optional[str] = None  # None == auto-detect
+    #: Silero VAD aggressiveness, 0..1 (higher = more aggressive gating).
+    vad_aggressiveness: float = 0.5
+    #: Max concurrent pipelines (mic + system = 2 by default).
+    max_parallelism: int = 2
+
+
+class TranscriptionPipeline(Protocol):
+    """One per ``(meeting_id, source)`` streaming pipeline (the build unit
+    implements this; Foundation ships :class:`_NoopPipeline`).
+
+    Contract: ``feed`` is handed each decoded PCM frame for ITS source and may
+    call its :data:`SegmentEmitter` zero or more times (partials + finals).
+    ``finish`` is called on ``audioStop`` and flushes any buffered hypothesis to
+    a final segment. Neither method raises (the manager guards them anyway).
+    """
+
+    def feed(self, frame: DecodedFrame) -> None: ...
+
+    def finish(self) -> None: ...
+
+
+class _NoopPipeline:
+    """Foundation default pipeline: consumes frames, emits nothing.
+
+    Keeps the manager safe to wire into the live sidecar before the real
+    pipeline exists — PRD-1's WAV writing is untouched and zero
+    ``transcriptSegment`` notifications are produced.
+    """
+
+    def __init__(
+        self,
+        meeting_id: str,
+        source: str,
+        emit: SegmentEmitter,
+        backend: AsrBackend,
+        config: TranscriptionConfig,
+    ) -> None:
+        self.meeting_id = meeting_id
+        self.source = source
+        self._emit = emit
+        self._backend = backend
+        self._config = config
+        self.frames_fed = 0
+
+    def feed(self, frame: DecodedFrame) -> None:
+        self.frames_fed += 1
+
+    def finish(self) -> None:
+        return None
+
+
+#: Factory signature the manager uses to build one pipeline per
+#: ``(meeting_id, source)``. The build unit injects a factory returning the real
+#: :class:`TranscriptionPipeline`; Foundation defaults to :class:`_NoopPipeline`.
+PipelineFactory = Callable[
+    [str, str, SegmentEmitter, AsrBackend, TranscriptionConfig],
+    TranscriptionPipeline,
+]
+
+
+def _default_pipeline_factory(
+    meeting_id: str,
+    source: str,
+    emit: SegmentEmitter,
+    backend: AsrBackend,
+    config: TranscriptionConfig,
+) -> TranscriptionPipeline:
+    return _NoopPipeline(meeting_id, source, emit, backend, config)
+
+
+def _noop_emitter(_segment: TranscriptSegment) -> None:
+    """Default emitter: drop the segment (used when no sender is wired)."""
+    return None
+
+
+class TranscriptionManager:
+    """Per-launch transcription manager + ``FrameConsumer``.
+
+    One instance lives on :class:`~loqui_sidecar.app.AppState`, is subscribed to
+    :class:`~loqui_sidecar.audio_ingest.AudioIngest` via ``add_consumer``, and is
+    handed each decoded ``(meeting_id, source)`` PCM frame. It maintains one
+    pipeline per active ``(meeting_id, source)`` and routes frames to it.
+
+    Thread-safe: a lock guards the pipeline map since the WS receive loop (and
+    any future producer) can touch it concurrently — matching ``AudioIngest``.
+
+    None of the ``FrameConsumer`` methods raise.
+    """
+
+    def __init__(
+        self,
+        *,
+        emit: Optional[SegmentEmitter] = None,
+        backend: Optional[AsrBackend] = None,
+        config: Optional[TranscriptionConfig] = None,
+        pipeline_factory: Optional[PipelineFactory] = None,
+    ) -> None:
+        #: Where produced segments go. Wire :func:`make_ws_emitter` in app.py so
+        #: each segment becomes one ``transcriptSegment`` WS notification.
+        self._emit: SegmentEmitter = emit or _noop_emitter
+        #: The ASR backend (Foundation: fake; build unit: faster-whisper).
+        self._backend: AsrBackend = backend or FakeAsrBackend()
+        self._config = config or TranscriptionConfig()
+        self._make_pipeline: PipelineFactory = pipeline_factory or _default_pipeline_factory
+        self._pipelines: dict[tuple[str, str], TranscriptionPipeline] = {}
+        self._lock = threading.Lock()
+        #: Diagnostic counters (parity with AudioIngest; handy in tests).
+        self.frames_seen = 0
+        self.segments_emitted = 0
+
+    # -- introspection --------------------------------------------------------
+
+    @property
+    def backend(self) -> AsrBackend:
+        return self._backend
+
+    @property
+    def config(self) -> TranscriptionConfig:
+        return self._config
+
+    def set_emitter(self, emit: SegmentEmitter) -> None:
+        """Set/replace the segment emitter (app.py wires the WS sender here)."""
+        with self._lock:
+            self._emit = emit
+
+    # -- FrameConsumer protocol (called by AudioIngest) -----------------------
+
+    def on_start(self, meeting_id: str, source: str) -> None:
+        """Open a fresh pipeline for ``(meeting_id, source)`` (audioStart)."""
+        try:
+            with self._lock:
+                key = (meeting_id, source)
+                existing = self._pipelines.pop(key, None)
+                if existing is not None:
+                    self._safe_finish(existing)
+                self._pipelines[key] = self._make_pipeline(
+                    meeting_id,
+                    source,
+                    self._guarded_emit,
+                    self._backend,
+                    self._config,
+                )
+        except Exception:  # noqa: BLE001 - transcription must never raise.
+            logger.exception("transcription on_start failed for %s/%s", meeting_id, source)
+
+    def on_frame(self, meeting_id: str, source: str, frame: DecodedFrame) -> None:
+        """Route one decoded frame to its ``(meeting_id, source)`` pipeline."""
+        self.frames_seen += 1
+        try:
+            with self._lock:
+                pipeline = self._pipelines.get((meeting_id, source))
+            if pipeline is None:
+                return  # frame before audioStart: ingest already logged the drop.
+            pipeline.feed(frame)
+        except Exception:  # noqa: BLE001 - transcription must never raise.
+            logger.exception("transcription on_frame failed for %s/%s", meeting_id, source)
+
+    def on_stop(self, meeting_id: str, source: str) -> None:
+        """Flush + drop the ``(meeting_id, source)`` pipeline (audioStop)."""
+        try:
+            with self._lock:
+                pipeline = self._pipelines.pop((meeting_id, source), None)
+            if pipeline is not None:
+                self._safe_finish(pipeline)
+        except Exception:  # noqa: BLE001 - transcription must never raise.
+            logger.exception("transcription on_stop failed for %s/%s", meeting_id, source)
+
+    def close(self) -> None:
+        """Flush all pipelines (process-shutdown safety net)."""
+        with self._lock:
+            pipelines = list(self._pipelines.values())
+            self._pipelines.clear()
+        for pipeline in pipelines:
+            self._safe_finish(pipeline)
+
+    # -- internals ------------------------------------------------------------
+
+    def _guarded_emit(self, segment: TranscriptSegment) -> None:
+        """Emit one segment via the wired emitter; swallow+log any error."""
+        try:
+            self._emit(segment)
+            self.segments_emitted += 1
+        except Exception:  # noqa: BLE001 - one emit failure must not break the pipeline.
+            logger.exception(
+                "transcription emit failed for %s/%s", segment.meeting_id, segment.source
+            )
+
+    @staticmethod
+    def _safe_finish(pipeline: TranscriptionPipeline) -> None:
+        try:
+            pipeline.finish()
+        except Exception:  # noqa: BLE001 - finish must never propagate.
+            logger.exception("transcription pipeline.finish raised")
+
+
+#: Type of the low-level WS notification sender app.py owns: ``send(event, data)``.
+NotificationSender = Callable[[str, dict], None]
+
+
+def make_ws_emitter(send: NotificationSender) -> SegmentEmitter:
+    """Adapt a raw ``send(event, data)`` WS sender into a :data:`SegmentEmitter`.
+
+    The returned emitter serializes each :class:`TranscriptSegment` to the exact
+    camelCase wire shape the TS ``transcriptSegmentSchema`` validates and pushes
+    it as a ``transcriptSegment`` notification. app.py builds ``send`` to write
+    ``{"type":"notification","event":...,"data":...}`` on the live WS.
+    """
+    from .types import TRANSCRIPT_SEGMENT_EVENT
+
+    def emit(segment: TranscriptSegment) -> None:
+        send(TRANSCRIPT_SEGMENT_EVENT, segment.to_wire())
+
+    return emit
+
+
+def _select_backend() -> AsrBackend:
+    """Choose the ASR backend for the live sidecar.
+
+    * ``LOQUI_FAKE_ASR`` set -> the deterministic, source-aware streaming FAKE
+      backend (no model, no network) so the unit gate + ``smoke:transcription``
+      stay hermetic yet exercise the real LocalAgreement-2 + pipeline path.
+    * otherwise -> the real :class:`FasterWhisperBackend`, lazily loaded (the
+      model is only constructed when a pipeline first feeds it, on ``audioStart``).
+    """
+    if _fake_asr_enabled():
+        from .fake_stream import make_streaming_fake_backend
+
+        return make_streaming_fake_backend()
+    # Real backend: import + construct here (cheap — the heavy faster_whisper
+    # import + model download are lazy, inside FasterWhisperBackend.load()).
+    from .asr_backend import FasterWhisperBackend
+
+    cfg = TranscriptionConfig()
+    return FasterWhisperBackend(
+        model_size=cfg.model_size,
+        device=cfg.device,
+        compute_type=cfg.compute_type,
+        language=cfg.language,
+    )
+
+
+def default_transcription_manager() -> TranscriptionManager:
+    """Construct the live transcription manager (REAL streaming pipeline).
+
+    Wires the real per-``(meeting, source)`` :class:`StreamingTranscriptionPipeline`
+    (VAD endpointing -> :class:`AsrBackend` -> LocalAgreement-2 policy) via
+    :func:`make_pipeline_factory`, so the live path actually USES the streaming
+    policy + the injectable ASR interface — no dead/bypassed code.
+
+    The backend is chosen by :func:`_select_backend`: the hermetic streaming FAKE
+    when ``LOQUI_FAKE_ASR`` is set (unit gate + smoke), else the real
+    faster-whisper backend (production). The emitter starts inert (no live WS);
+    ``app.py`` wires :func:`make_ws_emitter` to the live socket on connect, so
+    until a renderer connects no ``transcriptSegment`` notification is sent — but
+    the moment a socket is up, real partial/final segments flow.
+    """
+    from .pipeline import make_pipeline_factory
+
+    return TranscriptionManager(
+        backend=_select_backend(),
+        pipeline_factory=make_pipeline_factory(),
+    )

@@ -16,6 +16,7 @@ import type {
   Health,
   LoquiAudioApi,
   ScreenPermissionStatus,
+  TranscriptSegment,
 } from "@loqui/shared";
 import { IPC } from "../shared/ipc.js";
 
@@ -28,6 +29,15 @@ export interface LoquiApi {
   onSidecarStatus(cb: (status: SidecarStatus) => void): () => void;
   /** Dual-stream audio capture bridge (PRD-1). */
   audio: LoquiAudioApi;
+  /**
+   * Subscribe to live transcript segments (PRD-2). The callback fires once per
+   * sidecar-emitted {@link TranscriptSegment} (both `partial` and `final`).
+   * `partial` segments update in place and are superseded by a later `final`
+   * with the same `segId`; the two sources (`mic`="You", `system`="They") are
+   * delivered independently and distinguished by `segment.source`. Returns an
+   * unsubscribe fn.
+   */
+  onTranscriptSegment(cb: (segment: TranscriptSegment) => void): () => void;
 }
 
 export type SidecarStatus = "connecting" | "connected" | "disconnected" | "error";
@@ -65,6 +75,11 @@ const api: LoquiApi = {
     return () => ipcRenderer.removeListener(IPC.sidecarStatus, listener);
   },
   audio,
+  onTranscriptSegment: (cb: (segment: TranscriptSegment) => void): (() => void) => {
+    const listener = (_e: unknown, segment: TranscriptSegment): void => cb(segment);
+    ipcRenderer.on(IPC.transcriptSegment, listener);
+    return () => ipcRenderer.removeListener(IPC.transcriptSegment, listener);
+  },
 };
 
 contextBridge.exposeInMainWorld("loqui", api);

@@ -90,3 +90,13 @@ jobs:
       # duration, and NOT identical (the two streams stayed independent).
       - name: Smoke (audio capture path)
         run: pnpm smoke:audio
+
+      # PRD-2 acceptance gate (headless, hermetic): spawns the REAL sidecar with
+      # LOQUI_FAKE_ASR=1 (deterministic streaming FAKE backend — NO model, NO
+      # network) + a temp LOQUI_DATA_DIR, streams SYNTHETIC marker pcm_s16le for
+      # mic AND system through the REAL streaming pipeline (VAD -> ASR ->
+      # LocalAgreement-2), then asserts transcriptSegment notifications arrive
+      # with partial-then-final, the correct per-source text, no cross-wiring,
+      # and a single final segId per utterance.
+      - name: Smoke (transcription path)
+        run: pnpm smoke:transcription

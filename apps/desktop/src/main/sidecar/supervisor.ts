@@ -83,6 +83,17 @@ export class SidecarSupervisor {
   private lastHealth: Health | null = null;
   private status: SidecarStatus = "disconnected";
   private readonly statusListeners = new Set<(s: SidecarStatus) => void>();
+  /**
+   * Subscribers to server-initiated WS notifications (sidecar → main), e.g. the
+   * PRD-2 `transcriptSegment` events and PRD jobUpdate events. Fanned out from
+   * the live {@link SidecarClient}'s `onNotification` callback; survives client
+   * reconnects (the set lives on the supervisor, each new client re-wires into
+   * it). Listeners receive the raw `(event, data)` pair and are responsible for
+   * validating `data` against the matching shared schema before use.
+   */
+  private readonly notificationListeners = new Set<
+    (event: string, data: unknown) => void
+  >();
 
   /**
    * The meeting whose audio is currently being captured, if any. Set by the
@@ -127,6 +138,32 @@ export class SidecarSupervisor {
     return () => {
       this.statusListeners.delete(cb);
     };
+  }
+
+  /**
+   * Subscribe to server-initiated WS notifications (sidecar → main). The
+   * callback fires for EVERY notification the sidecar pushes — `event` is the
+   * notification name (e.g. {@link import("@loqui/shared").TRANSCRIPT_SEGMENT_EVENT})
+   * and `data` is its unvalidated payload. Returns an unsubscribe fn. Survives
+   * sidecar reconnects. The main event bridge (ipc/register.ts) uses this to
+   * forward `transcriptSegment` events to the renderer.
+   */
+  onNotification(cb: (event: string, data: unknown) => void): () => void {
+    this.notificationListeners.add(cb);
+    return () => {
+      this.notificationListeners.delete(cb);
+    };
+  }
+
+  /** Fan out one sidecar notification to every subscriber (never throws). */
+  private emitNotification(event: string, data: unknown): void {
+    for (const cb of this.notificationListeners) {
+      try {
+        cb(event, data);
+      } catch {
+        /* a listener throwing must not break supervision or the WS loop */
+      }
+    }
   }
 
   private setStatus(next: SidecarStatus): void {
@@ -203,6 +240,7 @@ export class SidecarSupervisor {
       token: handshake.token,
       now: this.now,
       onClose: (reason) => this.onClientClosed(reason),
+      onNotification: (event, data) => this.emitNotification(event, data),
     });
     this.client = client;
 

@@ -116,8 +116,12 @@ function startSidecar() {
       {
         cwd: REPO_ROOT,
         stdio: ["pipe", "pipe", "pipe"],
-        // Keep the sidecar's WAV writes inside a temp dir, never ~/Loqui.
-        env: { ...process.env, LOQUI_DATA_DIR: DATA_DIR },
+        // Keep the sidecar's WAV writes inside a temp dir, never ~/Loqui, and
+        // force the hermetic FAKE ASR backend (PRD-2): this foundation gate
+        // exercises the control wire, NOT real transcription, so it must never
+        // pull in faster-whisper / download a model (which would slow shutdown
+        // and reach the network). The transcription path has its own smoke.
+        env: { ...process.env, LOQUI_DATA_DIR: DATA_DIR, LOQUI_FAKE_ASR: "1" },
       },
     );
 

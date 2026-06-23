@@ -70,6 +70,14 @@ class FakeSocket extends EventEmitter implements RawSocket {
     );
   }
 
+  /** Simulate a server-initiated notification frame (sidecar -> main). */
+  notify(event: string, data: unknown): void {
+    this.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "notification", event, data }), "utf8"),
+    );
+  }
+
   close(): void {
     this.closed = true;
     this.emit("close");
@@ -300,5 +308,63 @@ describe("SidecarSupervisor — ping when not connected", () => {
     const r = await sup.ping();
     expect(r).toEqual({ ok: false, latencyMs: 0 });
     expect(await sup.getHealth()).toBeNull();
+  });
+});
+
+describe("SidecarSupervisor — notification fan-out (PRD-2)", () => {
+  it("forwards sidecar notifications to onNotification subscribers", async () => {
+    const child = new FakeChild();
+    const socket = new FakeSocket();
+    const spawn: SpawnFn = vi.fn(() => {
+      queueMicrotask(() => child.stdout.push(handshakeLine()));
+      return child as unknown as ReturnType<SpawnFn>;
+    });
+    const connect = vi.fn(async () => socket);
+
+    const sup = new SidecarSupervisor({ command: "fake", spawn, connect });
+    const received: Array<{ event: string; data: unknown }> = [];
+    const unsub = sup.onNotification((event, data) => received.push({ event, data }));
+
+    await sup.start();
+
+    const segment = {
+      meetingId: "00000000-0000-4000-8000-000000000000",
+      source: "mic",
+      text: "hello",
+      tStart: 0,
+      tEnd: 1,
+      status: "final",
+      segId: "seg-1",
+    };
+    socket.notify("transcriptSegment", segment);
+
+    expect(received).toEqual([{ event: "transcriptSegment", data: segment }]);
+
+    // Unsubscribe stops further delivery.
+    unsub();
+    socket.notify("transcriptSegment", segment);
+    expect(received).toHaveLength(1);
+  });
+
+  it("does not let a throwing listener break supervision", async () => {
+    const child = new FakeChild();
+    const socket = new FakeSocket();
+    const spawn: SpawnFn = vi.fn(() => {
+      queueMicrotask(() => child.stdout.push(handshakeLine()));
+      return child as unknown as ReturnType<SpawnFn>;
+    });
+    const connect = vi.fn(async () => socket);
+
+    const sup = new SidecarSupervisor({ command: "fake", spawn, connect });
+    sup.onNotification(() => {
+      throw new Error("listener boom");
+    });
+    const ok: unknown[] = [];
+    sup.onNotification((_e, d) => ok.push(d));
+
+    await sup.start();
+    expect(() => socket.notify("transcriptSegment", { x: 1 })).not.toThrow();
+    expect(ok).toEqual([{ x: 1 }]);
+    expect(sup.getStatus()).toBe("connected");
   });
 });

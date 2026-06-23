@@ -16,6 +16,15 @@ export const EVENT = {
 } as const;
 
 /**
+ * The exact WS-notification `event` string the transcription engine (PRD-2,
+ * sidecar) emits and the main process matches on to forward a
+ * {@link TranscriptSegment} to the renderer. Equals {@link EVENT.transcriptSegment};
+ * named separately so the four PRD-2 build units (sidecar emitter, main bridge,
+ * preload, renderer view) all reference ONE symbol rather than the bare literal.
+ */
+export const TRANSCRIPT_SEGMENT_EVENT = EVENT.transcriptSegment;
+
+/**
  * A transcript segment for one source. `partial` segments may be superseded by
  * a later `final` segment with the same segId. tStart/tEnd are seconds from
  * the meeting start.

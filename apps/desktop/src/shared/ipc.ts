@@ -39,6 +39,17 @@ export const IPC = {
   audioGetScreenPermission: "loqui:audio:getScreenPermission",
   /** push (main → renderer): screen-recording permission status changed. */
   audioScreenPermission: "loqui:audio:screenPermission",
+
+  // --- Transcription (PRD-2) ---
+  /**
+   * push (main → renderer): one {@link import("@loqui/shared").TranscriptSegment}.
+   * The main process forwards every sidecar `transcriptSegment` WS notification
+   * (see {@link import("@loqui/shared").TRANSCRIPT_SEGMENT_EVENT}) to the live
+   * window on this channel; the renderer subscribes via
+   * `window.loqui.onTranscriptSegment`. `partial` segments update in place and
+   * are superseded by a later `final` with the same `segId`.
+   */
+  transcriptSegment: "loqui:transcriptSegment",
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

@@ -220,6 +220,10 @@ async def serve(
         with contextlib.suppress(Exception):
             await serve_task
 
+    # Release the per-source decode executors spun up to keep ASR off the loop.
+    with contextlib.suppress(Exception):
+        state.close()
+
 
 def run(argv: list[str] | None = None) -> int:
     """Synchronous entrypoint: set up, print handshake, serve. Returns exit code."""

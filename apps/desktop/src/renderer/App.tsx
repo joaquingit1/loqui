@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import type { LoquiApi, SidecarStatus } from "../preload/index.js";
 import { SidecarStatusBadge } from "./components/SidecarStatusBadge.js";
 import { DebugPanel } from "./components/DebugPanel.js";
+import { LiveTranscript } from "./components/LiveTranscript.js";
 
 declare global {
   interface Window {
@@ -49,6 +50,8 @@ export function App({ api, initialStatus = "connecting" }: AppProps): JSX.Elemen
         </div>
         <SidecarStatusBadge status={status} />
       </header>
+
+      <LiveTranscript api={api} />
 
       <DebugPanel api={api} />
     </main>

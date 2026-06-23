@@ -34,6 +34,8 @@ function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
       getScreenPermission: vi.fn(async () => "not-applicable" as const),
       onScreenPermission: () => () => {},
     },
+    // PRD-2 transcript bridge: a no-op fake; the App under test does not use it yet.
+    onTranscriptSegment: () => () => {},
     ...overrides,
   };
   return { api, emitStatus: (s) => cb?.(s) };

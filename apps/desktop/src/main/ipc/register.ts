@@ -8,10 +8,12 @@
  * API exposed via contextBridge.
  */
 import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
-import type {
-  CreateMeetingInput,
-  Health,
-  UpdateMeetingInput,
+import {
+  TRANSCRIPT_SEGMENT_EVENT,
+  transcriptSegmentSchema,
+  type CreateMeetingInput,
+  type Health,
+  type UpdateMeetingInput,
 } from "@loqui/shared";
 import type { SidecarStatus } from "../../preload/index.js";
 import { IPC } from "../../shared/ipc.js";
@@ -84,6 +86,32 @@ export function pushSidecarStatus(
     const win = getWindow();
     if (win && !win.isDestroyed()) {
       win.webContents.send(IPC.sidecarStatus, status);
+    }
+  });
+}
+
+/**
+ * Forward sidecar `transcriptSegment` WS notifications to the renderer on
+ * {@link IPC.transcriptSegment} (PRD-2). Subscribes to the supervisor's
+ * notification fan-out, filters to {@link TRANSCRIPT_SEGMENT_EVENT}, validates +
+ * normalizes the payload with {@link transcriptSegmentSchema} (a malformed
+ * segment is dropped, never forwarded), and pushes the parsed
+ * {@link import("@loqui/shared").TranscriptSegment} to the live window. Returns
+ * an unsubscribe fn. `getWindow` resolves the live window at emit time so the
+ * push survives window recreation. Reuses the exact PRD-1 status/notification
+ * wire pattern — no new transport.
+ */
+export function pushTranscriptSegments(
+  supervisor: Pick<SidecarSupervisor, "onNotification">,
+  getWindow: () => BrowserWindow | null,
+): () => void {
+  return supervisor.onNotification((event: string, data: unknown) => {
+    if (event !== TRANSCRIPT_SEGMENT_EVENT) return;
+    const parsed = transcriptSegmentSchema.safeParse(data);
+    if (!parsed.success) return; // drop malformed segments, never forward.
+    const win = getWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(IPC.transcriptSegment, parsed.data);
     }
   });
 }
