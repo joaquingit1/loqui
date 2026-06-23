@@ -115,7 +115,13 @@ function startSidecar(dataDir) {
       // Pin a temp data root AND force the hermetic FAKE ASR backend (PRD-2):
       // this audio-capture gate asserts the per-source WAV path, NOT real
       // transcription, so it must never load faster-whisper / fetch a model.
-      env: { ...process.env, LOQUI_DATA_DIR: dataDir, LOQUI_FAKE_ASR: "1" },
+      env: {
+        ...process.env,
+        LOQUI_DATA_DIR: dataDir,
+        LOQUI_FAKE_ASR: "1",
+        // DIAGNOSTIC: dump all sidecar thread stacks to stderr if it hangs >10s.
+        LOQUI_FAULTHANDLER_TIMEOUT: "10",
+      },
     });
 
     let stdout = "";

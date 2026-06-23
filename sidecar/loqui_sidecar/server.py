@@ -229,6 +229,17 @@ def run(argv: list[str] | None = None) -> int:
     """Synchronous entrypoint: set up, print handshake, serve. Returns exit code."""
     opts = parse_args(sys.argv[1:] if argv is None else argv)
 
+    # DIAGNOSTIC: if LOQUI_FAULTHANDLER_TIMEOUT is set, dump ALL thread stacks to
+    # stderr every N seconds. Surfaces a silent hang (no exception) with its exact
+    # location — the only reliable way to debug a platform-specific deadlock on a
+    # CI runner we can't attach to. No-op unless the env var is set.
+    _fh = os.environ.get("LOQUI_FAULTHANDLER_TIMEOUT")
+    if _fh:
+        import faulthandler
+
+        with contextlib.suppress(ValueError):
+            faulthandler.dump_traceback_later(float(_fh), repeat=True)
+
     # Fail loudly BEFORE binding/printing if the schemas can't be loaded.
     schemas.preload()
 
