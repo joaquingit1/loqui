@@ -1,0 +1,30 @@
+{
+  "name": "loqui",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Loqui — open-source, local-first meeting intelligence. Real-time dual-stream transcription, post-meeting diarization, AI chat & summaries, and an agent-queryable MCP server.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.12.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "mcp-server"
+  ],
+  "scripts": {
+    "dev": "pnpm --filter @loqui/desktop dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "sidecar:dev": "uv run --project sidecar loqui-sidecar",
+    "sidecar:test": "uv run --project sidecar pytest"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

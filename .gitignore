@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+out/
+build/
+*.tsbuildinfo
+apps/desktop/dist/
+apps/desktop/out/
+packages/*/dist/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.uv/
+*.egg-info/
+sidecar/dist/
+sidecar/build/
+
+# Bundled / downloaded models (never commit)
+models/
+*.bin
+*.ckpt
+*.onnx
+*.pt
+
+# Local data
+.loqui/
+*.sqlite
+*.sqlite3
+*.db
+
+# Secrets / config
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Packaging artifacts
+*.dmg
+*.zip
+*.exe
+*.app/
+release/
