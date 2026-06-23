@@ -113,3 +113,52 @@ jobs:
       # ABI (the smoke runs the store under plain node via tsx).
       - name: Smoke (meeting end-to-end)
         run: pnpm smoke:meeting
+
+  e2e:
+    name: e2e / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable pnpm
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync sidecar (Python) dependencies
+        working-directory: sidecar
+        run: uv sync
+
+      - name: Build shared contract
+        run: pnpm --filter @loqui/shared build
+
+      - name: Build audio package
+        run: pnpm --filter @loqui/audio build
+
+      # Full-app Electron E2E: launches the REAL built app against the fake-ASR
+      # sidecar and asserts the renderer -> preload(contextBridge) -> main IPC ->
+      # sidecar(WS) seam (window mounts, window.loqui exposed with no Node leak,
+      # sidecar reaches healthy + ping round-trips). Catches integration bugs
+      # unit tests (which mock window.loqui) cannot — e.g. a broken preload path
+      # or sidecar launch resolution. Real audio capture stays manual.
+      - name: Build desktop app
+        run: pnpm --filter @loqui/desktop build
+
+      - name: E2E (Playwright + Electron)
+        run: pnpm --filter @loqui/desktop test:e2e

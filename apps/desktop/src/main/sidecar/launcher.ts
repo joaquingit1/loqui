@@ -9,7 +9,8 @@
  * inject an explicit command/args instead of relying on the filesystem.
  */
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export interface LaunchSpec {
@@ -38,11 +39,26 @@ export type SpawnFn = (
   },
 ) => ChildProcess;
 
-/** Absolute path to the repo root (…/apps/desktop/src/main/sidecar -> repo root). */
+/** Absolute path to the repo root.
+ *
+ * Found by walking UP from this module until a directory contains
+ * `sidecar/pyproject.toml`. This is layout-independent on purpose: electron-vite
+ * BUNDLES the whole main process into `out/main/index.js`, so a fixed `..` climb
+ * (which assumed the launcher stayed at `out/main/sidecar/`) overshoots the repo
+ * root by one level and points the sidecar at a nonexistent path. Only the real
+ * built app exercises this — unit tests inject a command override.
+ */
 function repoRoot(): string {
-  const here = join(fileURLToPath(import.meta.url), "..");
-  // here = …/apps/desktop/(out|src)/main/sidecar ; climb to the repo root.
-  return join(here, "..", "..", "..", "..", "..");
+  const start = join(fileURLToPath(import.meta.url), "..");
+  let dir = start;
+  for (let i = 0; i < 10; i++) {
+    if (existsSync(join(dir, "sidecar", "pyproject.toml"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break; // reached the filesystem root
+    dir = parent;
+  }
+  // Fallback (should not happen in dev/built layouts): best-effort relative climb.
+  return join(start, "..", "..", "..", "..");
 }
 
 /**

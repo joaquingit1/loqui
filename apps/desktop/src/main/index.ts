@@ -42,7 +42,9 @@ export function createWindow(): BrowserWindow {
     show: false,
     webPreferences: {
       ...SECURE_WEB_PREFERENCES,
-      preload: join(__dirname, "../preload/index.js"),
+      // CommonJS preload (.cjs) — required because sandbox is enabled; see the
+      // preload build output config in electron.vite.config.ts.
+      preload: join(__dirname, "../preload/index.cjs"),
     },
   });
   win.once("ready-to-show", () => win.show());

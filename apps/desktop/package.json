@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "pretest": "pnpm rebuild better-sqlite3",
     "test": "vitest run --passWithNoTests",
+    "test:e2e": "playwright test",
     "lint": "eslint . --max-warnings 0",
     "postinstall": "electron-rebuild -f -w better-sqlite3 || true"
   },
@@ -23,6 +24,7 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.1",
+    "@playwright/test": "^1.61.1",
     "@testing-library/react": "^16.1.0",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.2",
