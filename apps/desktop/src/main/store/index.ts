@@ -9,25 +9,29 @@
  * zod `meetingSchema`.
  */
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import {
   createMeetingInputSchema,
   meetingSchema,
   updateMeetingInputSchema,
   type CreateMeetingInput,
   type Meeting,
+  type MeetingSearchHit,
+  type TranscriptVariant,
   type UpdateMeetingInput,
 } from "@loqui/shared";
 import {
+  appendTranscriptText,
   ftsPhrase,
   openIndexDb,
+  searchMeetingsFts,
   upsertMeetingRow,
   upsertSearchText,
   type IndexDb,
   type SearchText,
 } from "./db.js";
 import { readMeta, writeMeta } from "./meta.js";
-import { dataRoot, meetingsDir } from "./paths.js";
+import { dataRoot, meetingsDir, meetingTranscriptPath } from "./paths.js";
 
 export {
   dataRoot,
@@ -36,6 +40,8 @@ export {
   meetingDir,
   meetingMetaPath,
   meetingAudioDir,
+  meetingLiveTranscriptPath,
+  meetingTranscriptPath,
 } from "./paths.js";
 export { upsertSearchText } from "./db.js";
 export type { SearchText } from "./db.js";
@@ -45,23 +51,51 @@ export interface MeetingStore {
   createMeeting(input?: CreateMeetingInput): Meeting;
   /** Read one meeting by id, or null if absent. */
   getMeeting(id: string): Meeting | null;
-  /** List meetings, newest first. */
+  /** List meetings, newest first, with optional date-range + full-text filter. */
   listMeetings(opts?: ListMeetingsOptions): Meeting[];
+  /**
+   * Full-text search across indexed title + transcript text; returns each
+   * matched meeting (newest-first) with a highlighted snippet of the match.
+   */
+  searchMeetings(query: string, limit?: number): MeetingSearchHit[];
+  /**
+   * Read a meeting's transcript file for the requested variant (default
+   * `"live"` = transcript.live.md). Returns "" when the file does not yet exist
+   * (e.g. a meeting with no confirmed segments). READ-ONLY — never writes.
+   */
+  getTranscript(id: string, variant?: TranscriptVariant): string;
   /** Patch a meeting; bumps updatedAt; rewrites meta.json atomically. */
   updateMeeting(id: string, patch: UpdateMeetingInput): Meeting;
-  /** Index a meeting's searchable text (title now; transcript/summary later). */
+  /** Index a meeting's searchable text (title/summary; transcript via append). */
   upsertSearchText(text: SearchText): void;
+  /**
+   * Append ONE confirmed transcript segment's text into the FTS transcript
+   * index, idempotently per (meeting, segId). This is the index half of the
+   * transcript-writer path (the file half is the TranscriptWriter). Re-appending
+   * the same segId is a no-op.
+   */
+  appendTranscriptSegment(meetingId: string, segId: string, text: string): void;
   /** Close the underlying SQLite handle. */
   close(): void;
 }
 
-/** Options for {@link MeetingStore.listMeetings}. */
+/**
+ * Options for {@link MeetingStore.listMeetings}.
+ *
+ * PRD-3 exposes `from`/`to` as the canonical inclusive `createdAt` bounds;
+ * `since`/`until` are accepted as aliases for backward compatibility (PRD-0).
+ * If both are given, `from`/`to` win.
+ */
 export interface ListMeetingsOptions {
   /** Inclusive lower bound on `createdAt` (ISO 8601). */
-  since?: string;
+  from?: string;
   /** Inclusive upper bound on `createdAt` (ISO 8601). */
+  to?: string;
+  /** Deprecated alias for {@link ListMeetingsOptions.from}. */
+  since?: string;
+  /** Deprecated alias for {@link ListMeetingsOptions.to}. */
   until?: string;
-  /** Full-text title query (FTS5). Matched as a literal phrase. */
+  /** Full-text query over title + transcript (FTS5). Matched as a literal phrase. */
   query?: string;
   /** Max rows to return. */
   limit?: number;
@@ -149,9 +183,35 @@ class FsMeetingStore implements MeetingStore {
     return updated;
   }
 
+  searchMeetings(query: string, limit?: number): MeetingSearchHit[] {
+    if (query.trim() === "") return [];
+    const hits = searchMeetingsFts(this.#db, query, limit);
+    const out: MeetingSearchHit[] = [];
+    for (const hit of hits) {
+      const meeting = readMeta(hit.meetingId);
+      if (meeting) out.push({ meeting, snippet: hit.snippet });
+    }
+    return out;
+  }
+
+  getTranscript(id: string, variant: TranscriptVariant = "live"): string {
+    assertSafeId(id);
+    try {
+      return readFileSync(meetingTranscriptPath(id, variant), "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return "";
+      throw err;
+    }
+  }
+
   upsertSearchText(text: SearchText): void {
     assertSafeId(text.meetingId);
     upsertSearchText(this.#db, text);
+  }
+
+  appendTranscriptSegment(meetingId: string, segId: string, text: string): void {
+    assertSafeId(meetingId);
+    appendTranscriptText(this.#db, meetingId, segId, text);
   }
 
   close(): void {
@@ -163,13 +223,16 @@ class FsMeetingStore implements MeetingStore {
     const where: string[] = [];
     const params: Record<string, unknown> = {};
 
-    if (opts.since !== undefined) {
-      where.push("m.created_at >= @since");
-      params.since = opts.since;
+    // `from`/`to` (PRD-3) are canonical; `since`/`until` (PRD-0) are aliases.
+    const from = opts.from ?? opts.since;
+    const to = opts.to ?? opts.until;
+    if (from !== undefined) {
+      where.push("m.created_at >= @from");
+      params.from = from;
     }
-    if (opts.until !== undefined) {
-      where.push("m.created_at <= @until");
-      params.until = opts.until;
+    if (to !== undefined) {
+      where.push("m.created_at <= @to");
+      params.to = to;
     }
 
     let sql: string;

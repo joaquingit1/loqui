@@ -11,7 +11,10 @@ import {
   INDEX_DB_NAME,
   MEETINGS_DIR_NAME,
   MEETING_AUDIO_DIR_NAME,
+  MEETING_LIVE_TRANSCRIPT_FILE,
   MEETING_META_FILE,
+  MEETING_TRANSCRIPT_FILE,
+  type TranscriptVariant,
 } from "@loqui/shared";
 
 /** Absolute path to the data root. Override via LOQUI_DATA_DIR. */
@@ -44,4 +47,16 @@ export function meetingMetaPath(id: string): string {
 /** `<dataRoot>/meetings/<id>/audio` */
 export function meetingAudioDir(id: string): string {
   return join(meetingDir(id), MEETING_AUDIO_DIR_NAME);
+}
+
+/** `<dataRoot>/meetings/<id>/transcript.live.md` — the human-facing transcript. */
+export function meetingLiveTranscriptPath(id: string): string {
+  return join(meetingDir(id), MEETING_LIVE_TRANSCRIPT_FILE);
+}
+
+/** Absolute path to a meeting's transcript file for the requested variant. */
+export function meetingTranscriptPath(id: string, variant: TranscriptVariant): string {
+  const file =
+    variant === "structured" ? MEETING_TRANSCRIPT_FILE : MEETING_LIVE_TRANSCRIPT_FILE;
+  return join(meetingDir(id), file);
 }

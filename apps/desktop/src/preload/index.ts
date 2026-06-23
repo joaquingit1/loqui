@@ -13,9 +13,17 @@ import type {
   AudioCaptureStartParams,
   AudioCaptureStopParams,
   AudioFrameMessage,
+  GetTranscriptParams,
   Health,
+  ListMeetingsQuery,
   LoquiAudioApi,
+  Meeting,
+  MeetingSearchHit,
+  MeetingStatusEvent,
+  RenameMeetingParams,
   ScreenPermissionStatus,
+  StartMeetingParams,
+  StopMeetingParams,
   TranscriptSegment,
 } from "@loqui/shared";
 import { IPC } from "../shared/ipc.js";
@@ -38,6 +46,32 @@ export interface LoquiApi {
    * unsubscribe fn.
    */
   onTranscriptSegment(cb: (segment: TranscriptSegment) => void): () => void;
+  /** Meeting lifecycle + Library bridge (PRD-3). */
+  library: LoquiLibraryApi;
+}
+
+/**
+ * Meeting lifecycle + Library surface (PRD-3). Wraps the lifecycle/library IPC
+ * channels so the renderer never references channel names directly.
+ */
+export interface LoquiLibraryApi {
+  /** Start a meeting (status "recording"). */
+  startMeeting(params?: StartMeetingParams): Promise<Meeting>;
+  /** Stop a meeting (status "processing"/"done"). */
+  stopMeeting(params: StopMeetingParams): Promise<Meeting>;
+  /** List meetings with an optional date-range + full-text filter, newest-first. */
+  listMeetings(query?: ListMeetingsQuery): Promise<Meeting[]>;
+  /** Full-text search across title + transcript; returns hits with snippets. */
+  searchMeetings(query: string): Promise<MeetingSearchHit[]>;
+  /** Read a meeting's transcript file (default the live Markdown). */
+  getTranscript(params: GetTranscriptParams): Promise<string>;
+  /** Rename a meeting's title (persists to meta.json + index). */
+  renameMeeting(params: RenameMeetingParams): Promise<Meeting>;
+  /**
+   * Subscribe to meeting lifecycle/status changes. The callback fires with the
+   * full updated Meeting on each transition. Returns an unsubscribe fn.
+   */
+  onMeetingStatus(cb: (meeting: Meeting) => void): () => void;
 }
 
 export type SidecarStatus = "connecting" | "connected" | "disconnected" | "error";
@@ -66,6 +100,26 @@ const audio: LoquiAudioApi = {
   },
 };
 
+const library: LoquiLibraryApi = {
+  startMeeting: (params?: StartMeetingParams): Promise<Meeting> =>
+    ipcRenderer.invoke(IPC.startMeeting, params),
+  stopMeeting: (params: StopMeetingParams): Promise<Meeting> =>
+    ipcRenderer.invoke(IPC.stopMeeting, params),
+  listMeetings: (query?: ListMeetingsQuery): Promise<Meeting[]> =>
+    ipcRenderer.invoke(IPC.listMeetingsQuery, query),
+  searchMeetings: (query: string): Promise<MeetingSearchHit[]> =>
+    ipcRenderer.invoke(IPC.searchMeetings, query),
+  getTranscript: (params: GetTranscriptParams): Promise<string> =>
+    ipcRenderer.invoke(IPC.getTranscript, params),
+  renameMeeting: (params: RenameMeetingParams): Promise<Meeting> =>
+    ipcRenderer.invoke(IPC.renameMeeting, params),
+  onMeetingStatus: (cb: (meeting: Meeting) => void): (() => void) => {
+    const listener = (_e: unknown, ev: MeetingStatusEvent): void => cb(ev.meeting);
+    ipcRenderer.on(IPC.meetingStatus, listener);
+    return () => ipcRenderer.removeListener(IPC.meetingStatus, listener);
+  },
+};
+
 const api: LoquiApi = {
   ping: () => ipcRenderer.invoke(IPC.ping),
   getSidecarHealth: () => ipcRenderer.invoke(IPC.getSidecarHealth),
@@ -80,6 +134,7 @@ const api: LoquiApi = {
     ipcRenderer.on(IPC.transcriptSegment, listener);
     return () => ipcRenderer.removeListener(IPC.transcriptSegment, listener);
   },
+  library,
 };
 
 contextBridge.exposeInMainWorld("loqui", api);

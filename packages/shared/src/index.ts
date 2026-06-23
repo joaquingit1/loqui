@@ -12,3 +12,5 @@ export * from "./meeting.js";
 export * from "./audio.js";
 export * from "./audio-bridge.js";
 export * from "./events.js";
+export * from "./transcript.js";
+export * from "./library.js";

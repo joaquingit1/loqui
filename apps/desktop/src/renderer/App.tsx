@@ -1,9 +1,11 @@
 /**
  * Loqui home screen.
  *
- * Renders the app title, a live sidecar-status indicator (driven by
- * window.loqui.onSidecarStatus), and a Debug panel with a "Ping sidecar"
- * button that round-trips window.loqui.ping() and shows the result + latency.
+ * Renders the app title + a live sidecar-status indicator (driven by
+ * window.loqui.onSidecarStatus), the in-meeting controls + live transcript
+ * (PRD-3 MeetingControls, which embeds the PRD-2 LiveTranscript scoped to the
+ * active meeting), the dated/searchable Library of past meetings (PRD-3), and a
+ * Debug panel with a "Ping sidecar" button.
  *
  * The renderer ONLY talks to the typed window.loqui bridge — never to ipc
  * channels or Node globals directly.
@@ -12,7 +14,8 @@ import { useEffect, useState } from "react";
 import type { LoquiApi, SidecarStatus } from "../preload/index.js";
 import { SidecarStatusBadge } from "./components/SidecarStatusBadge.js";
 import { DebugPanel } from "./components/DebugPanel.js";
-import { LiveTranscript } from "./components/LiveTranscript.js";
+import { MeetingControls } from "./components/MeetingControls.js";
+import { Library } from "./components/Library.js";
 
 declare global {
   interface Window {
@@ -51,7 +54,9 @@ export function App({ api, initialStatus = "connecting" }: AppProps): JSX.Elemen
         <SidecarStatusBadge status={status} />
       </header>
 
-      <LiveTranscript api={api} />
+      <MeetingControls api={api} sidecarStatus={status} />
+
+      <Library api={api?.library} />
 
       <DebugPanel api={api} />
     </main>

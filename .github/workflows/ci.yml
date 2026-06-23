@@ -100,3 +100,16 @@ jobs:
       # and a single final segId per utterance.
       - name: Smoke (transcription path)
         run: pnpm smoke:transcription
+
+      # PRD-3 acceptance gate (headless, hermetic): spawns the REAL sidecar with
+      # LOQUI_FAKE_ASR=1 + a temp LOQUI_DATA_DIR, then drives the REAL
+      # main-process PRD-3 modules (MeetingStore, the append-only
+      # TranscriptWriter, the final-segment consumer, the lifecycle controller)
+      # end-to-end: start a meeting, stream SYNTHETIC marker PCM for mic+system,
+      # assert transcript.live.md gains BOTH a "You said:" and a "They said:"
+      # line + meta.json + an FTS row exist, then stop (status done, endedAt set)
+      # and assert listMeetings returns it and searchMeetings finds a spoken
+      # keyword. Runs after the test step so better-sqlite3 is built for the node
+      # ABI (the smoke runs the store under plain node via tsx).
+      - name: Smoke (meeting end-to-end)
+        run: pnpm smoke:meeting

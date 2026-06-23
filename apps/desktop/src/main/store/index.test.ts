@@ -420,3 +420,68 @@ function reindexAll(): MeetingStore {
   }
   return s;
 }
+
+describe("PRD-3 transcript indexing + library queries", () => {
+  it("appendTranscriptSegment indexes transcript text and makes it FTS-searchable", () => {
+    const m = store.createMeeting({ title: "Standup" });
+    store.appendTranscriptSegment(m.id, "s1", "discuss the quarterly roadmap");
+    store.appendTranscriptSegment(m.id, "s2", "and the budget review");
+
+    const hits = store.searchMeetings("roadmap");
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.meeting.id).toBe(m.id);
+    expect(hits[0]!.snippet.toLowerCase()).toContain("roadmap");
+  });
+
+  it("appendTranscriptSegment is idempotent per (meeting, segId)", () => {
+    const m = store.createMeeting({ title: "Repeat" });
+    store.appendTranscriptSegment(m.id, "dup", "unicornword appears once");
+    store.appendTranscriptSegment(m.id, "dup", "unicornword appears once");
+    // The word still matches, but only one copy is indexed (snippet has it once).
+    const hits = store.searchMeetings("unicornword");
+    expect(hits).toHaveLength(1);
+    const occurrences = (hits[0]!.snippet.match(/unicornword/gi) ?? []).length;
+    expect(occurrences).toBe(1);
+  });
+
+  it("searchMeetings returns [] for an empty query and no FTS syntax errors on operators", () => {
+    const m = store.createMeeting({ title: "Ops" });
+    store.appendTranscriptSegment(m.id, "s1", "release the q-3 build now");
+    expect(store.searchMeetings("")).toEqual([]);
+    // Hyphen/quote would be FTS operators if unescaped; phrase-quoting handles it.
+    expect(() => store.searchMeetings('q-3 "build"')).not.toThrow();
+  });
+
+  it("getTranscript returns '' when no transcript file exists yet", () => {
+    const m = store.createMeeting();
+    expect(store.getTranscript(m.id)).toBe("");
+    expect(store.getTranscript(m.id, "structured")).toBe("");
+  });
+
+  it("getTranscript reads back the live transcript file when present", () => {
+    const m = store.createMeeting();
+    const p = join(meetingDir(m.id), "transcript.live.md");
+    writeFileSync(p, "[00:00:01] You said: hello\n");
+    expect(store.getTranscript(m.id)).toBe("[00:00:01] You said: hello\n");
+    expect(store.getTranscript(m.id, "live")).toContain("You said: hello");
+  });
+
+  it("listMeetings honors from/to date-range bounds", () => {
+    const a = store.createMeeting({ title: "Old" });
+    const b = store.createMeeting({ title: "New" });
+    backdate(a.id, "2020-01-01T00:00:00.000Z");
+    backdate(b.id, "2025-01-01T00:00:00.000Z");
+    const s = reindexAll();
+    try {
+      const inRange = s.listMeetings({ from: "2024-01-01T00:00:00.000Z" });
+      expect(inRange.map((m) => m.id)).toEqual([b.id]);
+      const bounded = s.listMeetings({
+        from: "2019-01-01T00:00:00.000Z",
+        to: "2021-01-01T00:00:00.000Z",
+      });
+      expect(bounded.map((m) => m.id)).toEqual([a.id]);
+    } finally {
+      s.close();
+    }
+  });
+});

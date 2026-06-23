@@ -13,7 +13,9 @@
  * fake socket — env/network never decide pass/fail.
  */
 import type { ChildProcess } from "node:child_process";
-import type { Handshake, Health } from "@loqui/shared";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { DATA_DIR_ENV, DEFAULT_DATA_DIR_NAME, type Handshake, type Health } from "@loqui/shared";
 import type { SidecarStatus } from "../../preload/index.js";
 import {
   DEFAULT_BACKOFF,
@@ -36,6 +38,15 @@ export interface SidecarSupervisorOptions {
   command?: string;
   args?: string[];
   cwd?: string;
+  /**
+   * The data root both processes must agree on. Passed to the spawned sidecar
+   * as the {@link DATA_DIR_ENV} (LOQUI_DATA_DIR) env var so the sidecar writes
+   * its WAVs into the SAME `<dataRoot>/meetings/<id>/` dir the main process owns
+   * (meta.json / index.db / transcript.live.md). Defaults to
+   * `process.env.LOQUI_DATA_DIR` if set, else `~/Loqui` — matching the store's
+   * own resolution so the two never diverge.
+   */
+  dataRoot?: string;
 
   // --- Injectable seams (tests provide fakes; prod uses the defaults) ---
   /** Spawns the child process. Defaults to a real `child_process.spawn`. */
@@ -59,6 +70,17 @@ export interface SidecarSupervisorOptions {
 
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
 
+/**
+ * Resolve the data root the same way the store does (LOQUI_DATA_DIR override,
+ * else ~/Loqui) so the value the supervisor hands the sidecar can never diverge
+ * from where main reads/writes meta.json + index.db + transcript.live.md.
+ */
+function defaultDataRoot(): string {
+  const override = process.env[DATA_DIR_ENV];
+  if (override && override.trim() !== "") return override;
+  return join(homedir(), DEFAULT_DATA_DIR_NAME);
+}
+
 function realSleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     const t = setTimeout(resolve, ms);
@@ -77,6 +99,8 @@ export class SidecarSupervisor {
   private readonly now: () => number;
   private readonly handshakeTimeoutMs: number;
   private readonly sleep: (ms: number) => Promise<void>;
+  /** Resolved data root shared with the spawned sidecar via LOQUI_DATA_DIR. */
+  private readonly dataRoot: string;
 
   private child: ChildProcess | null = null;
   private client: SidecarClient | null = null;
@@ -125,6 +149,7 @@ export class SidecarSupervisor {
     this.now = opts.now ?? Date.now;
     this.handshakeTimeoutMs = opts.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
     this.sleep = opts.sleep ?? realSleep;
+    this.dataRoot = opts.dataRoot ?? defaultDataRoot();
   }
 
   /** Current connection status. */
@@ -229,6 +254,10 @@ export class SidecarSupervisor {
       // "connected". Keeping stdin open keeps the sidecar alive; when Electron
       // exits, the pipe closes (EOF) and the sidecar shuts down gracefully.
       stdio: ["pipe", "pipe", "pipe"],
+      // Make both processes agree on the data root: pass LOQUI_DATA_DIR so the
+      // sidecar writes its WAVs into the SAME <dataRoot>/meetings/<id>/ dir the
+      // main process owns. Inherit the rest of the env (PATH, etc.).
+      env: { ...process.env, [DATA_DIR_ENV]: this.dataRoot },
     });
     this.child = child;
 

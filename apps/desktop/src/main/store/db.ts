@@ -24,7 +24,7 @@ import type { Meeting } from "@loqui/shared";
 import { indexDbPath } from "./paths.js";
 
 /** Schema version stored in `PRAGMA user_version`; bump on migrations. */
-export const SCHEMA_VERSION = 1 as const;
+export const SCHEMA_VERSION = 2 as const;
 
 export type IndexDb = Database.Database;
 
@@ -70,6 +70,16 @@ export function initSchema(db: IndexDb): void {
       transcript,
       summary,
       tokenize = 'unicode61 remove_diacritics 2'
+    );
+
+    -- Dedupe ledger for transcript-text indexing (PRD-3). One row per confirmed
+    -- (meeting, segId) appended into the FTS transcript column, so a redelivered
+    -- 'final' segment does not double-index its text. Rebuildable from the FTS
+    -- transcript / transcript.live.md if ever dropped.
+    CREATE TABLE IF NOT EXISTS transcript_segments (
+      meeting_id TEXT NOT NULL,
+      seg_id     TEXT NOT NULL,
+      PRIMARY KEY (meeting_id, seg_id)
     );
   `);
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
@@ -154,11 +164,96 @@ export function upsertSearchText(db: IndexDb, text: SearchText): void {
   tx();
 }
 
+/**
+ * Append one confirmed transcript segment's text to a meeting's FTS-indexed
+ * transcript (PRD-3). Idempotent per (meeting, segId): the same segId appended
+ * twice (e.g. a redelivered notification) does NOT duplicate text. We track the
+ * set of already-indexed segIds per meeting in a small side table so re-runs are
+ * cheap and the FTS transcript column stays the concatenation of distinct
+ * finals' text in arrival order.
+ *
+ * This is the ONLY transcript-indexing entry point the lifecycle/transcript-
+ * writer unit uses; it preserves whatever title/summary are already indexed.
+ */
+export function appendTranscriptText(
+  db: IndexDb,
+  meetingId: string,
+  segId: string,
+  text: string,
+): void {
+  const tx = db.transaction(() => {
+    // Dedupe by (meeting, segId). INSERT OR IGNORE returns changes()===0 when
+    // the segId was already indexed, in which case we skip the FTS append.
+    const res = db
+      .prepare(
+        `INSERT OR IGNORE INTO transcript_segments (meeting_id, seg_id) VALUES (?, ?)`,
+      )
+      .run(meetingId, segId);
+    if (res.changes === 0) return;
+
+    const existing = db
+      .prepare(
+        `SELECT title, transcript, summary FROM meetings_fts WHERE meeting_id = ?`,
+      )
+      .get(meetingId) as
+      | { title: string; transcript: string; summary: string }
+      | undefined;
+
+    const prior = existing?.transcript ?? "";
+    const merged = {
+      title: existing?.title ?? "",
+      transcript: prior ? `${prior} ${text}` : text,
+      summary: existing?.summary ?? "",
+    };
+    db.prepare(`DELETE FROM meetings_fts WHERE meeting_id = ?`).run(meetingId);
+    db.prepare(
+      `INSERT INTO meetings_fts (meeting_id, title, transcript, summary)
+       VALUES (?, ?, ?, ?)`,
+    ).run(meetingId, merged.title, merged.transcript, merged.summary);
+  });
+  tx();
+}
+
+/** One full-text search hit row: meeting id + a highlighted snippet. */
+export interface SearchHitRow {
+  meetingId: string;
+  snippet: string;
+}
+
+/**
+ * Full-text search across indexed title + transcript, newest-first, returning
+ * each matched meeting id with an FTS5 `snippet()` excerpt. The query is matched
+ * as a literal phrase ({@link ftsPhrase}) so user input never throws an FTS5
+ * syntax error. `limit` caps results (default 50).
+ */
+export function searchMeetingsFts(
+  db: IndexDb,
+  query: string,
+  limit = 50,
+): SearchHitRow[] {
+  const q = ftsPhrase(query);
+  // snippet(<table>, <colIndex>, <open>, <close>, <ellipsis>, <tokens>).
+  // Column index 2 = transcript (0=meeting_id UNINDEXED, 1=title, 2=transcript).
+  const rows = db
+    .prepare(
+      `SELECT f.meeting_id AS meetingId,
+              snippet(meetings_fts, 2, '[', ']', '…', 12) AS snippet
+       FROM meetings_fts f
+       JOIN meetings m ON m.id = f.meeting_id
+       WHERE meetings_fts MATCH @q
+       ORDER BY m.created_at DESC, m.id DESC
+       LIMIT @limit`,
+    )
+    .all({ q, limit }) as Array<{ meetingId: string; snippet: string | null }>;
+  return rows.map((r) => ({ meetingId: r.meetingId, snippet: r.snippet ?? "" }));
+}
+
 /** Remove a meeting's index + FTS rows. */
 export function deleteMeetingRow(db: IndexDb, id: string): void {
   const tx = db.transaction(() => {
     db.prepare(`DELETE FROM meetings WHERE id = ?`).run(id);
     db.prepare(`DELETE FROM meetings_fts WHERE meeting_id = ?`).run(id);
+    db.prepare(`DELETE FROM transcript_segments WHERE meeting_id = ?`).run(id);
   });
   tx();
 }

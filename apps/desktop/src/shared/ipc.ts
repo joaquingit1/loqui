@@ -22,6 +22,38 @@ export const IPC = {
   /** invoke: patch a meeting. */
   updateMeeting: "loqui:updateMeeting",
 
+  // --- Meeting lifecycle + Library (PRD-3) ---
+  /** invoke: start a meeting (-> Meeting; status "recording"). */
+  startMeeting: "loqui:startMeeting",
+  /** invoke: stop a meeting (-> Meeting; status "processing"/"done"). */
+  stopMeeting: "loqui:stopMeeting",
+  /**
+   * invoke: list meetings with an optional date-range + full-text filter
+   * (payload {@link import("@loqui/shared").ListMeetingsQuery}; -> Meeting[]).
+   */
+  listMeetingsQuery: "loqui:listMeetingsQuery",
+  /**
+   * invoke: full-text search across title + transcript
+   * (-> {@link import("@loqui/shared").MeetingSearchHit}[]).
+   */
+  searchMeetings: "loqui:searchMeetings",
+  /**
+   * invoke: read a meeting's transcript file
+   * (payload {@link import("@loqui/shared").GetTranscriptParams}; -> string).
+   */
+  getTranscript: "loqui:getTranscript",
+  /**
+   * invoke: rename a meeting's title (persists to meta.json + index)
+   * (payload {@link import("@loqui/shared").RenameMeetingParams}; -> Meeting).
+   */
+  renameMeeting: "loqui:renameMeeting",
+  /**
+   * push (main -> renderer): a meeting's lifecycle/status changed. Payload is a
+   * {@link import("@loqui/shared").MeetingStatusEvent} carrying the full updated
+   * Meeting; the renderer subscribes via `window.loqui.onMeetingStatus`.
+   */
+  meetingStatus: "loqui:meetingStatus",
+
   // --- Audio capture (PRD-1) ---
   /** invoke: begin a capture stream for one source (-> AudioCaptureResult). */
   audioStartCapture: "loqui:audio:startCapture",

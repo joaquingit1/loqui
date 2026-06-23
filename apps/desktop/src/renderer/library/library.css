@@ -1,0 +1,303 @@
+/**
+ * Library + MeetingView styles (PRD-3). Reuses the renderer design tokens from
+ * styles.css (--panel, --accent, --text-dim, etc.). Minimal and clean.
+ */
+
+/* ── Controls ─────────────────────────────────────────────────────────── */
+.library__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.library__search {
+  flex: 1 1 220px;
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  padding: 9px 12px;
+  border-radius: 8px;
+}
+.library__search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.library__dates {
+  display: flex;
+  gap: 10px;
+}
+
+.library__date {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.library__date input {
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 7px 9px;
+  border-radius: 8px;
+}
+
+/* ── Groups + rows ────────────────────────────────────────────────────── */
+.library__groups {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.library__group-heading {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.library__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.library__row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  appearance: none;
+  text-align: left;
+  border: 1px solid var(--panel-border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  padding: 11px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.library__row:hover {
+  border-color: var(--accent);
+}
+
+.library__row--search {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.library__row-title {
+  font-size: 14px;
+  font-weight: 550;
+}
+
+.library__row-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.library__row-duration {
+  font-family: var(--mono);
+}
+
+.library__row-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-border);
+}
+.library__row-status--recording {
+  color: var(--red);
+  border-color: rgba(229, 72, 77, 0.45);
+}
+.library__row-status--processing {
+  color: var(--amber);
+  border-color: rgba(245, 166, 35, 0.45);
+}
+.library__row-status--done {
+  color: var(--green);
+  border-color: rgba(47, 191, 113, 0.45);
+}
+.library__row-status--error {
+  color: var(--red);
+  border-color: rgba(229, 72, 77, 0.45);
+}
+
+.library__snippet {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+/* FTS5 snippet() emits <b>…</b> around the match. */
+.library__snippet b {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.library__empty,
+.library__hint,
+.library__error {
+  margin: 8px 0 0;
+  font-size: 13px;
+  text-align: center;
+  color: var(--text-dim);
+}
+.library__error {
+  color: var(--red);
+}
+
+/* ── Meeting view ─────────────────────────────────────────────────────── */
+.meeting-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.meeting-view__top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.meeting-view__back {
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.meeting-view__back:hover {
+  border-color: var(--accent);
+}
+
+.meeting-view__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.meeting-view__rename-trigger {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.meeting-view__rename-trigger:hover {
+  text-decoration: underline;
+}
+
+.meeting-view__rename {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+}
+.meeting-view__rename-input {
+  flex: 1 1 auto;
+  appearance: none;
+  border: 1px solid var(--accent);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 7px 10px;
+  border-radius: 8px;
+}
+.meeting-view__rename-cancel {
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.meeting-view__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin: 0;
+}
+.meeting-view__meta div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.meeting-view__meta dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+.meeting-view__meta dd {
+  margin: 0;
+  font-size: 14px;
+}
+
+.meeting-view__transcript {
+  border: 1px solid var(--panel-border);
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 14px 16px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.meeting-view__transcript-text {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.meeting-view__hint {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  text-align: center;
+}
+
+.meeting-view__error {
+  margin: 0;
+  color: var(--red);
+  font-size: 13px;
+}

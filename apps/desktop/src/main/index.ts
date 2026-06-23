@@ -14,11 +14,17 @@ import type { ScreenPermissionStatus } from "@loqui/shared";
 import { SidecarSupervisor } from "./sidecar/supervisor.js";
 import { openStore, type MeetingStore } from "./store/index.js";
 import {
+  pushMeetingStatus,
   pushSidecarStatus,
   pushTranscriptSegments,
   registerIpcHandlers,
 } from "./ipc/register.js";
 import { registerAudioIpc } from "./audio/register.js";
+import {
+  consumeFinalTranscriptSegments,
+  createMeetingController,
+  createTranscriptWriter,
+} from "./transcript/index.js";
 
 const __dirname = join(fileURLToPath(import.meta.url), "..");
 
@@ -101,6 +107,8 @@ let mainWindow: BrowserWindow | null = null;
 let disposeIpc: (() => void) | null = null;
 let disposeStatusPush: (() => void) | null = null;
 let disposeTranscriptPush: (() => void) | null = null;
+let disposeTranscriptPersist: (() => void) | null = null;
+let disposeMeetingStatusPush: (() => void) | null = null;
 let disposeAudioIpc: (() => void) | null = null;
 
 /**
@@ -126,7 +134,27 @@ export async function bootstrap(): Promise<void> {
   disposeStatusPush = pushSidecarStatus(supervisor, () => mainWindow);
   // Forward sidecar transcriptSegment notifications to the renderer (PRD-2).
   disposeTranscriptPush = pushTranscriptSegments(supervisor, () => mainWindow);
-  disposeIpc = registerIpcHandlers({ supervisor, store });
+  // Persist + index every confirmed (final) segment (PRD-3): the TranscriptWriter
+  // appends to transcript.live.md and the store indexes the text into FTS. This
+  // is the SOLE feeder of the (append-only) writer.
+  const transcriptWriter = createTranscriptWriter();
+  disposeTranscriptPersist = consumeFinalTranscriptSegments({
+    supervisor,
+    writer: transcriptWriter,
+    store,
+  });
+
+  // The meeting lifecycle state machine (PRD-3): drives Meeting.status +
+  // startedAt/endedAt via the store and sets/clears the supervisor's active-
+  // meeting pointer so PRD-1 audio frames + PRD-2 final segments route to the
+  // recording meeting. It NEVER writes transcript.live.md (that is exclusively
+  // the TranscriptWriter wired above).
+  const controller = createMeetingController({ store, supervisor });
+  // Push lifecycle/status transitions to the renderer so the Library/live view
+  // reacts without re-listing.
+  disposeMeetingStatusPush = pushMeetingStatus(controller, () => mainWindow);
+
+  disposeIpc = registerIpcHandlers({ supervisor, store, controller });
   disposeAudioIpc = registerAudioIpc({
     supervisor,
     getScreenPermission: getScreenPermissionStatus,
@@ -172,6 +200,10 @@ async function shutdown(): Promise<void> {
   disposeStatusPush = null;
   disposeTranscriptPush?.();
   disposeTranscriptPush = null;
+  disposeTranscriptPersist?.();
+  disposeTranscriptPersist = null;
+  disposeMeetingStatusPush?.();
+  disposeMeetingStatusPush = null;
   try {
     await supervisor?.stop();
   } catch (err) {

@@ -43,10 +43,30 @@ export const INDEX_DB_NAME = "index.db" as const;
 export const MEETING_META_FILE = "meta.json" as const;
 
 /**
- * Per-meeting transcript file name (written ONLY by the transcription engine
- * in a later PRD; declared here so paths are centralized).
+ * Per-meeting structured transcript file name. Declared here so paths are
+ * centralized. (Reserved for a parallel structured record; the human-facing
+ * source the user watches update live is {@link MEETING_LIVE_TRANSCRIPT_FILE}.)
  */
 export const MEETING_TRANSCRIPT_FILE = "transcript.jsonl" as const;
+
+/**
+ * Per-meeting live transcript file name (PRD-3): `transcript.live.md`.
+ *
+ * This is the human-facing, append-only Markdown artifact that the
+ * transcription path appends confirmed (`final`) segments to within ~1s of
+ * confirmation. It is written by EXACTLY ONE module in the main process (the
+ * TranscriptWriter) — no other code (and in particular no AI/chat code) may
+ * write it. This is the structural enforcement of the cross-cutting
+ * "AI never edits the transcript" invariant.
+ */
+export const MEETING_LIVE_TRANSCRIPT_FILE = "transcript.live.md" as const;
+
+/**
+ * The transcript variants a reader can request (see the store `getTranscript`
+ * reader). `"live"` is {@link MEETING_LIVE_TRANSCRIPT_FILE} (the human-facing
+ * Markdown); `"structured"` is {@link MEETING_TRANSCRIPT_FILE} (reserved JSONL).
+ */
+export const TRANSCRIPT_VARIANTS = ["live", "structured"] as const;
 
 /**
  * Per-meeting summary file name (written by the summaries PRD).

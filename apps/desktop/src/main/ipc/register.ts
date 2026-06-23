@@ -10,19 +10,37 @@
 import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import {
   TRANSCRIPT_SEGMENT_EVENT,
+  getTranscriptParamsSchema,
+  listMeetingsQuerySchema,
+  renameMeetingParamsSchema,
+  startMeetingParamsSchema,
+  stopMeetingParamsSchema,
   transcriptSegmentSchema,
   type CreateMeetingInput,
+  type GetTranscriptParams,
   type Health,
+  type ListMeetingsQuery,
+  type Meeting,
+  type RenameMeetingParams,
+  type StartMeetingParams,
+  type StopMeetingParams,
   type UpdateMeetingInput,
 } from "@loqui/shared";
 import type { SidecarStatus } from "../../preload/index.js";
 import { IPC } from "../../shared/ipc.js";
 import type { SidecarSupervisor } from "../sidecar/supervisor.js";
 import type { MeetingStore } from "../store/index.js";
+import type { MeetingController } from "../transcript/index.js";
 
 export interface IpcDeps {
   supervisor: Pick<SidecarSupervisor, "ping" | "getHealth" | "onStatus">;
   store: MeetingStore;
+  /**
+   * The meeting lifecycle controller (PRD-3). Backs the `startMeeting` /
+   * `stopMeeting` IPC channels and (via {@link pushMeetingStatus}) the
+   * `meetingStatus` renderer push.
+   */
+  controller: MeetingController;
 }
 
 /**
@@ -30,7 +48,7 @@ export interface IpcDeps {
  * removes them (used on app teardown / window recreation).
  */
 export function registerIpcHandlers(deps: IpcDeps): () => void {
-  const { supervisor, store } = deps;
+  const { supervisor, store, controller } = deps;
 
   ipcMain.handle(IPC.ping, async (): Promise<{ ok: boolean; latencyMs: number }> => {
     return supervisor.ping();
@@ -62,6 +80,54 @@ export function registerIpcHandlers(deps: IpcDeps): () => void {
     },
   );
 
+  // --- Meeting lifecycle + Library (PRD-3) ---
+  // start/stop go through the lifecycle controller (drives Meeting.status +
+  // startedAt/endedAt + the supervisor's active-meeting routing); the read
+  // paths go straight to the store. Every payload is re-validated here (defense
+  // in depth — the renderer is untrusted) before it reaches the controller/store.
+
+  ipcMain.handle(
+    IPC.startMeeting,
+    (_e: IpcMainInvokeEvent, params?: StartMeetingParams): Promise<Meeting> => {
+      return controller.startMeeting(startMeetingParamsSchema.parse(params ?? {}));
+    },
+  );
+
+  ipcMain.handle(
+    IPC.stopMeeting,
+    (_e: IpcMainInvokeEvent, params: StopMeetingParams): Promise<Meeting> => {
+      return controller.stopMeeting(stopMeetingParamsSchema.parse(params));
+    },
+  );
+
+  ipcMain.handle(
+    IPC.listMeetingsQuery,
+    (_e: IpcMainInvokeEvent, query?: ListMeetingsQuery): Meeting[] => {
+      const opts = listMeetingsQuerySchema.parse(query ?? {});
+      return store.listMeetings(opts);
+    },
+  );
+
+  ipcMain.handle(IPC.searchMeetings, (_e: IpcMainInvokeEvent, query: string) => {
+    return store.searchMeetings(typeof query === "string" ? query : "");
+  });
+
+  ipcMain.handle(
+    IPC.getTranscript,
+    (_e: IpcMainInvokeEvent, params: GetTranscriptParams): string => {
+      const { id, variant } = getTranscriptParamsSchema.parse(params);
+      return store.getTranscript(id, variant);
+    },
+  );
+
+  ipcMain.handle(
+    IPC.renameMeeting,
+    (_e: IpcMainInvokeEvent, params: RenameMeetingParams): Meeting => {
+      const { id, title } = renameMeetingParamsSchema.parse(params);
+      return store.updateMeeting(id, { title });
+    },
+  );
+
   return () => {
     ipcMain.removeHandler(IPC.ping);
     ipcMain.removeHandler(IPC.getSidecarHealth);
@@ -69,7 +135,34 @@ export function registerIpcHandlers(deps: IpcDeps): () => void {
     ipcMain.removeHandler(IPC.listMeetings);
     ipcMain.removeHandler(IPC.getMeeting);
     ipcMain.removeHandler(IPC.updateMeeting);
+    ipcMain.removeHandler(IPC.startMeeting);
+    ipcMain.removeHandler(IPC.stopMeeting);
+    ipcMain.removeHandler(IPC.listMeetingsQuery);
+    ipcMain.removeHandler(IPC.searchMeetings);
+    ipcMain.removeHandler(IPC.getTranscript);
+    ipcMain.removeHandler(IPC.renameMeeting);
   };
+}
+
+/**
+ * Bridge the controller's lifecycle/status changes to a renderer push on
+ * {@link IPC.meetingStatus}. Each transition (recording -> processing -> done /
+ * error, and renames if the controller emits them) pushes the full updated
+ * Meeting wrapped in a {@link import("@loqui/shared").MeetingStatusEvent} so the
+ * Library/live view reacts without re-listing. Returns an unsubscribe fn;
+ * `getWindow` resolves the live window at emit time so it survives window
+ * recreation.
+ */
+export function pushMeetingStatus(
+  controller: Pick<MeetingController, "onMeetingStatus">,
+  getWindow: () => BrowserWindow | null,
+): () => void {
+  return controller.onMeetingStatus((meeting: Meeting) => {
+    const win = getWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(IPC.meetingStatus, { meeting });
+    }
+  });
 }
 
 /**

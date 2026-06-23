@@ -25,7 +25,17 @@ export interface LaunchSpec {
 export type SpawnFn = (
   command: string,
   args: string[],
-  options: { cwd?: string; stdio: ["pipe", "pipe", "pipe"] },
+  options: {
+    cwd?: string;
+    stdio: ["pipe", "pipe", "pipe"];
+    /**
+     * Environment for the child. When provided, it REPLACES the inherited env
+     * (callers pass `{ ...process.env, LOQUI_DATA_DIR }` to add the data-root
+     * agreement var while keeping PATH etc.). When omitted, the child inherits
+     * the parent's env unchanged.
+     */
+    env?: NodeJS.ProcessEnv;
+  },
 ) => ChildProcess;
 
 /** Absolute path to the repo root (…/apps/desktop/src/main/sidecar -> repo root). */
@@ -70,4 +80,8 @@ export function resolveLaunchSpec(override?: Partial<LaunchSpec>): LaunchSpec {
  * parent-exit detection. We never write to or end child.stdin.
  */
 export const defaultSpawn: SpawnFn = (command, args, options) =>
-  nodeSpawn(command, args, { cwd: options.cwd, stdio: options.stdio });
+  nodeSpawn(command, args, {
+    cwd: options.cwd,
+    stdio: options.stdio,
+    ...(options.env ? { env: options.env } : {}),
+  });

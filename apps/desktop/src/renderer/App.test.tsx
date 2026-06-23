@@ -36,6 +36,16 @@ function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
     },
     // PRD-2 transcript bridge: a no-op fake; the App under test does not use it yet.
     onTranscriptSegment: () => () => {},
+    // PRD-3 library/lifecycle bridge: a no-op fake; the App under test does not use it yet.
+    library: {
+      startMeeting: vi.fn(async () => ({}) as never),
+      stopMeeting: vi.fn(async () => ({}) as never),
+      listMeetings: vi.fn(async () => []),
+      searchMeetings: vi.fn(async () => []),
+      getTranscript: vi.fn(async () => ""),
+      renameMeeting: vi.fn(async () => ({}) as never),
+      onMeetingStatus: () => () => {},
+    },
     ...overrides,
   };
   return { api, emitStatus: (s) => cb?.(s) };
