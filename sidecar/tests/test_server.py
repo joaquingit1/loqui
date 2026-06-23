@@ -7,7 +7,10 @@ schema accept/reject of inbound frames.
 
 from __future__ import annotations
 
+import sys
 import uuid
+
+import pytest
 
 from loqui_sidecar import PROTOCOL_VERSION
 
@@ -175,6 +178,14 @@ def test_ws_shutdown_acks_and_exits(sidecar):
     assert sidecar.proc.wait(timeout=8) == 0
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "SIGTERM is not a catchable graceful-shutdown signal on Windows "
+        "(subprocess.terminate() maps to TerminateProcess -> exit code 1). "
+        "stdin-EOF (test_stdin_eof_shuts_down) is the cross-platform graceful path."
+    ),
+)
 def test_sigterm_shuts_down_gracefully(sidecar):
     import signal
 

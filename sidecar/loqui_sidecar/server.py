@@ -120,16 +120,53 @@ async def _watch_parent_pid(parent_pid: int, on_exit) -> None:
             return
 
 
-def _pid_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True  # exists but not ours to signal.
-    return True
+if sys.platform == "win32":
+    import ctypes
+    from ctypes import wintypes
+
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _kernel32.OpenProcess.restype = wintypes.HANDLE
+    _kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    _kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    _kernel32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    _kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+
+    # NOTE: we deliberately do NOT use os.kill(pid, 0) on Windows — CPython maps
+    # os.kill with a non-CTRL signal to TerminateProcess(), so os.kill(pid, 0)
+    # would *kill* the parent instead of probing it. We query liveness instead.
+    _SYNCHRONIZE = 0x00100000
+    _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    _WAIT_OBJECT_0 = 0x0
+    _ERROR_INVALID_PARAMETER = 87
+
+    def _pid_alive(pid: int) -> bool:
+        if pid <= 0:
+            return False
+        handle = _kernel32.OpenProcess(
+            _SYNCHRONIZE | _PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+        )
+        if not handle:
+            err = ctypes.get_last_error()
+            # No such process => dead. Access-denied (or other) => assume alive.
+            return err != _ERROR_INVALID_PARAMETER
+        try:
+            # A signaled process handle means the process has exited.
+            return _kernel32.WaitForSingleObject(handle, 0) != _WAIT_OBJECT_0
+        finally:
+            _kernel32.CloseHandle(handle)
+
+else:
+
+    def _pid_alive(pid: int) -> bool:
+        if pid <= 0:
+            return False
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True  # exists but not ours to signal.
+        return True
 
 
 async def serve(
