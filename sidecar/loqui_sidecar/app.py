@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import traceback
 import secrets
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -256,7 +257,8 @@ def _dispatch_binary_frame(state: AppState, payload: bytes) -> None:
         try:
             state.audio.handle_binary_frame(payload)
         except Exception:  # noqa: BLE001 - audio is best-effort, never fatal
-            pass
+            logger.exception("handle_binary_frame failed")
+            traceback.print_exc()  # DIAGNOSTIC: surface swallowed errors on stderr
 
     source = _frame_source_byte(payload)
     try:
@@ -405,7 +407,8 @@ async def _handle_notification(
                 state.audio.handle_audio_stop(meeting_id, source)
                 state.notify("audioFinalized", {"meetingId": meeting_id, "source": source})
         except Exception:  # noqa: BLE001 - ingest must never break the control channel
-            pass
+            logger.exception("audio %s lifecycle failed (%s/%s)", event, meeting_id, source)
+            traceback.print_exc()  # DIAGNOSTIC: surface swallowed errors on stderr
 
     try:
         state.frame_executor(source).submit(_lifecycle)

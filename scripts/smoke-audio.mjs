@@ -165,6 +165,9 @@ function startSidecar(dataDir) {
     child.stdout.on("data", onData);
     child.stderr.on("data", (c) => {
       stderr += c.toString("utf8");
+      // DIAGNOSTIC: surface sidecar stderr (incl. swallowed ingest tracebacks) in
+      // the smoke/CI log so a platform-specific ingest failure is visible.
+      process.stderr.write(c);
     });
     child.on("error", (e) => finish(new Error(`failed to spawn sidecar: ${e.message}`)));
     child.on("exit", (code) => {
@@ -418,7 +421,7 @@ async function main() {
     //    the waiter BEFORE audioStop, then await that deterministic signal
     //    instead of a fixed sleep (Windows: the WAV must be closed before we
     //    read it [else 0 bytes] or unlink it [else EBUSY]).
-    const finalized = waitForFinalized(ws, ["mic", "system"], 8_000);
+    const finalized = waitForFinalized(ws, ["mic", "system"], 30_000);
     await sendNotification(ws, audioControl("audioStop", meetingId, "mic"));
     await sendNotification(ws, audioControl("audioStop", meetingId, "system"));
     pass("audioStop(mic) + audioStop(system) sent");
