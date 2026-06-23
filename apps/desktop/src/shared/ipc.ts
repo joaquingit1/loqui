@@ -21,6 +21,24 @@ export const IPC = {
   getMeeting: "loqui:getMeeting",
   /** invoke: patch a meeting. */
   updateMeeting: "loqui:updateMeeting",
+
+  // --- Audio capture (PRD-1) ---
+  /** invoke: begin a capture stream for one source (-> AudioCaptureResult). */
+  audioStartCapture: "loqui:audio:startCapture",
+  /** invoke: end a capture stream for one source (-> AudioCaptureResult). */
+  audioStopCapture: "loqui:audio:stopCapture",
+  /**
+   * send (renderer → main, fire-and-forget hot path): one encoded binary audio
+   * frame. Payload is an {@link import("@loqui/shared").AudioFrameMessage}; its
+   * `frame` ArrayBuffer is structured-clone COPIED into main (ipcRenderer.send
+   * cannot transfer; ~640 bytes/20 ms is negligible). NOT an invoke — no
+   * per-frame round-trip.
+   */
+  audioFrame: "loqui:audio:frame",
+  /** invoke: current screen-recording permission status (-> ScreenPermissionStatus). */
+  audioGetScreenPermission: "loqui:audio:getScreenPermission",
+  /** push (main → renderer): screen-recording permission status changed. */
+  audioScreenPermission: "loqui:audio:screenPermission",
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

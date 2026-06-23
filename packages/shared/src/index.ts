@@ -10,4 +10,5 @@ export * from "./constants.js";
 export * from "./protocol.js";
 export * from "./meeting.js";
 export * from "./audio.js";
+export * from "./audio-bridge.js";
 export * from "./events.js";

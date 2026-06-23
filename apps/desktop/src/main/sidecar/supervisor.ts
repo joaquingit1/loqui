@@ -84,6 +84,15 @@ export class SidecarSupervisor {
   private status: SidecarStatus = "disconnected";
   private readonly statusListeners = new Set<(s: SidecarStatus) => void>();
 
+  /**
+   * The meeting whose audio is currently being captured, if any. Set by the
+   * main capture module on `audioStartCapture` and cleared on stop; read so the
+   * audio-frame IPC handler can reject frames that don't match the active
+   * meeting (defense against a stale renderer). Tracked here because the
+   * supervisor owns the single live WS the frames ride.
+   */
+  private activeMeetingId: string | null = null;
+
   /** Set once stop() is called so the restart loop refuses to revive. */
   private stopped = false;
   /** Number of consecutive failed attempts (drives backoff). */
@@ -268,6 +277,57 @@ export class SidecarSupervisor {
       return { ok: false, latencyMs: 0 };
     }
     return this.client.ping();
+  }
+
+  /** Whether the supervisor currently has a live, connected WS client. */
+  isConnected(): boolean {
+    return this.status === "connected" && this.client !== null;
+  }
+
+  /**
+   * Forward one already-encoded binary audio frame to the sidecar over the live
+   * WS (PRD-1). `bytes` MUST be a complete frame from the shared
+   * {@link import("@loqui/shared").encodeAudioFrame}. Returns true if it was
+   * handed to a live client; false if there is no connected client OR the
+   * client shed it because the socket is open but stalled (its send buffer is
+   * over the cap) — in which case the caller's bounded queue keeps the frame
+   * and applies drop-oldest. Never throws on the audio hot path.
+   */
+  sendAudioFrame(bytes: Uint8Array): boolean {
+    const client = this.client;
+    if (!client || this.status !== "connected" || client.isClosed()) {
+      return false;
+    }
+    return client.sendAudioFrame(bytes);
+  }
+
+  /**
+   * Send a JSON control notification (e.g. `audioStart` / `audioStop`) over the
+   * live WS. Returns true if handed to a connected client, false if there is no
+   * connection. Never throws.
+   */
+  sendControlNotification(event: string, data: unknown): boolean {
+    const client = this.client;
+    if (!client || this.status !== "connected" || client.isClosed()) {
+      return false;
+    }
+    client.notify(event, data);
+    return true;
+  }
+
+  /**
+   * Record / clear which meeting is currently capturing audio. The main capture
+   * module sets this when the first source of a meeting starts and clears it
+   * (pass null) when the last source stops, so the frame IPC handler can drop
+   * frames from a stale meeting.
+   */
+  setActiveMeeting(meetingId: string | null): void {
+    this.activeMeetingId = meetingId;
+  }
+
+  /** The meeting currently capturing audio, or null. */
+  getActiveMeeting(): string | null {
+    return this.activeMeetingId;
   }
 
   /** Last known health (null if never connected). */

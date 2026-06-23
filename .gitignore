@@ -30,6 +30,10 @@ models/
 
 # Local data
 .loqui/
+# Default LOQUI_DATA_DIR fallback (~/Loqui) lands here when ~/Loqui == repo root
+# on a case-insensitive filesystem; never commit captured audio / meeting data.
+meetings/
+Loqui/
 *.sqlite
 *.sqlite3
 *.db

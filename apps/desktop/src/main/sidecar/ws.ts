@@ -13,7 +13,14 @@ import type { RawSocket } from "./client.js";
 /** Adapt a `ws` WebSocket to the {@link RawSocket} interface. */
 export function wrapWsSocket(ws: WebSocket): RawSocket {
   return {
-    send: (data: string) => ws.send(data),
+    // String -> TEXT frame (control envelopes); Uint8Array -> BINARY frame
+    // (raw audio). The `ws` library sends a typed array as a binary frame.
+    send: (data: string | Uint8Array) => ws.send(data),
+    // Surface ws.bufferedAmount so the audio hot path can shed load when the
+    // socket is open but stalled (see SidecarClient.sendAudioFrame).
+    get bufferedAmount() {
+      return ws.bufferedAmount;
+    },
     close: () => ws.close(),
     terminate: () => ws.terminate(),
     on: (event: string, cb: (...args: unknown[]) => void) => {

@@ -1,0 +1,154 @@
+/**
+ * Capture panel styles (PRD-1). Self-contained so the unit owns its own look
+ * without touching the shared renderer styles.css. Uses the same CSS variables
+ * the app already defines (var(--panel) etc.) and degrades gracefully if absent.
+ */
+
+.capture__row {
+  margin: 0 0 16px;
+}
+
+.capture__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.capture__field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim, #9aa3b2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.capture__select {
+  appearance: none;
+  background: var(--bg, #0f1115);
+  color: var(--text, #e6e9ef);
+  border: 1px solid var(--panel-border, #262b36);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.capture__select:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.capture__sources {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 520px) {
+  .capture__sources {
+    grid-template-columns: 1fr;
+  }
+}
+
+.capture__source {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--panel-border, #262b36);
+  border-radius: 10px;
+  background: var(--bg, #0f1115);
+}
+
+.btn--stop {
+  background: var(--red, #e5484d);
+}
+
+.capture__error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--red, #e5484d);
+  word-break: break-word;
+}
+
+/* Level meter */
+.meter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.meter__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.meter__label {
+  font-weight: 600;
+  color: var(--text, #e6e9ef);
+}
+
+.meter__db {
+  font-family: var(--mono, monospace);
+  color: var(--text-dim, #9aa3b2);
+  font-size: 11px;
+}
+
+.meter__track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--panel-border, #262b36);
+  overflow: hidden;
+}
+
+.meter__fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: var(--slate, #6b7280);
+  transition: width 80ms linear;
+}
+
+.meter--active.meter--mic .meter__fill {
+  background: var(--green, #2fbf71);
+}
+
+.meter--active.meter--system .meter__fill {
+  background: var(--accent, #5b8cff);
+}
+
+/* Permission notice */
+.perm {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--panel-border, #262b36);
+  background: var(--bg, #0f1115);
+}
+
+.perm__title {
+  display: block;
+  font-size: 13px;
+}
+
+.perm__body {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-dim, #9aa3b2);
+  line-height: 1.5;
+}
+
+.perm--info {
+  border-color: rgba(91, 140, 255, 0.45);
+}
+
+.perm--warn {
+  border-color: rgba(245, 166, 35, 0.5);
+}
+
+.perm--error {
+  border-color: rgba(229, 72, 77, 0.5);
+}

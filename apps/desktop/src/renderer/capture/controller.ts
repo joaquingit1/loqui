@@ -1,0 +1,348 @@
+/**
+ * Dual-stream capture controller (PRD-1, renderer side).
+ *
+ * Owns the browser-side capture pipeline for ONE meeting and BOTH sources
+ * (mic = "You", system = "They"), kept rigorously INDEPENDENT: each source has
+ * its own MediaStream, AudioContext, worklet node, analyser, level state and
+ * sequence of binary frames. Nothing is ever mixed.
+ *
+ * Per source, start():
+ *   1. asks main to begin the stream  → window.loqui.audio.startCapture()
+ *      (main sets the active meeting + emits the `audioStart` control frame),
+ *   2. acquires the device stream:
+ *        mic    → navigator.mediaDevices.getUserMedia({ audio })
+ *        system → navigator.mediaDevices.getDisplayMedia({ audio, video })
+ *                 then keeps ONLY the audio track (video track stopped),
+ *   3. builds an AudioContext, loads the @loqui/audio worklet module, creates a
+ *      `loqui-capture` AudioWorkletNode tagged with the source, and routes each
+ *      posted binary frame ArrayBuffer to window.loqui.audio.sendFrame(),
+ *   4. taps an AnalyserNode for an independent, renderer-side level meter.
+ *
+ * stop() tears the source down completely (worklet port closed, nodes
+ * disconnected, tracks stopped, AudioContext closed, RAF cancelled) and asks
+ * main to stop the stream (`audioStop`). start→stop→start leaks nothing.
+ *
+ * Everything that touches the DOM/Web-Audio is injectable so the controller is
+ * unit-testable without a real microphone (see controller.test.ts). jsdom has
+ * no getUserMedia/AudioWorklet, so the production path is manual-verified via
+ * `pnpm dev`; the tests cover orchestration/teardown with fakes.
+ */
+import type { AudioSource, LoquiAudioApi } from "@loqui/shared";
+
+/** Registered AudioWorklet processor name in @loqui/audio. */
+export const CAPTURE_PROCESSOR_NAME = "loqui-capture";
+
+/** Per-source lifecycle state surfaced to the UI. */
+export type CaptureSourceState = "idle" | "starting" | "capturing" | "stopping" | "error";
+
+/** A snapshot of one source's status for the UI. */
+export interface CaptureStatus {
+  state: CaptureSourceState;
+  /** Linear peak level in [0, 1] for the meter (0 when not capturing). */
+  level: number;
+  /** Populated when `state === "error"`. */
+  error?: string;
+}
+
+export type CaptureStatusListener = (source: AudioSource, status: CaptureStatus) => void;
+
+/**
+ * Minimal Web-Audio / media surface the controller depends on. Injected so the
+ * orchestration is testable; defaults bind to the real browser globals.
+ */
+export interface CaptureEnv {
+  getUserMedia(constraints: MediaStreamConstraints): Promise<MediaStream>;
+  getDisplayMedia(constraints: MediaStreamConstraints): Promise<MediaStream>;
+  /** Factory for an AudioContext locked to the given sample rate. */
+  createAudioContext(): AudioContext;
+  /**
+   * Construct the capture worklet node on a context. Injected so tests need no
+   * real AudioWorkletNode (absent in jsdom).
+   */
+  createWorkletNode(context: AudioContext, source: AudioSource): AudioWorkletNode;
+  /** Resolves the URL of the worklet module to addModule(). */
+  workletModuleUrl(): string | URL;
+  /** rAF used to poll the analyser; injectable for tests. */
+  requestAnimationFrame(cb: FrameRequestCallback): number;
+  cancelAnimationFrame(handle: number): void;
+}
+
+export interface CaptureControllerDeps {
+  /** The window.loqui.audio bridge (injected for tests). */
+  audio: LoquiAudioApi;
+  meetingId: string;
+  /** Web-Audio/media surface; defaults to the real browser globals. */
+  env?: Partial<CaptureEnv>;
+  onStatus?: CaptureStatusListener;
+  /** Mic device id from the picker (undefined = system default). */
+  micDeviceId?: string;
+}
+
+/** Default audio constraints per source. */
+function micConstraints(deviceId?: string): MediaStreamConstraints {
+  return {
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      channelCount: 1,
+      ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+    },
+    video: false,
+  };
+}
+
+/**
+ * getDisplayMedia requires a video constraint to be offered even when we only
+ * want the loopback audio track (Electron's loopback rides the display-media
+ * request); we keep only the audio track and immediately stop the video one.
+ */
+const SYSTEM_CONSTRAINTS: MediaStreamConstraints = {
+  audio: true,
+  video: { width: 1, height: 1, frameRate: 1 },
+};
+
+function defaultEnv(): CaptureEnv {
+  return {
+    getUserMedia: (c) => navigator.mediaDevices.getUserMedia(c),
+    getDisplayMedia: (c) => navigator.mediaDevices.getDisplayMedia(c),
+    createAudioContext: () =>
+      new AudioContext({ sampleRate: 16000, latencyHint: "interactive" }),
+    createWorkletNode: (context, source) =>
+      new AudioWorkletNode(context, CAPTURE_PROCESSOR_NAME, {
+        numberOfInputs: 1,
+        numberOfOutputs: 0,
+        processorOptions: { source, startTimeMs: 0 },
+      }),
+    workletModuleUrl: () => new URL("./capture.worklet.js", import.meta.url),
+    requestAnimationFrame: (cb) => requestAnimationFrame(cb),
+    cancelAnimationFrame: (h) => cancelAnimationFrame(h),
+  };
+}
+
+/** Internal per-source resources, all owned so teardown is total. */
+interface SourceResources {
+  stream: MediaStream;
+  context: AudioContext;
+  sourceNode: MediaStreamAudioSourceNode;
+  workletNode: AudioWorkletNode;
+  analyser: AnalyserNode;
+  rafHandle: number | null;
+  /** Reused scratch buffer for analyser reads (typed for the DOM overload). */
+  meterBuf: Float32Array<ArrayBuffer>;
+}
+
+export interface CaptureController {
+  /** Begin capturing one source. Idempotent: re-entry while active is a no-op. */
+  start(source: AudioSource): Promise<void>;
+  /** Stop one source and release ALL of its resources. */
+  stop(source: AudioSource): Promise<void>;
+  /** Stop every active source (used on unmount / meeting end). */
+  stopAll(): Promise<void>;
+  /** Current status snapshot for a source. */
+  getStatus(source: AudioSource): CaptureStatus;
+  /** Subscribe to status changes; returns an unsubscribe fn. */
+  subscribe(listener: CaptureStatusListener): () => void;
+}
+
+export function createCaptureController(deps: CaptureControllerDeps): CaptureController {
+  const env: CaptureEnv = { ...defaultEnv(), ...deps.env };
+  const { audio, meetingId } = deps;
+
+  const statuses: Record<AudioSource, CaptureStatus> = {
+    mic: { state: "idle", level: 0 },
+    system: { state: "idle", level: 0 },
+  };
+  const resources: Partial<Record<AudioSource, SourceResources>> = {};
+  const listeners = new Set<CaptureStatusListener>();
+  if (deps.onStatus) listeners.add(deps.onStatus);
+
+  function setStatus(source: AudioSource, patch: Partial<CaptureStatus>): void {
+    statuses[source] = { ...statuses[source], ...patch };
+    const snapshot = statuses[source];
+    for (const l of listeners) l(source, snapshot);
+  }
+
+  async function start(source: AudioSource): Promise<void> {
+    const current = statuses[source].state;
+    if (current === "starting" || current === "capturing") return;
+    setStatus(source, { state: "starting", level: 0, error: undefined });
+
+    // 1) Tell main to begin (active meeting + audioStart control frame). If
+    //    main refuses (e.g. screen permission denied for system), surface it.
+    let begun = false;
+    try {
+      const res = await audio.startCapture({ meetingId, source });
+      if (!res.ok) {
+        setStatus(source, {
+          state: "error",
+          error: res.message ?? res.code ?? "capture start refused",
+        });
+        return;
+      }
+      begun = true;
+
+      // 2) Acquire the device stream.
+      let stream: MediaStream;
+      if (source === "mic") {
+        stream = await env.getUserMedia(micConstraints(deps.micDeviceId));
+      } else {
+        const display = await env.getDisplayMedia(SYSTEM_CONSTRAINTS);
+        // Keep ONLY the audio track; stop + drop any video track.
+        for (const track of display.getVideoTracks()) {
+          track.stop();
+          display.removeTrack(track);
+        }
+        if (display.getAudioTracks().length === 0) {
+          throw new Error("no system-audio track in the display-media stream");
+        }
+        stream = display;
+      }
+
+      // 3) Build the per-source audio graph and load the worklet.
+      const context = env.createAudioContext();
+      await context.audioWorklet.addModule(env.workletModuleUrl());
+      const sourceNode = context.createMediaStreamSource(stream);
+      const workletNode = env.createWorkletNode(context, source);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+
+      // Route the encoded binary frames straight to main (fire-and-forget).
+      workletNode.port.onmessage = (event: MessageEvent): void => {
+        const frame = event.data as ArrayBuffer;
+        if (frame instanceof ArrayBuffer && frame.byteLength > 0) {
+          audio.sendFrame({ meetingId, source, frame });
+        }
+      };
+
+      // Tap: sourceNode → analyser (for the meter) and → worklet (for frames).
+      // The analyser branch never feeds an output, so nothing is audible.
+      sourceNode.connect(analyser);
+      sourceNode.connect(workletNode);
+
+      const meterBuf = new Float32Array(
+        new ArrayBuffer(analyser.fftSize * Float32Array.BYTES_PER_ELEMENT),
+      );
+      const res2: SourceResources = {
+        stream,
+        context,
+        sourceNode,
+        workletNode,
+        analyser,
+        rafHandle: null,
+        meterBuf,
+      };
+      resources[source] = res2;
+      startMeter(source, res2);
+
+      // If a track ends on its own (user revokes the share / unplugs mic),
+      // tear that source down so the UI reflects reality.
+      for (const track of stream.getAudioTracks()) {
+        track.addEventListener("ended", () => {
+          void stop(source);
+        });
+      }
+
+      setStatus(source, { state: "capturing", level: 0, error: undefined });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Best-effort: if we already told main to start, tell it to stop.
+      if (begun) {
+        try {
+          await audio.stopCapture({ meetingId, source });
+        } catch {
+          /* ignore teardown error */
+        }
+      }
+      await releaseResources(source);
+      setStatus(source, { state: "error", level: 0, error: message });
+    }
+  }
+
+  function startMeter(source: AudioSource, res: SourceResources): void {
+    const tick = (): void => {
+      const cur = resources[source];
+      if (!cur || cur !== res) return; // stopped/replaced
+      res.analyser.getFloatTimeDomainData(res.meterBuf);
+      let peak = 0;
+      for (let i = 0; i < res.meterBuf.length; i += 1) {
+        const a = Math.abs(res.meterBuf[i]!);
+        if (a > peak) peak = a;
+      }
+      if (statuses[source].state === "capturing" && statuses[source].level !== peak) {
+        setStatus(source, { level: peak });
+      }
+      res.rafHandle = env.requestAnimationFrame(tick);
+    };
+    res.rafHandle = env.requestAnimationFrame(tick);
+  }
+
+  /** Release every resource for a source WITHOUT touching main (idempotent). */
+  async function releaseResources(source: AudioSource): Promise<void> {
+    const res = resources[source];
+    if (!res) return;
+    delete resources[source]; // detach first so the meter tick bails out.
+    if (res.rafHandle !== null) env.cancelAnimationFrame(res.rafHandle);
+    try {
+      res.workletNode.port.onmessage = null;
+      res.workletNode.port.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      res.sourceNode.disconnect();
+    } catch {
+      /* ignore */
+    }
+    try {
+      res.workletNode.disconnect();
+    } catch {
+      /* ignore */
+    }
+    try {
+      res.analyser.disconnect();
+    } catch {
+      /* ignore */
+    }
+    for (const track of res.stream.getTracks()) {
+      try {
+        track.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      await res.context.close();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function stop(source: AudioSource): Promise<void> {
+    const state = statuses[source].state;
+    if (state === "idle" || state === "stopping") return;
+    setStatus(source, { state: "stopping", level: 0 });
+    await releaseResources(source);
+    try {
+      await audio.stopCapture({ meetingId, source });
+    } catch {
+      /* best-effort; main also tolerates duplicate stops */
+    }
+    setStatus(source, { state: "idle", level: 0, error: undefined });
+  }
+
+  async function stopAll(): Promise<void> {
+    await Promise.all([stop("mic"), stop("system")]);
+  }
+
+  return {
+    start,
+    stop,
+    stopAll,
+    getStatus: (source) => statuses[source],
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}

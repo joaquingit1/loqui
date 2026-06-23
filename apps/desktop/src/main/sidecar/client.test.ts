@@ -3,7 +3,11 @@ import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
 import { PROTOCOL_VERSION } from "@loqui/shared";
-import { SidecarClient, type RawSocket } from "./client.js";
+import {
+  SidecarClient,
+  AUDIO_SEND_BUFFER_LIMIT_BYTES,
+  type RawSocket,
+} from "./client.js";
 
 type JsonSchema = Record<string, unknown>;
 
@@ -69,9 +73,17 @@ async function loadWsEnvelopeValidator(): Promise<(v: unknown) => boolean> {
 
 class FakeSocket extends EventEmitter implements RawSocket {
   sent: string[] = [];
+  /** Binary (audio) frames sent, in order. */
+  sentBinary: Uint8Array[] = [];
   closed = false;
-  send(data: string): void {
-    this.sent.push(data);
+  /** Simulated unflushed socket buffer (ws.bufferedAmount). */
+  bufferedAmount = 0;
+  send(data: string | Uint8Array): void {
+    if (typeof data === "string") {
+      this.sent.push(data);
+    } else {
+      this.sentBinary.push(data);
+    }
   }
   close(): void {
     this.closed = true;
@@ -196,5 +208,53 @@ describe("SidecarClient request correlation", () => {
     socket.push({ type: "response", id, ok: true, result: { pong: true, ts: 0 } });
     const r = await p;
     expect(r.latencyMs).toBe(75);
+  });
+});
+
+describe("SidecarClient.sendAudioFrame — backpressure / drop policy", () => {
+  const frame = () => new Uint8Array([0xa0, 0, 1, 2, 3, 4, 5, 6, 7]);
+
+  it("sends a binary frame and returns true when the socket buffer is clear", () => {
+    const socket = new FakeSocket();
+    const client = new SidecarClient(socket, { token: "t" });
+    expect(client.sendAudioFrame(frame())).toBe(true);
+    expect(socket.sentBinary).toHaveLength(1);
+    expect(socket.sent).toHaveLength(0); // not a TEXT frame
+  });
+
+  it("returns false WITHOUT sending once bufferedAmount exceeds the cap (stalled-but-open)", () => {
+    const socket = new FakeSocket();
+    const client = new SidecarClient(socket, { token: "t" });
+    socket.bufferedAmount = AUDIO_SEND_BUFFER_LIMIT_BYTES + 1;
+    // Over the cap -> shed the frame so the upstream queue applies drop-oldest.
+    expect(client.sendAudioFrame(frame())).toBe(false);
+    expect(socket.sentBinary).toHaveLength(0);
+  });
+
+  it("resumes sending once the buffer drains back under the cap", () => {
+    const socket = new FakeSocket();
+    const client = new SidecarClient(socket, { token: "t" });
+    socket.bufferedAmount = AUDIO_SEND_BUFFER_LIMIT_BYTES + 100;
+    expect(client.sendAudioFrame(frame())).toBe(false);
+    socket.bufferedAmount = 0; // socket caught up
+    expect(client.sendAudioFrame(frame())).toBe(true);
+    expect(socket.sentBinary).toHaveLength(1);
+  });
+
+  it("returns false (never throws) when the client is closed", () => {
+    const socket = new FakeSocket();
+    const client = new SidecarClient(socket, { token: "t" });
+    client.close();
+    expect(client.sendAudioFrame(frame())).toBe(false);
+    expect(socket.sentBinary).toHaveLength(0);
+  });
+
+  it("returns false (never throws) when the socket send throws", () => {
+    const socket = new FakeSocket();
+    socket.send = () => {
+      throw new Error("socket gone");
+    };
+    const client = new SidecarClient(socket, { token: "t" });
+    expect(client.sendAudioFrame(frame())).toBe(false);
   });
 });

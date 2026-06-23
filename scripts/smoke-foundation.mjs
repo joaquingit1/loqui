@@ -25,11 +25,28 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..");
 const SIDECAR_PROJECT = join(REPO_ROOT, "sidecar");
+
+// Hermetic data root: PRD-1 made the sidecar's audioStart open a REAL WAV
+// writer (it was a no-op in PRD-0), and this smoke sends a valid audioStart. If
+// LOQUI_DATA_DIR is unset the sidecar falls back to ~/Loqui and writes a stray
+// mic.wav into the user's real home (and, on a case-insensitive ~/Loqui==repo
+// box, into the working tree). Pin every spawned sidecar at a temp dir and
+// remove it on exit — mirrors scripts/smoke-audio.mjs.
+const DATA_DIR = mkdtempSync(join(tmpdir(), "loqui-foundation-smoke-"));
+function cleanupDataDir() {
+  try {
+    rmSync(DATA_DIR, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
+}
 
 // `ws` is a dependency of @loqui/desktop, not hoisted to the repo root. Anchor
 // the resolution there so this works on CI's Node 20 too (built-in WebSocket is
@@ -96,7 +113,12 @@ function startSidecar() {
     const child = spawn(
       "uv",
       ["run", "--project", SIDECAR_PROJECT, "loqui-sidecar"],
-      { cwd: REPO_ROOT, stdio: ["pipe", "pipe", "pipe"] },
+      {
+        cwd: REPO_ROOT,
+        stdio: ["pipe", "pipe", "pipe"],
+        // Keep the sidecar's WAV writes inside a temp dir, never ~/Loqui.
+        env: { ...process.env, LOQUI_DATA_DIR: DATA_DIR },
+      },
     );
 
     let stdout = "";
@@ -402,6 +424,8 @@ async function main() {
   //    sidecar stays alive while stdin is open, then exits when we end it.
   await stdinEofShutdownScenario();
 
+  cleanupDataDir();
+
   if (failures > 0) {
     process.stdout.write(`\nsmoke FAILED: ${failures} assertion(s) failed\n`);
     process.exit(1);
@@ -452,6 +476,7 @@ async function stdinEofShutdownScenario() {
 
 main().catch(async (err) => {
   process.stderr.write(`\nsmoke ERROR: ${err?.stack ?? err}\n`);
+  cleanupDataDir();
   await delay(50);
   process.exit(1);
 });

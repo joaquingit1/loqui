@@ -27,6 +27,7 @@ from starlette.status import HTTP_401_UNAUTHORIZED
 
 from . import PROTOCOL_VERSION
 from . import schemas
+from .audio_ingest import AudioIngest, default_ingest
 
 #: HTTP header / WS subprotocol name carrying the auth token.
 TOKEN_HEADER = "x-loqui-token"
@@ -44,6 +45,11 @@ class AppState:
     #: Set by the runner; awaited to drive graceful shutdown.
     shutdown_requested: Any = None
     models: dict[str, str] = field(default_factory=dict)
+    #: Audio-ingest sink (PRD-1). ``default_ingest()`` returns the real
+    #: per-source WAV writer (writes ``<data_root>/meetings/<id>/audio/{mic,
+    #: system}.wav``); a valid ``audioStart`` opens a writer, so spawn the
+    #: sidecar with ``LOQUI_DATA_DIR`` pinned to a temp dir in tests/smokes.
+    audio: AudioIngest = field(default_factory=default_ingest)
 
     def health(self) -> dict[str, Any]:
         return {
@@ -146,8 +152,16 @@ async def _serve_ws(state: AppState, websocket: WebSocket) -> None:
                     await websocket.close()
                     return
                 continue
-            # Binary frame = raw PCM audio (PRD-1). Accept + ignore for now.
-            # (No response: audio frames are one-way notifications.)
+            # Binary frame = raw PCM audio (PRD-1): 16-byte LE header + pcm_s16le.
+            # Forward the raw bytes to the audio-ingest sink. One-way: no response.
+            # Ingest must never raise; guard anyway so a bad frame can't drop the
+            # control channel.
+            payload = message.get("bytes")
+            if payload is not None:
+                try:
+                    state.audio.handle_binary_frame(payload)
+                except Exception:  # noqa: BLE001 - audio is best-effort, never fatal
+                    pass
     except WebSocketDisconnect:
         return
     except RuntimeError:
@@ -224,3 +238,20 @@ async def _handle_notification(
         await websocket.send_json(
             _make_error(None, "invalid_frame", f"{event} validation failed: {exc}")
         )
+        return
+
+    # Valid control frame: drive the per-source audio-ingest lifecycle (PRD-1).
+    # data is the validated AudioStart/AudioStop: {meetingId, source, ...}.
+    if not isinstance(data, dict):
+        return
+    meeting_id = data.get("meetingId")
+    source = data.get("source")
+    if not isinstance(meeting_id, str) or not isinstance(source, str):
+        return
+    try:
+        if event == "audioStart":
+            state.audio.handle_audio_start(meeting_id, source)
+        else:  # audioStop
+            state.audio.handle_audio_stop(meeting_id, source)
+    except Exception:  # noqa: BLE001 - ingest must never break the control channel
+        pass

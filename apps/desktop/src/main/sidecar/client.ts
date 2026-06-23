@@ -32,7 +32,18 @@ import {
  * WebSocket surface we use; a fake implementing this is enough for tests.
  */
 export interface RawSocket {
-  send(data: string): void;
+  /**
+   * Send a frame. A string is sent as a TEXT frame (control envelopes); a
+   * Uint8Array is sent as a BINARY frame (raw audio, see ./audio in shared).
+   */
+  send(data: string | Uint8Array): void;
+  /**
+   * Bytes queued in the socket's send buffer not yet flushed to the OS
+   * (`ws.bufferedAmount`). Read on the audio hot path so we can shed load when
+   * the socket is open but stalled, instead of growing this buffer unbounded.
+   * Optional so test fakes need not implement it (treated as 0 when absent).
+   */
+  bufferedAmount?: number;
   close(): void;
   /** Force-close without a handshake (maps to ws.terminate()). */
   terminate(): void;
@@ -68,6 +79,16 @@ interface Pending {
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 5_000;
+
+/**
+ * Backpressure ceiling for the audio send path, in bytes of unflushed socket
+ * buffer. Once `ws.bufferedAmount` exceeds this, {@link SidecarClient.sendAudioFrame}
+ * refuses the frame (returns false) so the upstream {@link FrameQueue}'s
+ * drop-oldest policy engages and memory stays bounded under a live-but-stalled
+ * socket. ~64 KB ≈ 1 s of 16 kHz mono pcm_s16le (32 KB/s) per source for two
+ * sources — about a second of backlog before we start shedding.
+ */
+export const AUDIO_SEND_BUFFER_LIMIT_BYTES = 64 * 1024;
 
 export class SidecarClient {
   private readonly socket: RawSocket;
@@ -164,6 +185,59 @@ export class SidecarClient {
         reject(err as Error);
       }
     });
+  }
+
+  /**
+   * Send one already-encoded binary audio frame over the live WS as a BINARY
+   * frame (PRD-1). `bytes` MUST be a complete frame produced by the shared
+   * {@link import("@loqui/shared").encodeAudioFrame} (16-byte header +
+   * pcm_s16le payload). Fire-and-forget: no ack, no correlation; the sidecar
+   * ingests it one-way. A no-op once the client is closed so a late frame after
+   * teardown cannot throw on the audio hot path.
+   *
+   * @returns true if the frame was handed to the socket; false if it was shed
+   *   because the client is closed OR the socket's unflushed send buffer is over
+   *   {@link AUDIO_SEND_BUFFER_LIMIT_BYTES} (stalled-but-open socket). Returning
+   *   false lets the upstream {@link FrameQueue} keep the frame and apply its
+   *   drop-oldest policy rather than letting `ws` buffer grow unbounded.
+   */
+  sendAudioFrame(bytes: Uint8Array): boolean {
+    if (this.closed) return false;
+    // Shed load on a live-but-stalled socket: if the OS send buffer is backed
+    // up past the cap, refuse so the bounded queue (not ws) holds the backlog.
+    const buffered = this.socket.bufferedAmount ?? 0;
+    if (buffered > AUDIO_SEND_BUFFER_LIMIT_BYTES) {
+      return false;
+    }
+    try {
+      this.socket.send(bytes);
+      return true;
+    } catch {
+      // Audio is best-effort: a send failure on a dropping socket must not
+      // throw into the capture pipeline. The supervisor's onClose drives reconnect.
+      return false;
+    }
+  }
+
+  /** Whether the client has been closed (socket gone / torn down). */
+  isClosed(): boolean {
+    return this.closed;
+  }
+
+  /**
+   * Send a fire-and-forget JSON notification over the control channel (e.g. the
+   * audio `audioStart` / `audioStop` control frames, PRD-1). No response is
+   * awaited. The envelope is the contract {@link WsNotification} shape
+   * `{type:"notification", event, data}`. No-op once closed.
+   */
+  notify(event: string, data: unknown): void {
+    if (this.closed) return;
+    const envelope = { type: "notification" as const, event, data };
+    try {
+      this.socket.send(JSON.stringify(envelope));
+    } catch {
+      /* best-effort: a dropping socket triggers reconnect via onClose */
+    }
   }
 
   /** Close the socket and reject any in-flight requests. */

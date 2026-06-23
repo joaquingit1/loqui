@@ -68,3 +68,30 @@ export const AUDIO_SOURCES = ["mic", "system"] as const;
 export const AUDIO_SAMPLE_RATE = 16000 as const;
 export const AUDIO_CHANNELS = 1 as const;
 export const AUDIO_ENCODING = "pcm_s16le" as const;
+
+/**
+ * Per-source raw-audio WAV filenames written inside `<meetingDir>/audio/`.
+ * The sidecar ingest unit ("sidecar-audio-ingest") writes exactly these two
+ * files (16 kHz mono pcm_s16le WAV), one per {@link AUDIO_SOURCES} value:
+ *   <dataRoot>/meetings/<id>/audio/mic.wav
+ *   <dataRoot>/meetings/<id>/audio/system.wav
+ */
+export const AUDIO_WAV_FILENAME = {
+  mic: "mic.wav",
+  system: "system.wav",
+} as const;
+
+/**
+ * Default DSP frame duration in milliseconds. The AudioWorklet (packages/audio)
+ * accumulates this many ms of 16 kHz mono samples per binary frame before
+ * posting it. 20 ms @ 16 kHz = 320 samples = 640 PCM bytes + 16-byte header.
+ * Keep configurable; this is only the default.
+ */
+export const AUDIO_FRAME_DURATION_MS = 20 as const;
+
+/**
+ * Default number of 16 kHz mono samples per DSP frame, derived from
+ * {@link AUDIO_FRAME_DURATION_MS}. 20 ms * 16000 / 1000 = 320 samples.
+ */
+export const AUDIO_FRAME_SAMPLES =
+  (AUDIO_SAMPLE_RATE * AUDIO_FRAME_DURATION_MS) / 1000;

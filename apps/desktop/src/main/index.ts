@@ -7,12 +7,14 @@
  * STUB: the Build phase fills in window creation, IPC registration, and the
  * supervisor/store wiring. Imports below pin the contract.
  */
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, session, systemPreferences } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { ScreenPermissionStatus } from "@loqui/shared";
 import { SidecarSupervisor } from "./sidecar/supervisor.js";
 import { openStore, type MeetingStore } from "./store/index.js";
 import { pushSidecarStatus, registerIpcHandlers } from "./ipc/register.js";
+import { registerAudioIpc } from "./audio/register.js";
 
 const __dirname = join(fileURLToPath(import.meta.url), "..");
 
@@ -51,12 +53,50 @@ function loadRenderer(win: BrowserWindow): void {
   }
 }
 
+/**
+ * Resolve the macOS Screen-Recording permission status used for system/loopback
+ * audio capture. Non-macOS platforms need no such grant.
+ */
+export function getScreenPermissionStatus(): ScreenPermissionStatus {
+  if (process.platform !== "darwin") return "not-applicable";
+  // getMediaAccessStatus("screen") returns one of granted/denied/restricted/
+  // not-determined/unknown — map the matching subset onto our contract.
+  const status = systemPreferences.getMediaAccessStatus("screen");
+  switch (status) {
+    case "granted":
+    case "denied":
+    case "restricted":
+    case "not-determined":
+      return status;
+    default:
+      return "not-determined";
+  }
+}
+
+/**
+ * Register the loopback display-media handler so the renderer's
+ * `getDisplayMedia({ audio: true })` yields system/loopback audio. On macOS
+ * this routes through the Screen-Recording permission. Build units refine the
+ * source selection; Foundation wires the `{ audio: "loopback" }` seam.
+ */
+function registerDisplayMediaLoopback(): void {
+  session.defaultSession.setDisplayMediaRequestHandler(
+    (_request, callback) => {
+      // Build unit "renderer-capture" selects the screen/window source for the
+      // video track; Foundation guarantees the loopback audio path is enabled.
+      callback({ audio: "loopback" });
+    },
+    { useSystemPicker: false },
+  );
+}
+
 // Module-scoped singletons so quit handlers can tear them down.
 let supervisor: SidecarSupervisor | null = null;
 let store: MeetingStore | null = null;
 let mainWindow: BrowserWindow | null = null;
 let disposeIpc: (() => void) | null = null;
 let disposeStatusPush: (() => void) | null = null;
+let disposeAudioIpc: (() => void) | null = null;
 
 /**
  * Create the window, open the store, start + supervise the sidecar, register
@@ -74,9 +114,16 @@ export async function bootstrap(): Promise<void> {
     mainWindow = null;
   });
 
+  // Enable loopback system-audio capture for getDisplayMedia (PRD-1).
+  registerDisplayMediaLoopback();
+
   // Push status changes to whatever window is live at emit time.
   disposeStatusPush = pushSidecarStatus(supervisor, () => mainWindow);
   disposeIpc = registerIpcHandlers({ supervisor, store });
+  disposeAudioIpc = registerAudioIpc({
+    supervisor,
+    getScreenPermission: getScreenPermissionStatus,
+  });
 
   // Start the sidecar in the background; failure surfaces via status push and
   // must not block window creation.
@@ -112,6 +159,8 @@ export async function bootstrap(): Promise<void> {
 async function shutdown(): Promise<void> {
   disposeIpc?.();
   disposeIpc = null;
+  disposeAudioIpc?.();
+  disposeAudioIpc = null;
   disposeStatusPush?.();
   disposeStatusPush = null;
   try {

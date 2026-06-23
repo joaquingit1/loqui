@@ -26,6 +26,14 @@ function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
         cb = null;
       };
     },
+    // PRD-1 audio bridge: a no-op fake; the App under test does not call it yet.
+    audio: {
+      startCapture: vi.fn(async () => ({ ok: true })),
+      stopCapture: vi.fn(async () => ({ ok: true })),
+      sendFrame: vi.fn(),
+      getScreenPermission: vi.fn(async () => "not-applicable" as const),
+      onScreenPermission: () => () => {},
+    },
     ...overrides,
   };
   return { api, emitStatus: (s) => cb?.(s) };

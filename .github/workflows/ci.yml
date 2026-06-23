@@ -50,6 +50,11 @@ jobs:
       - name: Build shared contract
         run: pnpm --filter @loqui/shared build
 
+      # @loqui/audio's built dist (the binary frame codec) is consumed directly
+      # by the audio smoke harness (scripts/smoke-audio.mjs), so build it here.
+      - name: Build audio package
+        run: pnpm --filter @loqui/audio build
+
       - name: Typecheck (TS)
         run: pnpm -r typecheck
 
@@ -77,3 +82,11 @@ jobs:
       # shared dist, both already present in this job.
       - name: Smoke (foundation cross-process contract)
         run: pnpm smoke:foundation
+
+      # PRD-1 acceptance gate (headless): spawns the REAL sidecar with a temp
+      # LOQUI_DATA_DIR, streams SYNTHETIC pcm_s16le frames for mic AND system
+      # (encoded with the real @loqui/audio codec) over the WS as binary, then
+      # asserts mic.wav + system.wav are 16 kHz/mono/16-bit, ~the expected
+      # duration, and NOT identical (the two streams stayed independent).
+      - name: Smoke (audio capture path)
+        run: pnpm smoke:audio
