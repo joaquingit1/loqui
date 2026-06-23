@@ -104,6 +104,40 @@ def test_ws_get_health(sidecar):
     assert resp["result"]["protocolVersion"] == PROTOCOL_VERSION
 
 
+def test_audio_stop_emits_audio_finalized(sidecar):
+    """audioStop finalizes (flushes + closes) the source WAV on the per-source
+    FIFO executor, THEN emits an ``audioFinalized`` notification — a deterministic
+    'WAV is closed, safe to read/unlink' signal. Without it the parent races the
+    async close: on Windows that means a 0-byte read + EBUSY on unlink, and PRD-5
+    diarization could read an unfinalized ``<id>/audio/<source>.wav``."""
+    meeting_id = str(uuid.uuid4())
+    [msg] = _client.ws_request(
+        _authed_ws(sidecar),
+        [
+            {
+                "type": "notification",
+                "event": "audioStart",
+                "data": {
+                    "meetingId": meeting_id,
+                    "source": "mic",
+                    "sampleRate": 16000,
+                    "channels": 1,
+                    "encoding": "pcm_s16le",
+                },
+            },
+            {
+                "type": "notification",
+                "event": "audioStop",
+                "data": {"meetingId": meeting_id, "source": "mic"},
+            },
+        ],
+        recv_count=1,
+    )
+    assert msg["type"] == "notification"
+    assert msg["event"] == "audioFinalized"
+    assert msg["data"] == {"meetingId": meeting_id, "source": "mic"}
+
+
 def test_ws_rejects_invalid_frame(sidecar):
     [resp] = _client.ws_request(
         _authed_ws(sidecar), [{"type": "request", "id": "bad", "method": "fly"}]

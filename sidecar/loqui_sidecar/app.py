@@ -22,6 +22,7 @@ import secrets
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import FastAPI, Header, Query, WebSocket, WebSocketDisconnect
@@ -76,6 +77,13 @@ class AppState:
     #: without starving each other). Per-source single-threading preserves
     #: frame order within a source. Lazily created; closed by :meth:`close`.
     _frame_executors: dict[str, ThreadPoolExecutor] = field(default_factory=dict)
+    #: Server->client notification sender, bound to the live WS by
+    #: ``_install_transcript_emitter`` (reset to a no-op on disconnect). Used to
+    #: emit ``audioFinalized`` once a source's WAV is flushed + closed, giving the
+    #: parent a DETERMINISTIC finalize signal (so it never reads a 0-byte / still
+    #: open WAV after ``audioStop`` — and so PRD-5 diarization can safely read it).
+    #: Thread-safe: the closure schedules the send onto the serving loop.
+    notify: Callable[[str, dict[str, Any]], None] = field(default=lambda _event, _data: None)
 
     def __post_init__(self) -> None:
         # Wire transcription as a consumer of the decoded-PCM stream alongside
@@ -211,11 +219,14 @@ def _install_transcript_emitter(state: AppState, websocket: WebSocket) -> None:
             pass
 
     state.transcription.set_emitter(make_ws_emitter(send))
+    # Also expose the sender for non-transcript notifications (e.g. audioFinalized).
+    state.notify = send
 
 
 def _clear_transcript_emitter(state: AppState) -> None:
     """Reset the transcription emitter to inert on disconnect (no live socket)."""
     state.transcription.set_emitter(lambda _segment: None)
+    state.notify = lambda _event, _data: None
 
 
 def _frame_source_byte(payload: bytes) -> str:
@@ -386,7 +397,13 @@ async def _handle_notification(
             if event == "audioStart":
                 state.audio.handle_audio_start(meeting_id, source)
             else:  # audioStop
+                # Runs on the per-source FIFO executor, so by the time this
+                # returns every queued frame for the source has been written and
+                # the WAV is flushed + closed. Only THEN announce finalization, so
+                # the parent never reads a 0-byte / still-open WAV (Windows) and
+                # PRD-5 diarization can safely read <id>/audio/<source>.wav.
                 state.audio.handle_audio_stop(meeting_id, source)
+                state.notify("audioFinalized", {"meetingId": meeting_id, "source": source})
         except Exception:  # noqa: BLE001 - ingest must never break the control channel
             pass
 

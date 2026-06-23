@@ -229,6 +229,67 @@ function sendBinary(
   });
 }
 
+/**
+ * Resolve once the sidecar has emitted ``audioFinalized`` for every source (each
+ * WAV flushed + closed), or false on timeout. Attach BEFORE audioStop. Lets us
+ * close the WAVs gracefully before stop/cleanup (Windows can't unlink an open
+ * file -> EBUSY).
+ */
+function waitForFinalized(
+  socket: InstanceType<typeof WebSocket>,
+  sources: string[],
+  timeoutMs = 8_000,
+): Promise<boolean> {
+  const pending = new Set(sources);
+  return new Promise((resolve) => {
+    if (pending.size === 0) return resolve(true);
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      socket.off("message", onMessage);
+    };
+    const onMessage = (data: Buffer): void => {
+      let frame: { type?: string; event?: string; data?: { source?: string } };
+      try {
+        frame = JSON.parse(data.toString("utf8"));
+      } catch {
+        return;
+      }
+      if (
+        frame?.type === "notification" &&
+        frame.event === "audioFinalized" &&
+        frame.data?.source
+      ) {
+        pending.delete(frame.data.source);
+        if (pending.size === 0) {
+          cleanup();
+          resolve(true);
+        }
+      }
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve(false);
+    }, timeoutMs);
+    socket.on("message", onMessage);
+  });
+}
+
+/** Recursive remove that retries transient Windows handle-release races (EBUSY/
+ *  ENOTEMPTY/EPERM) so temp-dir cleanup never fails the smoke. */
+async function rmrf(dir: string): Promise<void> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (e) {
+      const code = (e as { code?: string })?.code;
+      if (code !== "EBUSY" && code !== "ENOTEMPTY" && code !== "EPERM") throw e;
+      await delay(100);
+    }
+  }
+  rmSync(dir, { recursive: true, force: true });
+}
+
 function waitForExit(child: ChildProcess, ms: number): Promise<boolean> {
   return new Promise((resolve) => {
     if (child.exitCode !== null) {
@@ -350,9 +411,13 @@ async function main(): Promise<void> {
     pass(`streamed ${(SPEECH_FRAMES + SILENCE_FRAMES) * 2} binary frames (both sources)`);
     await delay(400);
 
-    // audioStop -> flush any buffered hypothesis into a final.
+    // audioStop -> flush any buffered hypothesis into a final, then the sidecar
+    // closes each WAV and emits audioFinalized. Await that (attached first) so the
+    // WAVs are closed before we stop the meeting + clean up the temp dir.
+    const finalized = waitForFinalized(ws!, ["mic", "system"], 8_000);
     ws!.send(audioControl("audioStop", meetingId, "mic"));
     ws!.send(audioControl("audioStop", meetingId, "system"));
+    await finalized;
 
     // Wait for transcript.live.md to gain BOTH speaker lines (within ~1s of
     // each confirmation; we allow a generous timeout for the smoke).
@@ -448,7 +513,7 @@ async function main(): Promise<void> {
       }
       await waitForExit(child, 2_000);
     }
-    rmSync(dataDir, { recursive: true, force: true });
+    await rmrf(dataDir);
   }
 
   if (failures > 0) {

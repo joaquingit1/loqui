@@ -109,18 +109,14 @@ function syntheticFrame(source, frameIndex) {
 /** Spawn the sidecar with LOQUI_DATA_DIR set; resolve on the handshake line. */
 function startSidecar(dataDir) {
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      "uv",
-      ["run", "--project", SIDECAR_PROJECT, "loqui-sidecar"],
-      {
-        cwd: REPO_ROOT,
-        stdio: ["pipe", "pipe", "pipe"],
-        // Pin a temp data root AND force the hermetic FAKE ASR backend (PRD-2):
-        // this audio-capture gate asserts the per-source WAV path, NOT real
-        // transcription, so it must never load faster-whisper / fetch a model.
-        env: { ...process.env, LOQUI_DATA_DIR: dataDir, LOQUI_FAKE_ASR: "1" },
-      },
-    );
+    const child = spawn("uv", ["run", "--project", SIDECAR_PROJECT, "loqui-sidecar"], {
+      cwd: REPO_ROOT,
+      stdio: ["pipe", "pipe", "pipe"],
+      // Pin a temp data root AND force the hermetic FAKE ASR backend (PRD-2):
+      // this audio-capture gate asserts the per-source WAV path, NOT real
+      // transcription, so it must never load faster-whisper / fetch a model.
+      env: { ...process.env, LOQUI_DATA_DIR: dataDir, LOQUI_FAKE_ASR: "1" },
+    });
 
     let stdout = "";
     let stderr = "";
@@ -248,6 +244,48 @@ function sendBinary(ws, bytes) {
   });
 }
 
+/**
+ * Resolve once the sidecar has emitted an ``audioFinalized`` notification for
+ * every source in ``sources`` (i.e. each WAV is flushed + closed), or ``false``
+ * on timeout. Attach BEFORE sending audioStop so the signal can't be missed.
+ * This replaces a fixed sleep: on Windows the WAV must be closed before we read
+ * it (else 0 bytes) or unlink it (else EBUSY).
+ */
+function waitForFinalized(ws, sources, timeoutMs = 8_000) {
+  const pending = new Set(sources);
+  return new Promise((resolve) => {
+    if (pending.size === 0) return resolve(true);
+    const cleanup = () => {
+      clearTimeout(timer);
+      ws.off("message", onMessage);
+    };
+    const onMessage = (data) => {
+      let msg;
+      try {
+        msg = JSON.parse(data.toString("utf8"));
+      } catch {
+        return;
+      }
+      if (
+        msg?.type === "notification" &&
+        msg.event === "audioFinalized" &&
+        msg.data?.source
+      ) {
+        pending.delete(msg.data.source);
+        if (pending.size === 0) {
+          cleanup();
+          resolve(true);
+        }
+      }
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve(false);
+    }, timeoutMs);
+    ws.on("message", onMessage);
+  });
+}
+
 function waitForExit(child, ms) {
   return new Promise((resolve) => {
     if (child.exitCode !== null) {
@@ -264,6 +302,22 @@ function waitForExit(child, ms) {
     };
     child.once("exit", onExit);
   });
+}
+
+/** Recursive remove that retries transient Windows handle-release races
+ *  (EBUSY/ENOTEMPTY/EPERM) so temp-dir cleanup never fails the smoke. */
+async function rmrf(dir) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (e) {
+      const code = e?.code;
+      if (code !== "EBUSY" && code !== "ENOTEMPTY" && code !== "EPERM") throw e;
+      await delay(100);
+    }
+  }
+  rmSync(dir, { recursive: true, force: true });
 }
 
 /**
@@ -340,9 +394,15 @@ async function main() {
 
     // 3. audioStart for BOTH sources (system first, then mic — interleave order
     //    must not matter; each source has its own writer).
-    const startSys = await sendNotification(ws, audioControl("audioStart", meetingId, "system"));
+    const startSys = await sendNotification(
+      ws,
+      audioControl("audioStart", meetingId, "system"),
+    );
     assert(startSys === null, "audioStart(system) accepted (no validation error)");
-    const startMic = await sendNotification(ws, audioControl("audioStart", meetingId, "mic"));
+    const startMic = await sendNotification(
+      ws,
+      audioControl("audioStart", meetingId, "mic"),
+    );
     assert(startMic === null, "audioStart(mic) accepted (no validation error)");
 
     // 4. Stream synthetic frames, INTERLEAVED per frame index so a cross-wiring
@@ -353,13 +413,20 @@ async function main() {
     }
     pass(`streamed ${FRAMES_PER_SOURCE * 2} binary frames (both sources)`);
 
-    // 5. audioStop for both sources -> sidecar finalizes (back-patches) the WAVs.
+    // 5. audioStop for both sources -> sidecar finalizes (flushes + closes) each
+    //    WAV on its FIFO executor, THEN emits audioFinalized per source. Attach
+    //    the waiter BEFORE audioStop, then await that deterministic signal
+    //    instead of a fixed sleep (Windows: the WAV must be closed before we
+    //    read it [else 0 bytes] or unlink it [else EBUSY]).
+    const finalized = waitForFinalized(ws, ["mic", "system"], 8_000);
     await sendNotification(ws, audioControl("audioStop", meetingId, "mic"));
     await sendNotification(ws, audioControl("audioStop", meetingId, "system"));
     pass("audioStop(mic) + audioStop(system) sent");
-
-    // Give the ingest a moment to flush + close the files on its event loop.
-    await delay(400);
+    const allFinalized = await finalized;
+    assert(
+      allFinalized,
+      "audioFinalized received for mic + system (WAVs flushed + closed)",
+    );
 
     // 6. Assert the two WAVs.
     const audioDir = join(dataDir, "meetings", meetingId, "audio");
@@ -400,7 +467,10 @@ async function main() {
       // sidecar mixed or cross-wired the sources.
       const sameLength = mic.dataBytes === sys.dataBytes;
       const identical = sameLength && mic.data.equals(sys.data);
-      assert(!identical, "mic.wav and system.wav PCM are NOT identical (streams stayed separate)");
+      assert(
+        !identical,
+        "mic.wav and system.wav PCM are NOT identical (streams stayed separate)",
+      );
 
       // Sanity: each file is non-empty (the writer actually got frames).
       assert(mic.dataBytes > 0 && sys.dataBytes > 0, "both WAVs contain PCM data");
@@ -421,7 +491,7 @@ async function main() {
       }
       await waitForExit(child, 2_000);
     }
-    rmSync(dataDir, { recursive: true, force: true });
+    await rmrf(dataDir);
   }
 
   if (failures > 0) {
