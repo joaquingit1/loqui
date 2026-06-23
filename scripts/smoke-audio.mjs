@@ -115,13 +115,7 @@ function startSidecar(dataDir) {
       // Pin a temp data root AND force the hermetic FAKE ASR backend (PRD-2):
       // this audio-capture gate asserts the per-source WAV path, NOT real
       // transcription, so it must never load faster-whisper / fetch a model.
-      env: {
-        ...process.env,
-        LOQUI_DATA_DIR: dataDir,
-        LOQUI_FAKE_ASR: "1",
-        // DIAGNOSTIC: dump all sidecar thread stacks to stderr if it hangs >10s.
-        LOQUI_FAULTHANDLER_TIMEOUT: "10",
-      },
+      env: { ...process.env, LOQUI_DATA_DIR: dataDir, LOQUI_FAKE_ASR: "1" },
     });
 
     let stdout = "";
@@ -171,8 +165,8 @@ function startSidecar(dataDir) {
     child.stdout.on("data", onData);
     child.stderr.on("data", (c) => {
       stderr += c.toString("utf8");
-      // DIAGNOSTIC: surface sidecar stderr (incl. swallowed ingest tracebacks) in
-      // the smoke/CI log so a platform-specific ingest failure is visible.
+      // Surface sidecar stderr in the smoke/CI log so a sidecar-side failure is
+      // visible (silent on a healthy run — uvicorn logs at warning level).
       process.stderr.write(c);
     });
     child.on("error", (e) => finish(new Error(`failed to spawn sidecar: ${e.message}`)));

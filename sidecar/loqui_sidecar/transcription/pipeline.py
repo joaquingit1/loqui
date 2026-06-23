@@ -67,6 +67,18 @@ import threading
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Protocol, runtime_checkable
 
+# Import numpy ONCE at module load (this module is imported on the MAIN thread at
+# sidecar startup, via AppState -> default_transcription_manager). Doing the
+# `import numpy` lazily inside the hot path instead deadlocks on Windows: the mic
+# and system pipelines run on separate per-source executor threads and both hit
+# the first-time numpy import concurrently, wedging on CPython's import lock
+# (one thread mid-numpy-init holds it, the other blocks forever). numpy stays
+# optional — a None here falls back to the pure-Python RMS.
+try:
+    import numpy as _np
+except Exception:  # noqa: BLE001 - numpy optional; pure-Python RMS fallback below.
+    _np = None
+
 from ..audio_ingest import (
     AUDIO_SAMPLE_RATE,
     AUDIO_SAMPLE_WIDTH_BYTES,
@@ -149,22 +161,24 @@ class EnergyVad:
         usable = len(pcm) - (len(pcm) % AUDIO_SAMPLE_WIDTH_BYTES)
         if usable <= 0:
             return 0.0
-        # int.from_bytes per-sample is slow; numpy is declared + installed, but
-        # keep a pure path so VAD never hard-requires it. Use numpy when present.
-        try:
-            import numpy as np
-
-            arr = np.frombuffer(pcm[:usable], dtype="<i2").astype("float32")
-            if arr.size == 0:
-                return 0.0
-            return float(np.sqrt(np.mean((arr / 32768.0) ** 2)))
-        except Exception:  # noqa: BLE001 - fall back to a pure-python RMS.
-            total = 0.0
-            count = usable // AUDIO_SAMPLE_WIDTH_BYTES
-            for i in range(0, usable, AUDIO_SAMPLE_WIDTH_BYTES):
-                sample = int.from_bytes(pcm[i : i + 2], "little", signed=True)
-                total += (sample / 32768.0) ** 2
-            return math.sqrt(total / count) if count else 0.0
+        # Use the module-level numpy (imported on the main thread at startup —
+        # see the import note at the top of this file; never import it here, on
+        # the hot path / worker threads). int.from_bytes per-sample is slow, so
+        # numpy is preferred; the pure path keeps VAD from hard-requiring it.
+        if _np is not None:
+            try:
+                arr = _np.frombuffer(pcm[:usable], dtype="<i2").astype("float32")
+                if arr.size == 0:
+                    return 0.0
+                return float(_np.sqrt(_np.mean((arr / 32768.0) ** 2)))
+            except Exception:  # noqa: BLE001 - fall back to a pure-python RMS.
+                pass
+        total = 0.0
+        count = usable // AUDIO_SAMPLE_WIDTH_BYTES
+        for i in range(0, usable, AUDIO_SAMPLE_WIDTH_BYTES):
+            sample = int.from_bytes(pcm[i : i + 2], "little", signed=True)
+            total += (sample / 32768.0) ** 2
+        return math.sqrt(total / count) if count else 0.0
 
     def accept(self, pcm: bytes) -> tuple[bool, bool]:
         usable = len(pcm) - (len(pcm) % AUDIO_SAMPLE_WIDTH_BYTES)
