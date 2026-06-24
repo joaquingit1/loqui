@@ -189,3 +189,83 @@ body {
 .debug__latency {
   color: var(--text-dim);
 }
+
+/* MCP server (PRD-7) */
+.mcp__status-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.mcp__detail {
+  margin: 4px 0 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.mcp__detail code {
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+.mcp__detail--err {
+  color: var(--red);
+}
+
+.mcp__snippets {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.mcp__snippets-intro {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.mcp__snippet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.mcp__snippet-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mcp__copy {
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  background: var(--bg);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.mcp__copy:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.mcp__code {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre;
+}

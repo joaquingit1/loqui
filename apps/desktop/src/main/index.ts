@@ -34,6 +34,7 @@ import {
   createMeetingController,
   createTranscriptWriter,
 } from "./transcript/index.js";
+import { McpServerManager, makeMcpStatusPush, registerMcpIpc } from "./mcp/index.js";
 
 const __dirname = join(fileURLToPath(import.meta.url), "..");
 
@@ -126,6 +127,8 @@ let disposeChatStreamPush: (() => void) | null = null;
 let disposePostProcessIpc: (() => void) | null = null;
 let disposeJobUpdatePush: (() => void) | null = null;
 let disposePostProcessPipeline: (() => void) | null = null;
+let mcpManager: McpServerManager | null = null;
+let disposeMcpIpc: (() => void) | null = null;
 
 /**
  * Create the window, open the store, start + supervise the sidecar, register
@@ -225,6 +228,18 @@ export async function bootstrap(): Promise<void> {
   disposeChatIpc = registerChatIpc({ supervisor, keystore: chatKeystore });
   disposeChatStreamPush = forwardChatStream(supervisor, () => mainWindow);
 
+  // Local read-only MCP server (PRD-7). The app can optionally spawn/stop the
+  // bundled `loqui-mcp` server (over loopback HTTP) bound to the resolved data
+  // root, and prints ready-to-paste agent config snippets. It is AVAILABLE to
+  // run but NOT forced on — the app does not auto-start it; Settings does. The
+  // server is STRICTLY READ-ONLY over the meeting store (no write/edit/delete
+  // tool, SQLite opened readonly); this manager only starts/stops it + reports
+  // status. Status changes are pushed to the renderer for the Settings indicator.
+  mcpManager = new McpServerManager({
+    onStatusChange: makeMcpStatusPush(() => mainWindow),
+  });
+  disposeMcpIpc = registerMcpIpc({ manager: mcpManager });
+
   // Start the sidecar in the background; failure surfaces via status push and
   // must not block window creation.
   void supervisor.start().catch((err: unknown) => {
@@ -271,6 +286,10 @@ async function shutdown(): Promise<void> {
   disposeJobUpdatePush = null;
   disposePostProcessPipeline?.();
   disposePostProcessPipeline = null;
+  disposeMcpIpc?.();
+  disposeMcpIpc = null;
+  mcpManager?.dispose();
+  mcpManager = null;
   disposeStatusPush?.();
   disposeStatusPush = null;
   disposeTranscriptPush?.();

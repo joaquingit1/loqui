@@ -141,6 +141,22 @@ jobs:
       - name: Smoke (post-process end-to-end)
         run: pnpm smoke:postprocess
 
+      # PRD-7 acceptance gate (hermetic, no Electron, no network beyond the
+      # loopback stdio pipe): seeds a temp LOQUI_DATA_DIR that mirrors the app
+      # writer's index.db FTS schema + per-meeting file layout (the SAME
+      # @loqui/shared layout constants the reader uses), builds + spawns the REAL
+      # standalone `loqui-mcp` bin over stdio with the app CLOSED, drives it with
+      # the official MCP SDK client, and asserts: the initialize handshake, that
+      # tools/list is EXACTLY the 5 read-only tools with NO mutator, that
+      # search_meetings finds a keyword across BOTH the transcript and summary
+      # FTS columns (with a snippet), that get_transcript + get_summary return
+      # the seeded content, and — the read-only invariant — that a write-style
+      # tool call (delete_meeting) has no available code path (rejected). Runs
+      # after the test step so better-sqlite3 + the mcp-server dist are built for
+      # the node ABI.
+      - name: Smoke (MCP server stdio, read-only)
+        run: pnpm smoke:mcp
+
   e2e:
     name: e2e / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

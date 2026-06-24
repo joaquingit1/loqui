@@ -25,6 +25,8 @@ import type {
   HfTokenStatus,
   JobEvent,
   ListMeetingsQuery,
+  McpConfigSnippet,
+  McpStatus,
   LoquiAudioApi,
   Meeting,
   MeetingSearchHit,
@@ -67,6 +69,30 @@ export interface LoquiApi {
   chat: LoquiChatApi;
   /** Post-meeting diarization + AI summaries bridge (PRD-5). */
   postprocess: LoquiPostProcessApi;
+  /** Local read-only MCP server lifecycle + config bridge (PRD-7). */
+  mcp: LoquiMcpApi;
+}
+
+/**
+ * Local MCP server surface (PRD-7). Wraps the MCP IPC channels so the Settings
+ * screen can show status, start/stop the app-managed server, and print
+ * ready-to-paste agent config snippets. The server is STRICTLY READ-ONLY over
+ * the meeting store — nothing here (or on the server) can modify a meeting.
+ */
+export interface LoquiMcpApi {
+  /** Current app-managed MCP server status (running/transport/url/dataRoot). */
+  status(): Promise<McpStatus>;
+  /** Start the app-managed server (idempotent); resolves with the new status. */
+  enable(): Promise<McpStatus>;
+  /** Stop the app-managed server (idempotent); resolves with the new status. */
+  disable(): Promise<McpStatus>;
+  /**
+   * Ready-to-paste agent config snippets (Claude Code / Claude Desktop / Codex)
+   * pointing at the local standalone `loqui-mcp` bin.
+   */
+  getConfigSnippets(): Promise<McpConfigSnippet[]>;
+  /** Subscribe to MCP server status changes. Returns an unsubscribe fn. */
+  onStatus(cb: (status: McpStatus) => void): () => void;
 }
 
 /**
@@ -258,6 +284,19 @@ const postprocess: LoquiPostProcessApi = {
     ipcRenderer.invoke(IPC.getHfTokenStatus),
 };
 
+const mcp: LoquiMcpApi = {
+  status: (): Promise<McpStatus> => ipcRenderer.invoke(IPC.mcpStatus),
+  enable: (): Promise<McpStatus> => ipcRenderer.invoke(IPC.mcpEnable),
+  disable: (): Promise<McpStatus> => ipcRenderer.invoke(IPC.mcpDisable),
+  getConfigSnippets: (): Promise<McpConfigSnippet[]> =>
+    ipcRenderer.invoke(IPC.mcpGetConfigSnippets),
+  onStatus: (cb: (status: McpStatus) => void): (() => void) => {
+    const listener = (_e: unknown, status: McpStatus): void => cb(status);
+    ipcRenderer.on(IPC.mcpStatusChanged, listener);
+    return () => ipcRenderer.removeListener(IPC.mcpStatusChanged, listener);
+  },
+};
+
 const api: LoquiApi = {
   ping: () => ipcRenderer.invoke(IPC.ping),
   getSidecarHealth: () => ipcRenderer.invoke(IPC.getSidecarHealth),
@@ -275,6 +314,7 @@ const api: LoquiApi = {
   library,
   chat,
   postprocess,
+  mcp,
 };
 
 contextBridge.exposeInMainWorld("loqui", api);

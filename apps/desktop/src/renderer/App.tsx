@@ -16,6 +16,7 @@ import { SidecarStatusBadge } from "./components/SidecarStatusBadge.js";
 import { DebugPanel } from "./components/DebugPanel.js";
 import { MeetingControls } from "./components/MeetingControls.js";
 import { Library } from "./components/Library.js";
+import { McpSettings } from "./components/McpSettings.js";
 
 declare global {
   interface Window {
@@ -57,6 +58,8 @@ export function App({ api, initialStatus = "connecting" }: AppProps): JSX.Elemen
       <MeetingControls api={api} sidecarStatus={status} />
 
       <Library api={api?.library} />
+
+      <McpSettings api={api?.mcp} />
 
       <DebugPanel api={api} />
     </main>
