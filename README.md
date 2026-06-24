@@ -58,7 +58,7 @@ A few things make it different:
 | 📝 | **AI summaries** — TL;DR, decisions, action items, topics — generated from the transcript | ✅ |
 | 🧠 | **Agent-queryable memory (MCP)** — a local, read-only MCP server exposes your meetings to your own agent | ✅ |
 | 📅 | **Home / Today view** — upcoming meetings from Google Calendar / Microsoft 365 / Zoom, with join links + *join & record* | ✅ |
-| 👥 | **Google Meet speaker names** — a browser extension maps diarized speakers to real participant names | 🚧 in progress |
+| 👥 | **Google Meet speaker names** — a browser extension maps diarized speakers to real participant names | ✅ |
 | 🔄 | **Unsigned self-update** — checks GitHub for releases and updates itself, no code-signing certificate required | 🗺️ planned |
 | 🍎 | **Native on-device engines** — Apple Speech / on-device summaries, file import, export (SRT/VTT/PDF/DOCX), no-token diarization | 🗺️ planned |
 
@@ -209,11 +209,11 @@ pnpm --filter @loqui/desktop test:e2e      # Playwright-Electron full-app E2E
 
 Loqui is built milestone-by-milestone; each is specced in [`docs/prd/`](docs/prd/) and executed behind a hard "greenlight" gate (build → adversarial review → objective checks). See [`docs/prd/ROADMAP.md`](docs/prd/ROADMAP.md) for the full plan.
 
-**Done:** foundation & contracts · dual-stream capture · real-time transcription · transcript store + dated library · in-call AI chat · diarization + summaries · local MCP server · calendar + Home view.
+**Done:** foundation & contracts · dual-stream capture · real-time transcription · transcript store + dated library · in-call AI chat · diarization + summaries · local MCP server · calendar + Home view · Google Meet speaker names.
 
-**In progress:** Google Meet speaker-name attribution.
+**Up next:** packaging + unsigned GitHub auto-updater.
 
-**Planned:** packaging + unsigned GitHub auto-updater · pluggable transcription engines (Apple Speech / WhisperKit) · on-device & native summaries · auto-record + menubar/tray · file import + voice memo · export (SRT/VTT/PDF/DOCX) + capture/privacy controls · no-token local diarization.
+**Planned:** pluggable transcription engines (Apple Speech / WhisperKit) · on-device & native summaries · auto-record + menubar/tray · file import + voice memo · export (SRT/VTT/PDF/DOCX) + capture/privacy controls · no-token local diarization.
 
 ## Contributing
 
