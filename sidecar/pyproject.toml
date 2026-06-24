@@ -35,6 +35,19 @@ dev = [
     "ruff>=0.8.0",
     "black>=24.10.0",
 ]
+# PRD-5 diarization (OPTIONAL — NOT in the default sync). pyannote.audio 3.1 is
+# the offline speaker-diarization backend (MIT, CPU-capable; Sortformer is
+# excluded as it needs an NVIDIA GPU). torch is its heavy runtime. These are
+# kept OUT of the base dependencies so the default `uv sync` stays lean and the
+# hermetic test gate (FakeDiarizer) never pulls a multi-hundred-MB torch wheel
+# or a gated model. The real PyannoteDiarizer lazy-imports torch + pyannote and
+# degrades gracefully (diarization skipped, meeting still completes) when this
+# group is not installed. Install explicitly for the opt-in real-diarization
+# path: `uv sync --group diarization`.
+diarization = [
+    "torch>=2.2.0",
+    "pyannote.audio>=3.1.0,<3.2.0",
+]
 
 [build-system]
 requires = ["hatchling"]

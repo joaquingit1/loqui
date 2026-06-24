@@ -21,6 +21,10 @@ import {
   platformLabel,
   statusLabel,
 } from "../library/grouping.js";
+import { SummaryView } from "./SummaryView.js";
+import { DiarizedTranscript } from "./DiarizedTranscript.js";
+import { ProcessingStatus } from "./ProcessingStatus.js";
+import { useJobProgress, allJobsTerminal } from "../summary/index.js";
 import "../library/library.css";
 
 export interface MeetingViewProps {
@@ -42,6 +46,28 @@ type LoadState =
 export function MeetingView({ meeting, api, onBack, onRenamed }: MeetingViewProps): JSX.Element {
   const library = (api ?? window.loqui?.library) as MeetingViewProps["api"] | undefined;
   const [load, setLoad] = useState<LoadState>({ kind: "loading" });
+
+  // PRD-5 post-processing: live job progress (diarization + summary). When a
+  // job completes, bump reload keys so the Summary + DiarizedTranscript views
+  // refetch the freshly written derived files. Regenerating tracks a
+  // summary-only re-run so the Summary view's button reflects the in-flight
+  // state and refetches on completion.
+  const [summaryReload, setSummaryReload] = useState(0);
+  const [diarizedReload, setDiarizedReload] = useState(0);
+  const [regenerating, setRegenerating] = useState(false);
+  const { jobs } = useJobProgress({
+    onEvent: (event) => {
+      if (event.kind === "summary" && (event.state === "done" || event.state === "error")) {
+        setSummaryReload((n) => n + 1);
+        setRegenerating(false);
+      }
+      if (event.kind === "diarization" && (event.state === "done" || event.state === "error")) {
+        setDiarizedReload((n) => n + 1);
+      }
+    },
+  });
+  const processing = meeting.status === "processing";
+  const postReady = meeting.status === "done" || meeting.status === "processing";
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(meeting.title);
@@ -235,6 +261,23 @@ export function MeetingView({ meeting, api, onBack, onRenamed }: MeetingViewProp
             </pre>
           ))}
       </div>
+
+      {processing && (
+        // Post-meeting diarization + summary are still running (PRD-5).
+        <ProcessingStatus jobs={jobs} active={!allJobsTerminal(jobs)} />
+      )}
+
+      {postReady && (
+        <>
+          <SummaryView
+            meetingId={meeting.id}
+            reloadKey={summaryReload}
+            regenerating={regenerating}
+            onRegenerate={() => setRegenerating(true)}
+          />
+          <DiarizedTranscript meetingId={meeting.id} reloadKey={diarizedReload} />
+        </>
+      )}
     </section>
   );
 }

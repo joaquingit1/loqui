@@ -65,6 +65,28 @@ def _default_chat_handler(
     handle_chat(ChatRequest.from_wire(data), emit, selector=build_selector())
 
 
+def _default_postprocess_handler(
+    data: dict[str, Any], emit: Callable[[str, dict[str, Any]], None]
+) -> None:
+    """Default post-processing handler (PRD-5): decode the ``postProcess`` ``data``
+    and run :func:`loqui_sidecar.postprocess.run_postprocess` (diarization +
+    alignment + summary), streaming ``jobUpdate`` progress + a terminal
+    ``postProcessDone`` via ``emit``.
+
+    Imports the postprocess package lazily so its (optional) diarization surface
+    is never imported at app startup. Wires the PRODUCTION provider selector for
+    the summary step (the same PRD-4 selector chat uses, so ``LOQUI_FAKE_CHAT``
+    still forces the fake provider in tests). The diarizer defaults to the fake
+    diarizer when ``LOQUI_FAKE_DIARIZER`` is set, else the real PyannoteDiarizer
+    (which degrades gracefully when torch/pyannote/the HF token are absent). Never
+    raises (run_postprocess guards internally). NEVER logs the api/hf token.
+    """
+    from .postprocess import PostProcessRequest, run_postprocess
+    from .providers import build_selector
+
+    run_postprocess(PostProcessRequest.from_wire(data), emit, selector=build_selector())
+
+
 #: WS close code used when a connection fails token auth (policy violation).
 WS_CLOSE_POLICY_VIOLATION = 1008
 
@@ -117,9 +139,26 @@ class AppState:
     chat_handler: Callable[[dict[str, Any], Callable[[str, dict[str, Any]], None]], None] = field(
         default=_default_chat_handler
     )
+    #: Post-processing handler entry point (PRD-5). Called for each inbound
+    #: ``postProcess`` notification with the decoded ``data`` dict + an
+    #: ``emit(event, data)`` bound to the live WS sender (``notify``); it runs
+    #: diarization (on ``<id>/audio/system.wav``) + alignment + the AI summary
+    #: (reusing the PRD-4 provider READ-ONLY), streaming ``jobUpdate`` progress +
+    #: a terminal ``postProcessDone``. Defaulted to the real
+    #: :func:`run_postprocess` wrapper. Injectable so tests can stub it. Run OFF
+    #: the WS receive loop (diarization + a provider call block) on the
+    #: postprocess executor. The handler never edits the transcript (it writes
+    #: only the derived diarized + summary files).
+    postprocess_handler: Callable[[dict[str, Any], Callable[[str, dict[str, Any]], None]], None] = (
+        field(default=_default_postprocess_handler)
+    )
     #: Single-thread executor for chat requests so a slow/streaming provider call
     #: never blocks the WS control channel. Lazily created; closed by ``close``.
     _chat_executor: Any = None
+    #: Single-thread executor for post-processing (PRD-5) so the long-running
+    #: diarization + summary job never blocks the WS control channel (or chat).
+    #: Lazily created; closed by ``close``.
+    _postprocess_executor: Any = None
 
     def __post_init__(self) -> None:
         # Wire transcription as a consumer of the decoded-PCM stream alongside
@@ -147,13 +186,30 @@ class AppState:
             self._chat_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="chat")
         return self._chat_executor
 
+    def postprocess_executor(self) -> ThreadPoolExecutor:
+        """Return (creating on first use) the single-thread post-processing executor (PRD-5).
+
+        Diarization + summary are long-running and run OFF the WS receive loop so
+        they never stall ping/getHealth/shutdown, audio ingest, or chat.
+        Single-threaded so concurrent post-process requests queue rather than fan
+        out unbounded; ``emit`` is thread-safe (schedules onto the serving loop).
+        """
+        if self._postprocess_executor is None:
+            self._postprocess_executor = ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="postprocess"
+            )
+        return self._postprocess_executor
+
     def close(self) -> None:
-        """Release per-source decode + chat executors (process-shutdown safety net)."""
+        """Release per-source decode + chat + postprocess executors (shutdown safety net)."""
         executors = list(self._frame_executors.values())
         self._frame_executors.clear()
         if self._chat_executor is not None:
             executors.append(self._chat_executor)
             self._chat_executor = None
+        if self._postprocess_executor is not None:
+            executors.append(self._postprocess_executor)
+            self._postprocess_executor = None
         for ex in executors:
             ex.shutdown(wait=False, cancel_futures=True)
 
@@ -445,6 +501,46 @@ async def _handle_chat_request(state: AppState, websocket: WebSocket, data: Any)
         _run()
 
 
+async def _handle_postprocess_request(state: AppState, websocket: WebSocket, data: Any) -> None:
+    """Validate + dispatch one ``postProcess`` notification (PRD-5).
+
+    Validates ``data`` against the emitted ``PostProcessRequest`` schema, then
+    runs the post-processing handler on the single-thread postprocess executor
+    (OFF the WS receive loop) so the long-running diarization + summary job never
+    stalls the control channel. The handler streams ``jobUpdate`` progress + a
+    terminal ``postProcessDone`` via ``state.notify`` (the thread-safe
+    per-connection sender), so a dropped socket simply no-ops the emits. The
+    handler never raises (it guards internally); the submit is guarded too. NEVER
+    logs the api/hf token (they live only in ``data`` and are consumed transiently).
+    """
+    try:
+        schemas.validate(schemas.POSTPROCESS_REQUEST, data)
+    except schemas.FrameValidationError as exc:
+        await websocket.send_json(
+            _make_error(None, "invalid_frame", f"postProcess validation failed: {exc}")
+        )
+        return
+    if not isinstance(data, dict):
+        return
+
+    # Snapshot the live sender so the worker emits onto THIS connection (reset to
+    # a no-op on disconnect, which harmlessly drops late job updates).
+    emit = state.notify
+    handler = state.postprocess_handler
+
+    def _run() -> None:
+        try:
+            handler(data, emit)
+        except Exception:  # noqa: BLE001 - postprocess must never break the control channel.
+            logger.exception("postprocess handler crashed")
+
+    try:
+        state.postprocess_executor().submit(_run)
+    except RuntimeError:
+        # Executor shut down (shutdown race): run inline as a last resort.
+        _run()
+
+
 async def _handle_notification(
     state: AppState, websocket: WebSocket, frame: dict[str, Any]
 ) -> None:
@@ -466,6 +562,16 @@ async def _handle_notification(
     # handler with `state.notify` so a dropped socket simply no-ops the emit.
     if event == "chatRequest":
         await _handle_chat_request(state, websocket, data)
+        return
+
+    # Post-processing (PRD-5): a `postProcess` notification (main -> sidecar)
+    # begins the diarization + alignment + summary pipeline. Validated against the
+    # emitted PostProcessRequest schema, then dispatched to the postprocess handler
+    # on the postprocess executor (OFF this receive loop — diarization + a provider
+    # call block). The handler streams jobUpdate + postProcessDone notifications
+    # back via the live WS sender.
+    if event == "postProcess":
+        await _handle_postprocess_request(state, websocket, data)
         return
 
     schema_name = {"audioStart": schemas.AUDIO_START, "audioStop": schemas.AUDIO_STOP}.get(event)

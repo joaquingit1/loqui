@@ -55,6 +55,16 @@ function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
       setApiKey: vi.fn(async () => ({}) as never),
       getApiKeyStatus: vi.fn(async () => ({}) as never),
     },
+    // PRD-5 postprocess bridge: a no-op fake; the App under test does not use it yet.
+    postprocess: {
+      onJob: () => () => {},
+      getSummary: vi.fn(async () => null),
+      getDiarizedTranscript: vi.fn(async () => null),
+      renameSpeaker: vi.fn(async () => ({}) as never),
+      regenerateSummary: vi.fn(async () => {}),
+      setHfToken: vi.fn(async () => ({}) as never),
+      getHfTokenStatus: vi.fn(async () => ({}) as never),
+    },
     ...overrides,
   };
   return { api, emitStatus: (s) => cb?.(s) };

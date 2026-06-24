@@ -61,3 +61,42 @@ export function formatTranscriptLine(segment: TranscriptSegment): string {
   const text = segment.text.replace(/[\r\n]+/g, " ").trimEnd();
   return `[${ts}] ${who} said: ${text}\n`;
 }
+
+/**
+ * One record of the structured transcript (`transcript.jsonl`, PRD-5). Written
+ * by the SAME append-only TranscriptWriter as the `.md`, one JSON object per
+ * confirmed (`final`) segment, so PRD-5 diarization alignment has per-segment
+ * timestamps + source to overlap diarized speaker turns against. This is the
+ * machine-readable parallel of the human-facing `.md` — NOT an AI write and NOT
+ * a transcript the AI may mutate; the diarized variant is derived from it into a
+ * SEPARATE file.
+ */
+export interface StructuredTranscriptRecord {
+  /** The confirmed segment's id (matches the `.md` line + the diarized segment). */
+  segId: string;
+  /** Which capture stream (mic="You", system="They"). */
+  source: AudioSource;
+  /** Seconds from meeting start. */
+  tStart: number;
+  tEnd: number;
+  /** The confirmed text (newlines collapsed to spaces, like the `.md`). */
+  text: string;
+}
+
+/**
+ * Render ONE confirmed segment as its `transcript.jsonl` line: a single JSON
+ * object terminated by `\n` (one segment per line — append-only, round-trippable
+ * with `JSON.parse` per line). Pure: the TranscriptWriter appends the result
+ * alongside the `.md` line. Text newlines are collapsed to spaces to match the
+ * `.md` so the two files stay 1:1 per confirmed segId.
+ */
+export function formatStructuredTranscriptLine(segment: TranscriptSegment): string {
+  const record: StructuredTranscriptRecord = {
+    segId: segment.segId,
+    source: segment.source,
+    tStart: segment.tStart,
+    tEnd: segment.tEnd,
+    text: segment.text.replace(/[\r\n]+/g, " ").trimEnd(),
+  };
+  return JSON.stringify(record) + "\n";
+}

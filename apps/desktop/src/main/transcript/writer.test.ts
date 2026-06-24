@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DATA_DIR_ENV, type TranscriptSegment } from "@loqui/shared";
 import { createTranscriptWriter, type TranscriptWriterFs } from "./writer.js";
-import { meetingLiveTranscriptPath } from "../store/paths.js";
+import { meetingLiveTranscriptPath, meetingTranscriptPath } from "../store/paths.js";
 
 const MID = "11111111-1111-4111-8111-111111111111";
 
@@ -88,6 +88,25 @@ describe("TranscriptWriter", () => {
     expect(out).toBe("[00:00:04] You said: line one line two\n");
   });
 
+  it("also writes a structured transcript.jsonl record per confirmed segment (PRD-5)", () => {
+    const w = createTranscriptWriter();
+    w.appendConfirmedSegment(seg({ source: "system", text: "loud and clear", tStart: 7, tEnd: 9 }));
+    // The human-facing .md is unchanged...
+    const md = readFileSync(meetingLiveTranscriptPath(MID), "utf8");
+    expect(md).toBe("[00:00:07] They said: loud and clear\n");
+    // ...and a parallel one-line JSON record lands in transcript.jsonl.
+    const jsonl = readFileSync(meetingTranscriptPath(MID, "structured"), "utf8");
+    const lines = jsonl.split("\n").filter(Boolean);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] ?? "")).toEqual({
+      segId: "s1",
+      source: "system",
+      tStart: 7,
+      tEnd: 9,
+      text: "loud and clear",
+    });
+  });
+
   it("fsyncs after each append (crash-safety) and never throws on fs error", () => {
     const fsSpy: TranscriptWriterFs = {
       mkdirSync: vi.fn(),
@@ -98,11 +117,13 @@ describe("TranscriptWriter", () => {
     };
     const w = createTranscriptWriter({ fs: fsSpy });
     w.appendConfirmedSegment(seg());
-    expect(fsSpy.appendFileSync).toHaveBeenCalledTimes(1);
-    expect(fsSpy.fsyncSync).toHaveBeenCalledTimes(1);
-    expect(fsSpy.closeSync).toHaveBeenCalledTimes(1);
+    // Two durable appends per confirmed segment: the .md line + the .jsonl record.
+    expect(fsSpy.appendFileSync).toHaveBeenCalledTimes(2);
+    expect(fsSpy.fsyncSync).toHaveBeenCalledTimes(2);
+    expect(fsSpy.closeSync).toHaveBeenCalledTimes(2);
 
-    // A throwing append must be swallowed (returns false), not propagated.
+    // A throwing append (on the .md write) must be swallowed (returns false),
+    // not propagated.
     const throwingFs: TranscriptWriterFs = {
       ...fsSpy,
       appendFileSync: vi.fn(() => {

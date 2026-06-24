@@ -44,8 +44,13 @@ export const MEETING_META_FILE = "meta.json" as const;
 
 /**
  * Per-meeting structured transcript file name. Declared here so paths are
- * centralized. (Reserved for a parallel structured record; the human-facing
- * source the user watches update live is {@link MEETING_LIVE_TRANSCRIPT_FILE}.)
+ * centralized. This is the parallel structured record (one JSONL line per
+ * confirmed/`final` segment — `segId`/`tStart`/`tEnd`/`source`/`text`) the
+ * main-process TranscriptWriter writes ALONGSIDE {@link MEETING_LIVE_TRANSCRIPT_FILE}
+ * as part of the SAME append-only writer. PRD-5 diarization alignment reads it
+ * (it needs per-segment timestamps + source); the human-facing source the user
+ * watches update live is still {@link MEETING_LIVE_TRANSCRIPT_FILE}. Like the
+ * `.md`, it is APPEND-ONLY and written by exactly one module — NOT an AI write.
  */
 export const MEETING_TRANSCRIPT_FILE = "transcript.jsonl" as const;
 
@@ -69,9 +74,24 @@ export const MEETING_LIVE_TRANSCRIPT_FILE = "transcript.live.md" as const;
 export const TRANSCRIPT_VARIANTS = ["live", "structured"] as const;
 
 /**
- * Per-meeting summary file name (written by the summaries PRD).
+ * Per-meeting summary file name (PRD-5). The structured AI summary
+ * ({@link import("./postprocess.js").Summary}) the summary-writer produces from
+ * the read-only transcript. A SEPARATE derived file — the provider never edits
+ * the transcript.
  */
 export const MEETING_SUMMARY_FILE = "summary.json" as const;
+
+/**
+ * Per-meeting DIARIZED transcript files (PRD-5): the speaker-labeled,
+ * DERIVED re-labeling of the transcript (diarization + alignment, NOT AI).
+ * `transcript.diarized.json` is the structured
+ * {@link import("./postprocess.js").DiarizedTranscript}; `transcript.diarized.md`
+ * is its human-facing Markdown render. Both are SEPARATE files — never the live
+ * transcript ({@link MEETING_LIVE_TRANSCRIPT_FILE} stays byte-identical after
+ * diarization). Written by the sidecar's diarized-transcript writer.
+ */
+export const MEETING_DIARIZED_TRANSCRIPT_JSON_FILE = "transcript.diarized.json" as const;
+export const MEETING_DIARIZED_TRANSCRIPT_MD_FILE = "transcript.diarized.md" as const;
 
 /**
  * Per-meeting raw audio subdirectory: `<meetingDir>/audio/`.

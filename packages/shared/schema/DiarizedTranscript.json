@@ -1,0 +1,85 @@
+{
+  "$ref": "#/definitions/DiarizedTranscript",
+  "definitions": {
+    "DiarizedTranscript": {
+      "type": "object",
+      "properties": {
+        "meetingId": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "default": 1
+        },
+        "diarized": {
+          "type": "boolean",
+          "default": false
+        },
+        "backend": {
+          "type": "string",
+          "default": ""
+        },
+        "speakers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "segments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "segId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "mic",
+                  "system"
+                ]
+              },
+              "text": {
+                "type": "string",
+                "default": ""
+              },
+              "tStart": {
+                "type": "number",
+                "default": 0
+              },
+              "tEnd": {
+                "type": "number",
+                "default": 0
+              },
+              "speaker": {
+                "type": "string",
+                "default": "You"
+              },
+              "displayName": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "segId",
+              "source"
+            ],
+            "additionalProperties": false
+          },
+          "default": []
+        }
+      },
+      "required": [
+        "meetingId"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

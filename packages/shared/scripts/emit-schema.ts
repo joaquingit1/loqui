@@ -36,6 +36,15 @@ import {
   chatDoneSchema,
   chatErrorSchema,
 } from "../src/chat.js";
+import {
+  speakerTurnSchema,
+  diarizedSegmentSchema,
+  diarizedTranscriptSchema,
+  actionItemSchema,
+  summarySchema,
+  postProcessRequestSchema,
+  postProcessDoneSchema,
+} from "../src/postprocess.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, "..", "schema");
@@ -66,6 +75,16 @@ const schemas: Record<string, ZodTypeAny> = {
   ChatToken: chatTokenSchema,
   ChatDone: chatDoneSchema,
   ChatError: chatErrorSchema,
+  // PRD-5 post-processing contract. The sidecar validates the inbound
+  // `postProcess` notification against PostProcessRequest; the rest are emitted
+  // so the diarization/summary/index contract is fully visible to Python.
+  SpeakerTurn: speakerTurnSchema,
+  DiarizedSegment: diarizedSegmentSchema,
+  DiarizedTranscript: diarizedTranscriptSchema,
+  ActionItem: actionItemSchema,
+  Summary: summarySchema,
+  PostProcessRequest: postProcessRequestSchema,
+  PostProcessDone: postProcessDoneSchema,
 };
 
 rmSync(outDir, { recursive: true, force: true });

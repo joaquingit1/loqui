@@ -1,0 +1,23 @@
+{
+  "$ref": "#/definitions/ActionItem",
+  "definitions": {
+    "ActionItem": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "default": ""
+        },
+        "owner": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

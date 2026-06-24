@@ -12,11 +12,15 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import {
   createMeetingInputSchema,
+  diarizedTranscriptSchema,
   meetingSchema,
+  summarySchema,
   updateMeetingInputSchema,
   type CreateMeetingInput,
+  type DiarizedTranscript,
   type Meeting,
   type MeetingSearchHit,
+  type Summary,
   type TranscriptVariant,
   type UpdateMeetingInput,
 } from "@loqui/shared";
@@ -31,7 +35,13 @@ import {
   type SearchText,
 } from "./db.js";
 import { readMeta, writeMeta } from "./meta.js";
-import { dataRoot, meetingsDir, meetingTranscriptPath } from "./paths.js";
+import {
+  dataRoot,
+  meetingsDir,
+  meetingDiarizedTranscriptJsonPath,
+  meetingSummaryPath,
+  meetingTranscriptPath,
+} from "./paths.js";
 
 export {
   dataRoot,
@@ -42,6 +52,9 @@ export {
   meetingAudioDir,
   meetingLiveTranscriptPath,
   meetingTranscriptPath,
+  meetingSummaryPath,
+  meetingDiarizedTranscriptJsonPath,
+  meetingDiarizedTranscriptMdPath,
 } from "./paths.js";
 export { upsertSearchText } from "./db.js";
 export type { SearchText } from "./db.js";
@@ -64,6 +77,19 @@ export interface MeetingStore {
    * (e.g. a meeting with no confirmed segments). READ-ONLY — never writes.
    */
   getTranscript(id: string, variant?: TranscriptVariant): string;
+  /**
+   * Read a meeting's AI summary (PRD-5) from summary.json, validated against the
+   * shared `summarySchema`. Returns null when no summary has been generated yet
+   * (or the file is unreadable/corrupt). READ-ONLY — never writes.
+   */
+  getSummary(id: string): Summary | null;
+  /**
+   * Read a meeting's diarized transcript (PRD-5) from transcript.diarized.json,
+   * validated against the shared `diarizedTranscriptSchema`. Returns null when
+   * diarization has not produced output yet. READ-ONLY — never writes (and never
+   * touches transcript.live.md).
+   */
+  getDiarizedTranscript(id: string): DiarizedTranscript | null;
   /** Patch a meeting; bumps updatedAt; rewrites meta.json atomically. */
   updateMeeting(id: string, patch: UpdateMeetingInput): Meeting;
   /** Index a meeting's searchable text (title/summary; transcript via append). */
@@ -201,6 +227,31 @@ class FsMeetingStore implements MeetingStore {
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return "";
       throw err;
+    }
+  }
+
+  getSummary(id: string): Summary | null {
+    assertSafeId(id);
+    try {
+      const raw = readFileSync(meetingSummaryPath(id), "utf8");
+      return summarySchema.parse(JSON.parse(raw));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      // Corrupt/invalid summary must not crash the read surface.
+      console.error("[loqui] getSummary failed:", err);
+      return null;
+    }
+  }
+
+  getDiarizedTranscript(id: string): DiarizedTranscript | null {
+    assertSafeId(id);
+    try {
+      const raw = readFileSync(meetingDiarizedTranscriptJsonPath(id), "utf8");
+      return diarizedTranscriptSchema.parse(JSON.parse(raw));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      console.error("[loqui] getDiarizedTranscript failed:", err);
+      return null;
     }
   }
 

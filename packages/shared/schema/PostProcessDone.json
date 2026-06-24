@@ -1,0 +1,58 @@
+{
+  "$ref": "#/definitions/PostProcessDone",
+  "definitions": {
+    "PostProcessDone": {
+      "type": "object",
+      "properties": {
+        "meetingId": {
+          "type": "string"
+        },
+        "diarization": {
+          "type": "string",
+          "enum": [
+            "done",
+            "skipped",
+            "error"
+          ],
+          "default": "skipped"
+        },
+        "summary": {
+          "$ref": "#/definitions/PostProcessDone/properties/diarization",
+          "default": "skipped"
+        },
+        "speakers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "diarizationBackend": {
+          "type": "string",
+          "default": ""
+        },
+        "summaryProvider": {
+          "type": "string",
+          "default": ""
+        },
+        "summaryModel": {
+          "type": "string",
+          "default": ""
+        },
+        "indexText": {
+          "type": "string",
+          "default": ""
+        },
+        "note": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "meetingId"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

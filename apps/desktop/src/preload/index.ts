@@ -17,19 +17,28 @@ import type {
   ChatProvider,
   ChatSendParams,
   ChatStreamEvent,
+  DiarizedTranscript,
+  GetDiarizedTranscriptParams,
+  GetSummaryParams,
   GetTranscriptParams,
   Health,
+  HfTokenStatus,
+  JobEvent,
   ListMeetingsQuery,
   LoquiAudioApi,
   Meeting,
   MeetingSearchHit,
   MeetingStatusEvent,
   ProviderConfig,
+  RegenerateSummaryParams,
   RenameMeetingParams,
+  RenameSpeakerParams,
   ScreenPermissionStatus,
   SetApiKeyParams,
+  SetHfTokenParams,
   StartMeetingParams,
   StopMeetingParams,
+  Summary,
   TranscriptSegment,
 } from "@loqui/shared";
 import { IPC } from "../shared/ipc.js";
@@ -56,6 +65,48 @@ export interface LoquiApi {
   library: LoquiLibraryApi;
   /** In-call AI chat + provider abstraction bridge (PRD-4). */
   chat: LoquiChatApi;
+  /** Post-meeting diarization + AI summaries bridge (PRD-5). */
+  postprocess: LoquiPostProcessApi;
+}
+
+/**
+ * Post-meeting diarization + AI summaries surface (PRD-5). Wraps the
+ * postprocess IPC channels so the renderer never references channel names
+ * directly. READ-ONLY over the live transcript: nothing here writes
+ * transcript.live.md. The summary is a separate AI-derived file; the diarized
+ * transcript is a separate deterministic re-labeling; renames are main-driven.
+ */
+export interface LoquiPostProcessApi {
+  /**
+   * Subscribe to post-processing job progress (diarization + summary). The
+   * callback fires once per sidecar {@link JobEvent} (kind "diarization" |
+   * "summary") with its state/progress. Returns an unsubscribe fn.
+   */
+  onJob(cb: (job: JobEvent) => void): () => void;
+  /** Read a meeting's AI summary, or null if not yet generated. */
+  getSummary(params: GetSummaryParams): Promise<Summary | null>;
+  /** Read a meeting's diarized transcript, or null if not yet diarized. */
+  getDiarizedTranscript(
+    params: GetDiarizedTranscriptParams,
+  ): Promise<DiarizedTranscript | null>;
+  /**
+   * Rename a diarized speaker (e.g. "Speaker 1" -> "Alex"). Persists into the
+   * diarized files + meta + index and returns the updated diarized transcript.
+   */
+  renameSpeaker(params: RenameSpeakerParams): Promise<DiarizedTranscript>;
+  /**
+   * Regenerate a meeting's summary (summary-only postProcess run). Fire-and-
+   * forget; progress arrives on {@link LoquiPostProcessApi.onJob}.
+   */
+  regenerateSummary(params: RegenerateSummaryParams): Promise<void>;
+  /**
+   * Store (or clear, on an empty/null token) the Hugging Face token for gated
+   * pyannote weights in the OS keychain. Never echoes the token; returns only
+   * whether a token is now stored.
+   */
+  setHfToken(params: SetHfTokenParams): Promise<HfTokenStatus>;
+  /** Whether an HF token is currently stored (never returns the token). */
+  getHfTokenStatus(): Promise<HfTokenStatus>;
 }
 
 /**
@@ -185,6 +236,28 @@ const chat: LoquiChatApi = {
     ipcRenderer.invoke(IPC.chatGetApiKeyStatus, provider),
 };
 
+const postprocess: LoquiPostProcessApi = {
+  onJob: (cb: (job: JobEvent) => void): (() => void) => {
+    const listener = (_e: unknown, job: JobEvent): void => cb(job);
+    ipcRenderer.on(IPC.postProcessJob, listener);
+    return () => ipcRenderer.removeListener(IPC.postProcessJob, listener);
+  },
+  getSummary: (params: GetSummaryParams): Promise<Summary | null> =>
+    ipcRenderer.invoke(IPC.getSummary, params),
+  getDiarizedTranscript: (
+    params: GetDiarizedTranscriptParams,
+  ): Promise<DiarizedTranscript | null> =>
+    ipcRenderer.invoke(IPC.getDiarizedTranscript, params),
+  renameSpeaker: (params: RenameSpeakerParams): Promise<DiarizedTranscript> =>
+    ipcRenderer.invoke(IPC.renameSpeaker, params),
+  regenerateSummary: (params: RegenerateSummaryParams): Promise<void> =>
+    ipcRenderer.invoke(IPC.regenerateSummary, params),
+  setHfToken: (params: SetHfTokenParams): Promise<HfTokenStatus> =>
+    ipcRenderer.invoke(IPC.setHfToken, params),
+  getHfTokenStatus: (): Promise<HfTokenStatus> =>
+    ipcRenderer.invoke(IPC.getHfTokenStatus),
+};
+
 const api: LoquiApi = {
   ping: () => ipcRenderer.invoke(IPC.ping),
   getSidecarHealth: () => ipcRenderer.invoke(IPC.getSidecarHealth),
@@ -201,6 +274,7 @@ const api: LoquiApi = {
   },
   library,
   chat,
+  postprocess,
 };
 
 contextBridge.exposeInMainWorld("loqui", api);

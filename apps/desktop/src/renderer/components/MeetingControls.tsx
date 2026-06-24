@@ -21,8 +21,10 @@ import type { AudioSource, StartMeetingParams } from "@loqui/shared";
 import type { LoquiApi, SidecarStatus } from "../../preload/index.js";
 import { LiveTranscript } from "./LiveTranscript.js";
 import { ChatPanel } from "./ChatPanel.js";
+import { ProcessingStatus } from "./ProcessingStatus.js";
 import { CaptureLevelMeter } from "./CaptureLevelMeter.js";
 import { RecordingStatus } from "./RecordingStatus.js";
+import { useJobProgress, allJobsTerminal } from "../summary/index.js";
 import {
   isRecordingPhase,
   useElapsed,
@@ -97,6 +99,11 @@ export function MeetingControls({
 
   const { phase, meeting, error } = controller;
   const recording = isRecordingPhase(phase);
+
+  // PRD-5 post-processing progress: once the meeting stops, main hands the WAVs
+  // to the sidecar which diarizes + summarizes as background jobs. Surface that
+  // progress during the "processing" phase so the user sees the pipeline run.
+  const { jobs } = useJobProgress();
 
   const elapsed = useElapsed({
     startedAt: meeting?.startedAt ?? null,
@@ -189,6 +196,12 @@ export function MeetingControls({
         // the transcript. Scoped to the active meeting id so history resets per
         // meeting.
         <ChatPanel meetingId={meeting.id} />
+      )}
+
+      {phase === "processing" && (
+        // Post-meeting diarization + summary progress (PRD-5). The pipeline runs
+        // in the sidecar; this only reflects its JobUpdate progress.
+        <ProcessingStatus jobs={jobs} active={!allJobsTerminal(jobs)} />
       )}
 
       {phase === "done" && meeting && (

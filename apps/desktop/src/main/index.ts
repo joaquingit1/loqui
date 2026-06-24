@@ -10,9 +10,10 @@
 import { app, BrowserWindow, safeStorage, session, systemPreferences } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ScreenPermissionStatus } from "@loqui/shared";
+import type { Meeting, ScreenPermissionStatus } from "@loqui/shared";
 import { SidecarSupervisor } from "./sidecar/supervisor.js";
 import { openStore, type MeetingStore } from "./store/index.js";
+import { IPC } from "../shared/ipc.js";
 import {
   pushMeetingStatus,
   pushSidecarStatus,
@@ -22,6 +23,12 @@ import {
 import { registerAudioIpc } from "./audio/register.js";
 import { ChatKeystore } from "./chat/keystore.js";
 import { forwardChatStream, registerChatIpc } from "./chat/register.js";
+import {
+  HfKeystore,
+  createPostProcessPipeline,
+  forwardJobUpdates,
+  registerPostProcessIpc,
+} from "./postprocess/index.js";
 import {
   consumeFinalTranscriptSegments,
   createMeetingController,
@@ -116,6 +123,9 @@ let disposeMeetingStatusPush: (() => void) | null = null;
 let disposeAudioIpc: (() => void) | null = null;
 let disposeChatIpc: (() => void) | null = null;
 let disposeChatStreamPush: (() => void) | null = null;
+let disposePostProcessIpc: (() => void) | null = null;
+let disposeJobUpdatePush: (() => void) | null = null;
+let disposePostProcessPipeline: (() => void) | null = null;
 
 /**
  * Create the window, open the store, start + supervise the sidecar, register
@@ -150,12 +160,49 @@ export async function bootstrap(): Promise<void> {
     store,
   });
 
+  // Post-meeting diarization + AI summaries (PRD-5). The HF token (gated pyannote
+  // weights) is stored encrypted via the OS keychain (safeStorage), reusing the
+  // PRD-4 mechanism in a separate file. The pipeline waits for the existing
+  // audioFinalized signal after stop, sends ONE `postProcess` WS request to the
+  // sidecar (provider config + transient summary key + transient HF token,
+  // injected out of band), relays jobUpdate progress to the renderer, and on
+  // postProcessDone indexes the diarized+summary text + records speakers into
+  // meta + transitions the meeting to "done". It NEVER writes the live transcript.
+  const chatKeystore = new ChatKeystore(safeStorage);
+  const hfKeystore = new HfKeystore(safeStorage);
+  const pushMeetingStatusToRenderer = (meeting: Meeting): void => {
+    const win = mainWindow;
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(IPC.meetingStatus, { meeting });
+    }
+  };
+  const postProcessPipeline = createPostProcessPipeline({
+    supervisor,
+    store,
+    providerKeys: chatKeystore,
+    hfKeystore,
+    emitStatus: pushMeetingStatusToRenderer,
+  });
+  disposePostProcessPipeline = () => postProcessPipeline.dispose();
+  disposeJobUpdatePush = forwardJobUpdates(supervisor, () => mainWindow);
+  disposePostProcessIpc = registerPostProcessIpc({
+    store,
+    hfKeystore,
+    pipeline: postProcessPipeline,
+  });
+
   // The meeting lifecycle state machine (PRD-3): drives Meeting.status +
   // startedAt/endedAt via the store and sets/clears the supervisor's active-
   // meeting pointer so PRD-1 audio frames + PRD-2 final segments route to the
   // recording meeting. It NEVER writes transcript.live.md (that is exclusively
-  // the TranscriptWriter wired above).
-  const controller = createMeetingController({ store, supervisor });
+  // the TranscriptWriter wired above). The PRD-5 postProcess hook hands a stopped
+  // meeting to the pipeline (recording -> processing; the pipeline owns the
+  // eventual processing -> done after diarization + summary).
+  const controller = createMeetingController({
+    store,
+    supervisor,
+    postProcess: (meeting) => postProcessPipeline.onMeetingProcessing(meeting),
+  });
   // Push lifecycle/status transitions to the renderer so the Library/live view
   // reacts without re-listing.
   disposeMeetingStatusPush = pushMeetingStatus(controller, () => mainWindow);
@@ -172,8 +219,9 @@ export async function bootstrap(): Promise<void> {
   // `chatRequest` WS notification (injecting the transient key out of band);
   // forwardChatStream relays the sidecar's streamed chatToken/chatDone/chatError
   // notifications to the renderer. The AI never edits the transcript — this
-  // bridge has no transcript write path; the sidecar reads it READ-ONLY.
-  const chatKeystore = new ChatKeystore(safeStorage);
+  // bridge has no transcript write path; the sidecar reads it READ-ONLY. The
+  // keystore (`chatKeystore`) is created above and shared with the PRD-5 summary
+  // step (which reuses the same provider config + BYOK key).
   disposeChatIpc = registerChatIpc({ supervisor, keystore: chatKeystore });
   disposeChatStreamPush = forwardChatStream(supervisor, () => mainWindow);
 
@@ -217,6 +265,12 @@ async function shutdown(): Promise<void> {
   disposeChatIpc = null;
   disposeChatStreamPush?.();
   disposeChatStreamPush = null;
+  disposePostProcessIpc?.();
+  disposePostProcessIpc = null;
+  disposeJobUpdatePush?.();
+  disposeJobUpdatePush = null;
+  disposePostProcessPipeline?.();
+  disposePostProcessPipeline = null;
   disposeStatusPush?.();
   disposeStatusPush = null;
   disposeTranscriptPush?.();

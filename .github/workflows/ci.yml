@@ -125,6 +125,22 @@ jobs:
       - name: Smoke (chat end-to-end)
         run: pnpm smoke:chat
 
+      # PRD-5 acceptance gate (headless, hermetic): spawns the REAL sidecar with
+      # LOQUI_FAKE_ASR=1 + LOQUI_FAKE_CHAT=1 + LOQUI_FAKE_DIARIZER=1 + a temp
+      # LOQUI_DATA_DIR, drives a meeting to write the WALs/WAVs, seeds the
+      # READ-ONLY structured + live transcript, then drives the REAL post-process
+      # path end-to-end over the WS control channel (postProcess -> app.py
+      # dispatch -> run_postprocess -> FakeDiarizer + pure alignment ->
+      # transcript.diarized.{json,md} -> FakeChatProvider summary -> summary.json
+      # -> postProcessDone). Asserts JobUpdate progress for diarization + summary,
+      # the diarized files carry "You" + >= 2 "Speaker N" labels, summary.json +
+      # a searchable indexText, and — the cross-cutting invariant — that
+      # transcript.live.md AND transcript.jsonl are BYTE-IDENTICAL after the whole
+      # pipeline (diarization + summary write only the derived files). No
+      # model/torch/pyannote/HF token/key/network/devices.
+      - name: Smoke (post-process end-to-end)
+        run: pnpm smoke:postprocess
+
   e2e:
     name: e2e / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

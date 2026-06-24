@@ -1,0 +1,67 @@
+{
+  "$ref": "#/definitions/PostProcessRequest",
+  "definitions": {
+    "PostProcessRequest": {
+      "type": "object",
+      "properties": {
+        "meetingId": {
+          "type": "string"
+        },
+        "providerConfig": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "default": "fake"
+            },
+            "model": {
+              "type": "string",
+              "default": "claude-opus-4-8"
+            },
+            "baseUrl": {
+              "type": "string",
+              "default": "http://localhost:11434"
+            },
+            "ollamaModel": {
+              "type": "string",
+              "default": "llama3.1"
+            },
+            "cli": {
+              "type": "string",
+              "default": "claude"
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
+        "apiKey": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "hfToken": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "regenerateSummary": {
+          "type": "boolean",
+          "default": false
+        },
+        "rediarize": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "meetingId"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

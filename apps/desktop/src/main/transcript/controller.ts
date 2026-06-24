@@ -86,6 +86,21 @@ export interface MeetingControllerOptions {
   supervisor?: MeetingLifecycleSupervisor;
   /** Clock for `startedAt`/`endedAt`. Defaults to a real ISO-8601 now. */
   now?: () => string;
+  /**
+   * PRD-5 post-processing hook. When provided, `stopMeeting` transitions
+   * `recording` -> `processing`, clears the active-meeting pointer, then hands
+   * off to this hook and returns the `processing` meeting WITHOUT finalizing to
+   * `done` — the post-processing pipeline (after the WALs/WAVs finalize via the
+   * existing `audioFinalized` signal) drives diarization + summary and finalizes
+   * the meeting to `done` (or `error`) itself. When ABSENT (PRD-0..4 behavior),
+   * `stopMeeting` finalizes straight to `done` inline as before.
+   *
+   * The hook is invoked once per stop with the `processing` Meeting. It must not
+   * throw synchronously (the controller guards it); it owns the eventual
+   * `processing -> done`/`error` transition. The controller NEVER runs
+   * diarization/summary itself and NEVER writes the transcript.
+   */
+  postProcess?: (meeting: Meeting) => void;
 }
 
 /**
@@ -124,6 +139,7 @@ export function createMeetingController(
 ): MeetingController {
   const { store, supervisor } = options;
   const now = options.now ?? (() => new Date().toISOString());
+  const postProcess = options.postProcess;
 
   /** The id of the meeting currently `recording`, or null. */
   let activeId: string | null = null;
@@ -200,9 +216,23 @@ export function createMeetingController(
         supervisor?.setActiveMeeting(null);
       }
 
-      // processing -> done. Any failure here (post-processing hooks land in
-      // PRD-5) flips the meeting to `error` rather than leaving it stuck in
-      // `processing`; the error is re-thrown so the caller/IPC layer sees it.
+      // PRD-5: if a post-processing hook is wired, hand off — it owns the
+      // `processing -> done`/`error` transition once diarization + summary run
+      // (after the WAVs finalize). Return the `processing` meeting; the renderer
+      // sees `done` later via the status push the hook drives. When NO hook is
+      // wired (PRD-0..4 behavior), finalize straight to `done` inline below.
+      if (postProcess) {
+        try {
+          postProcess(processing);
+        } catch {
+          /* the hook must not break stop; it owns its own error transition */
+        }
+        return processing;
+      }
+
+      // processing -> done. Any failure here flips the meeting to `error` rather
+      // than leaving it stuck in `processing`; the error is re-thrown so the
+      // caller/IPC layer sees it.
       let finalized: Meeting;
       try {
         finalized = store.updateMeeting(id, { status: "done" });

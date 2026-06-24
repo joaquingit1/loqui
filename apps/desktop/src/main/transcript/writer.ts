@@ -1,6 +1,11 @@
 /**
- * TranscriptWriter — the ONE and ONLY module in the app that writes
- * `<dataRoot>/meetings/<id>/transcript.live.md` (PRD-3).
+ * TranscriptWriter — the ONE and ONLY module in the app that writes the
+ * per-meeting transcript files: the human-facing
+ * `<dataRoot>/meetings/<id>/transcript.live.md` (PRD-3) AND the parallel
+ * structured `<dataRoot>/meetings/<id>/transcript.jsonl` (PRD-5: one JSON
+ * record per confirmed segment, read by diarization alignment). Both are fed by
+ * the SAME confirmed-segment stream and stay APPEND-ONLY — this remains the only
+ * transcript writer and is NOT an AI write.
  *
  * Import as:
  *   `import { createTranscriptWriter, type TranscriptWriter } from "../transcript/writer.js"`
@@ -28,8 +33,12 @@
  */
 import { appendFileSync, closeSync, fsyncSync, mkdirSync, openSync } from "node:fs";
 import { dirname } from "node:path";
-import { formatTranscriptLine, type TranscriptSegment } from "@loqui/shared";
-import { meetingLiveTranscriptPath } from "../store/paths.js";
+import {
+  formatStructuredTranscriptLine,
+  formatTranscriptLine,
+  type TranscriptSegment,
+} from "@loqui/shared";
+import { meetingLiveTranscriptPath, meetingTranscriptPath } from "../store/paths.js";
 
 /**
  * The append-only writer surface. Deliberately minimal: one method that appends
@@ -66,6 +75,13 @@ const realFs: TranscriptWriterFs = {
 export interface TranscriptWriterOptions {
   /** Resolve the transcript.live.md path for a meeting id. Defaults to the store path. */
   resolvePath?: (meetingId: string) => string;
+  /**
+   * Resolve the structured transcript.jsonl path for a meeting id (PRD-5).
+   * Defaults to the store path for the `"structured"` variant. The same
+   * confirmed segment is appended here as one JSON record (per
+   * {@link formatStructuredTranscriptLine}) alongside the `.md` line.
+   */
+  resolveStructuredPath?: (meetingId: string) => string;
   /** Injectable fs (tests). Defaults to node:fs. */
   fs?: TranscriptWriterFs;
 }
@@ -75,9 +91,34 @@ export function createTranscriptWriter(
   options: TranscriptWriterOptions = {},
 ): TranscriptWriter {
   const resolvePath = options.resolvePath ?? meetingLiveTranscriptPath;
+  const resolveStructuredPath =
+    options.resolveStructuredPath ?? ((id: string) => meetingTranscriptPath(id, "structured"));
   const fs = options.fs ?? realFs;
   // meetingId -> set of segIds already written to the file.
   const written = new Map<string, Set<string>>();
+
+  /** Append one line to a file (O_APPEND + fsync); returns false + logs on error. */
+  function appendDurable(target: string, line: string): boolean {
+    try {
+      fs.mkdirSync(dirname(target), { recursive: true });
+      // Append the line (O_APPEND), then fsync so the confirmed line is durable
+      // before we return. Open/append/fsync/close keeps it simple and
+      // crash-safe; we never hold the file open across calls.
+      const fd = fs.openSync(target, "a");
+      try {
+        fs.appendFileSync(fd, line);
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
+      return true;
+    } catch (err) {
+      // A disk error must not break the WS/supervision loop. Log and drop. The
+      // next confirmed segment for this meeting will retry the file.
+      console.error("[loqui] transcript append failed:", err);
+      return false;
+    }
+  }
 
   return {
     appendConfirmedSegment(segment: TranscriptSegment): boolean {
@@ -90,26 +131,17 @@ export function createTranscriptWriter(
       }
       if (seen.has(segment.segId)) return false;
 
-      const target = resolvePath(segment.meetingId);
-      const line = formatTranscriptLine(segment);
-      try {
-        fs.mkdirSync(dirname(target), { recursive: true });
-        // Append the line (O_APPEND), then fsync so the confirmed line is
-        // durable before we return. Open/append/fsync/close keeps it simple and
-        // crash-safe; we never hold the file open across calls.
-        const fd = fs.openSync(target, "a");
-        try {
-          fs.appendFileSync(fd, line);
-          fs.fsyncSync(fd);
-        } finally {
-          fs.closeSync(fd);
-        }
-      } catch (err) {
-        // A disk error must not break the WS/supervision loop. Log and drop.
-        // The next confirmed segment for this meeting will retry the file.
-        console.error("[loqui] transcript append failed:", err);
-        return false;
-      }
+      // Append the human-facing `.md` line first (the artifact the user
+      // watches), then the structured `.jsonl` record (PRD-5 alignment input).
+      // Both are guarded; the `.md` write decides success/dedupe so a failed
+      // `.jsonl` append never blocks the live transcript. The dedupe set is the
+      // single per-segId gate for BOTH files, keeping them 1:1.
+      const mdOk = appendDurable(resolvePath(segment.meetingId), formatTranscriptLine(segment));
+      if (!mdOk) return false;
+      appendDurable(
+        resolveStructuredPath(segment.meetingId),
+        formatStructuredTranscriptLine(segment),
+      );
       seen.add(segment.segId);
       return true;
     },

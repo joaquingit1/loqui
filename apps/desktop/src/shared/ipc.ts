@@ -119,6 +119,52 @@ export const IPC = {
    * the key itself.
    */
   chatGetApiKeyStatus: "loqui:chat:getApiKeyStatus",
+
+  // --- Post-meeting diarization + AI summaries (PRD-5) ---
+  /**
+   * push (main -> renderer): one post-processing {@link import("@loqui/shared").JobEvent}
+   * (a {@link import("@loqui/shared").JobUpdate} with kind "diarization" | "summary"),
+   * forwarded from the sidecar's `jobUpdate` WS notifications so the UI can show
+   * diarization/summary progress. The renderer subscribes via `window.loqui.postprocess.onJob`.
+   */
+  postProcessJob: "loqui:postprocess:job",
+  /**
+   * invoke: read a meeting's AI summary (payload
+   * {@link import("@loqui/shared").GetSummaryParams}; -> Summary | null).
+   * READ-ONLY; null when no summary has been generated.
+   */
+  getSummary: "loqui:postprocess:getSummary",
+  /**
+   * invoke: read a meeting's diarized transcript (payload
+   * {@link import("@loqui/shared").GetDiarizedTranscriptParams}; ->
+   * DiarizedTranscript | null). READ-ONLY; null when not yet diarized.
+   */
+  getDiarizedTranscript: "loqui:postprocess:getDiarizedTranscript",
+  /**
+   * invoke: rename a diarized speaker (payload
+   * {@link import("@loqui/shared").RenameSpeakerParams}; -> DiarizedTranscript).
+   * main rewrites the diarized files + meta.participants + re-indexes
+   * (deterministic, NOT an AI write; never touches transcript.live.md).
+   */
+  renameSpeaker: "loqui:postprocess:renameSpeaker",
+  /**
+   * invoke: regenerate a meeting's summary (payload
+   * {@link import("@loqui/shared").RegenerateSummaryParams}; -> void). Triggers a
+   * summary-only postProcess run on the sidecar; progress arrives via {@link postProcessJob}.
+   */
+  regenerateSummary: "loqui:postprocess:regenerateSummary",
+  /**
+   * invoke: store/clear the Hugging Face token for gated pyannote weights in the
+   * OS keychain via the safeStorage keystore (payload
+   * {@link import("@loqui/shared").SetHfTokenParams}; ->
+   * {@link import("@loqui/shared").HfTokenStatus}). Never returns the token.
+   */
+  setHfToken: "loqui:postprocess:setHfToken",
+  /**
+   * invoke: whether an HF token is currently stored (->
+   * {@link import("@loqui/shared").HfTokenStatus}). Never returns the token.
+   */
+  getHfTokenStatus: "loqui:postprocess:getHfTokenStatus",
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

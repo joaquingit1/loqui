@@ -38,6 +38,7 @@ import {
   type ChatTurn,
 } from "../chat/index.js";
 import { ProviderSettings } from "./ProviderSettings.js";
+import { HfTokenSettings } from "../summary/index.js";
 import "../chat/chat.css";
 
 export interface ChatPanelProps {
@@ -162,7 +163,13 @@ export function ChatPanel({ meetingId, api }: ChatPanelProps): JSX.Element {
       </div>
 
       {settingsOpen && (
-        <ProviderSettings api={chat} onSaved={onSettingsSaved} />
+        <>
+          <ProviderSettings api={chat} onSaved={onSettingsSaved} />
+          {/* PRD-5: Hugging Face token for gated pyannote diarization weights.
+              Sits with the other keychain secret (the AI key); main encrypts it
+              via safeStorage. Talks to window.loqui.postprocess itself. */}
+          <HfTokenSettings />
+        </>
       )}
 
       <p className="chat__readonly-note" data-testid="chat-readonly-note" role="note">

@@ -35,6 +35,8 @@ AUDIO_START = "AudioStart"
 AUDIO_STOP = "AudioStop"
 #: PRD-4: the inbound `chatRequest` notification payload (main -> sidecar).
 CHAT_REQUEST = "ChatRequest"
+#: PRD-5: the inbound `postProcess` notification payload (main -> sidecar).
+POSTPROCESS_REQUEST = "PostProcessRequest"
 
 
 class SchemaError(RuntimeError):
@@ -161,5 +163,5 @@ def preload() -> None:
     Called during startup so a missing/broken schema dir fails before we print
     the handshake line and begin serving.
     """
-    for name in (WS_ENVELOPE, AUDIO_START, AUDIO_STOP, CHAT_REQUEST):
+    for name in (WS_ENVELOPE, AUDIO_START, AUDIO_STOP, CHAT_REQUEST, POSTPROCESS_REQUEST):
         _validator_for(name)
