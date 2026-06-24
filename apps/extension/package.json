@@ -1,0 +1,25 @@
+{
+  "name": "@loqui/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Loqui browser extension (MV3): reads Google Meet's participant list + active-speaker indicator and emits {ts,name,speaking} events over a loopback WebSocket to the Loqui app. No audio, no recording — Loqui captures audio itself. Best-effort + degrades gracefully.",
+  "scripts": {
+    "build": "node --import tsx scripts/build.ts",
+    "dev": "node --import tsx scripts/build.ts --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@loqui/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.270",
+    "@types/node": "^22.10.2",
+    "esbuild": "^0.21.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.8"
+  }
+}

@@ -83,6 +83,19 @@ function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
       refresh: vi.fn(async () => []),
       onUpdated: () => () => {},
     },
+    // PRD-6 speaker-names bridge: the App mounts <SpeakerNamesStatus> under
+    // Settings; the fake returns the disconnected resting status.
+    speakerNames: {
+      status: vi.fn(async () => ({
+        state: "disconnected" as const,
+        meetingActive: false,
+        bufferedEvents: 0,
+        lastEventAt: null,
+        selectorVersion: "",
+        extensionVersion: "",
+      })),
+      onStatus: () => () => {},
+    },
     ...overrides,
   };
   return { api, emitStatus: (s) => cb?.(s) };
@@ -150,9 +163,10 @@ describe("App", () => {
     fireEvent.click(screen.getByTestId("nav-meeting"));
     await waitFor(() => expect(screen.getByTestId("meeting-controls")).toBeTruthy());
 
-    // Settings tab → CalendarSettings + MCP + Debug all mounted.
+    // Settings tab → CalendarSettings + SpeakerNames indicator + MCP + Debug all mounted.
     fireEvent.click(screen.getByTestId("nav-settings"));
     await waitFor(() => expect(screen.getByTestId("calendar-settings")).toBeTruthy());
+    expect(screen.getByTestId("speakernames-status")).toBeTruthy();
     expect(screen.getByTestId("mcp-settings")).toBeTruthy();
     expect(screen.getByTestId("ping-button")).toBeTruthy();
 

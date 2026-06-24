@@ -1,0 +1,91 @@
+{
+  "$ref": "#/definitions/ExtensionMessage",
+  "definitions": {
+    "ExtensionMessage": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "hello"
+            },
+            "extensionVersion": {
+              "type": "string",
+              "default": ""
+            },
+            "selectorVersion": {
+              "type": "string",
+              "default": ""
+            },
+            "meetingCode": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "origin": {
+              "type": "string",
+              "default": ""
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "activity"
+            },
+            "event": {
+              "type": "object",
+              "properties": {
+                "ts": {
+                  "type": "number",
+                  "default": 0
+                },
+                "name": {
+                  "type": "string",
+                  "default": ""
+                },
+                "speaking": {
+                  "type": "boolean",
+                  "default": false
+                }
+              },
+              "additionalProperties": false,
+              "default": {}
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "bye"
+            },
+            "reason": {
+              "type": "string",
+              "default": ""
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

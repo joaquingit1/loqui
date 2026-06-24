@@ -1,0 +1,24 @@
+{
+  "$ref": "#/definitions/SpeakerActivityEvent",
+  "definitions": {
+    "SpeakerActivityEvent": {
+      "type": "object",
+      "properties": {
+        "ts": {
+          "type": "number",
+          "default": 0
+        },
+        "name": {
+          "type": "string",
+          "default": ""
+        },
+        "speaking": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

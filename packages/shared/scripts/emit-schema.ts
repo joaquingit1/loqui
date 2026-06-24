@@ -45,6 +45,14 @@ import {
   postProcessRequestSchema,
   postProcessDoneSchema,
 } from "../src/postprocess.js";
+import {
+  speakerActivityEventSchema,
+  extensionMessageSchema,
+  speakerCorrelationParamsSchema,
+  speakerNameResolutionSchema,
+  speakerCorrelationResultSchema,
+  speakerNamesStatusSchema,
+} from "../src/speakernames.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, "..", "schema");
@@ -85,6 +93,16 @@ const schemas: Record<string, ZodTypeAny> = {
   Summary: summarySchema,
   PostProcessRequest: postProcessRequestSchema,
   PostProcessDone: postProcessDoneSchema,
+  // PRD-6 Google-Meet speaker-name attribution. Emitted so the (TS-only)
+  // extension <-> main wire + the pure correlation contract are fully visible.
+  // The Python sidecar is NOT involved in PRD-6; these are for documentation +
+  // cross-process TS parity, mirroring the other emitted contracts.
+  SpeakerActivityEvent: speakerActivityEventSchema,
+  ExtensionMessage: extensionMessageSchema,
+  SpeakerCorrelationParams: speakerCorrelationParamsSchema,
+  SpeakerNameResolution: speakerNameResolutionSchema,
+  SpeakerCorrelationResult: speakerCorrelationResultSchema,
+  SpeakerNamesStatus: speakerNamesStatusSchema,
 };
 
 rmSync(outDir, { recursive: true, force: true });

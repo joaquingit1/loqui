@@ -48,6 +48,25 @@ import {
   type CalendarServiceImpl,
 } from "./calendar/index.js";
 import type { OAuthHttp } from "./calendar/oauth.js";
+// PRD-6 Google Meet speaker-name attribution. The loopback WS server
+// (createExtensionWsServer) accepts the browser extension's {ts,name,speaking}
+// events ONLY while a meeting is recording, the PURE correlation engine
+// (correlateSpeakerNames) maps diarized `Speaker N` turns -> names after
+// diarization, and the name-applier (applySpeakerNames — REUSES the PRD-5
+// diarized-rewrite path) applies them; the IPC bridge (registerSpeakerNamesIpc)
+// surfaces status to the renderer, and the post-diarization hook
+// (subscribeSpeakerNamesCorrelation) drives correlate+apply on postProcessDone.
+// Every path is best-effort: an absent/broken extension degrades to generic
+// `Speaker N` labels with no crash. The Python sidecar is NOT involved.
+import {
+  createExtensionWsServer,
+  activeMeetingFromController,
+  correlateSpeakerNames,
+  applySpeakerNames,
+  registerSpeakerNamesIpc,
+  subscribeSpeakerNamesCorrelation,
+  type ExtensionWsServer,
+} from "./speakernames/index.js";
 
 const __dirname = join(fileURLToPath(import.meta.url), "..");
 
@@ -146,6 +165,12 @@ let disposeMcpIpc: (() => void) | null = null;
 // the service (fan-out/normalize/dedup/poll) it's bound to.
 let disposeCalendarIpc: (() => void) | null = null;
 let calendarService: CalendarServiceImpl | null = null;
+// PRD-6 speaker-names seam: the loopback extension WS server, its IPC bridge +
+// status-push disposer, and the disposer that unhooks the post-diarization
+// correlation pass. All null until the Build phase wires `wireSpeakerNames`.
+let extensionWsServer: ExtensionWsServer | null = null;
+let disposeSpeakerNamesIpc: (() => void) | null = null;
+let disposeSpeakerNamesCorrelation: (() => void) | null = null;
 
 /**
  * Create the window, open the store, start + supervise the sidecar, register
@@ -296,6 +321,48 @@ export async function bootstrap(): Promise<void> {
     getWindow: () => mainWindow,
   });
 
+  // Google Meet speaker-name attribution (PRD-6). GRACEFUL DEGRADATION is the #1
+  // invariant: every step below is best-effort, so a bind failure, an absent
+  // extension, or a correlation error is logged + swallowed and the meeting still
+  // completes with generic `Speaker N` labels.
+  //
+  //   1. construct the loopback-ONLY extension WS server. `activeMeeting` adapts
+  //      the PRD-3 `controller` so the server buffers {ts,name,speaking} events
+  //      ONLY while a meeting is recording and IGNORES them otherwise. start()
+  //      binds 127.0.0.1 only; a bind failure (e.g. port busy) leaves the server
+  //      inert (status stays `disconnected`) and must not block bootstrap.
+  //   2. register the status IPC + status push so the renderer indicator reflects
+  //      connect/capture state (and clearly says diarization works without it).
+  //   3. hook the post-diarization correlation pass: after `postProcessDone` for
+  //      a Google-Meet meeting, drain that meeting's buffered activity, run the
+  //      PURE `correlateSpeakerNames` over the freshly-written diarized
+  //      transcript, and apply via `applySpeakerNames` (REUSES the PRD-5
+  //      diarized-rewrite path; MANUAL renames win; the live transcript stays
+  //      byte-identical). Subscribes the SAME supervisor notification fan-out the
+  //      PRD-5 pipeline uses, filtered to postProcessDone.
+  extensionWsServer = createExtensionWsServer({
+    activeMeeting: activeMeetingFromController(controller),
+  });
+  // Bind in the background; a bind failure degrades silently (no listener =>
+  // the extension never connects => generic labels), never blocking the window.
+  void extensionWsServer.start().catch((err: unknown) => {
+    console.error("[loqui] speakernames WS server failed to start:", err);
+  });
+  disposeSpeakerNamesIpc = registerSpeakerNamesIpc({
+    server: extensionWsServer,
+    getWindow: () => mainWindow,
+  });
+  disposeSpeakerNamesCorrelation = subscribeSpeakerNamesCorrelation({
+    supervisor,
+    hook: {
+      server: extensionWsServer,
+      store,
+      correlate: correlateSpeakerNames,
+      apply: applySpeakerNames,
+    },
+    getMeeting: (id) => store?.getMeeting(id) ?? null,
+  });
+
   // Start the sidecar in the background; failure surfaces via status push and
   // must not block window creation.
   void supervisor.start().catch((err: unknown) => {
@@ -352,6 +419,18 @@ async function shutdown(): Promise<void> {
   disposeCalendarIpc = null;
   calendarService?.dispose();
   calendarService = null;
+  // PRD-6 speaker-names teardown (unhooks the correlation pass + IPC/status push
+  // and stops the loopback extension WS server once the Build phase wires them).
+  disposeSpeakerNamesCorrelation?.();
+  disposeSpeakerNamesCorrelation = null;
+  disposeSpeakerNamesIpc?.();
+  disposeSpeakerNamesIpc = null;
+  try {
+    await extensionWsServer?.stop();
+  } catch (err) {
+    console.error("[loqui] error stopping extension WS server:", err);
+  }
+  extensionWsServer = null;
   disposeStatusPush?.();
   disposeStatusPush = null;
   disposeTranscriptPush?.();

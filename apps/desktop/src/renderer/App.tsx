@@ -29,6 +29,7 @@ import { Library } from "./components/Library.js";
 import { McpSettings } from "./components/McpSettings.js";
 import { HomeView } from "./components/HomeView.js";
 import { CalendarSettings } from "./components/CalendarSettings.js";
+import { SpeakerNamesStatus } from "./components/SpeakerNamesStatus.js";
 
 declare global {
   interface Window {
@@ -122,6 +123,7 @@ export function App({
       {view === "settings" && (
         <>
           <CalendarSettings api={api?.calendar} />
+          <SpeakerNamesStatus api={api?.speakerNames} />
           <McpSettings api={api?.mcp} />
           <DebugPanel api={api} />
         </>

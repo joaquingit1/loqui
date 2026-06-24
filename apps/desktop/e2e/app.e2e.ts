@@ -129,3 +129,34 @@ test("sidecar reaches healthy + ping round-trips through the real IPC/WS seam", 
   expect(pong.ok).toBe(true);
   expect(typeof pong.latencyMs).toBe("number");
 });
+
+test("the PRD-6 speaker-names indicator renders + the status IPC round-trips (absent extension degrades gracefully)", async () => {
+  // PRD-6 is WIRED into the running app: the status IPC handler is registered
+  // (registerSpeakerNamesIpc) so window.loqui.speakerNames.status() round-trips
+  // through the real loopback WS server. With no extension connected in the E2E,
+  // it reports "disconnected" — proving the end-to-end graceful-degradation path
+  // (the meeting would still diarize with generic `Speaker N` labels).
+  const status = await page.evaluate(async () => {
+    try {
+      const api = (
+        window as unknown as {
+          loqui?: { speakerNames?: { status?: () => Promise<{ state?: string } | null> } };
+        }
+      ).loqui;
+      if (typeof api?.speakerNames?.status !== "function") return { error: "no bridge" };
+      return await api.speakerNames.status();
+    } catch (e) {
+      return { error: String(e) };
+    }
+  });
+  // The invoke must NOT reject (the handler exists) and reports a disconnected
+  // resting state (no extension paired in the headless E2E).
+  expect(status && typeof status === "object").toBe(true);
+  expect((status as { error?: string }).error).toBeUndefined();
+  expect((status as { state?: string }).state).toBe("disconnected");
+
+  // The indicator is mounted under Settings and shows the degraded copy.
+  await page.getByTestId("nav-settings").click();
+  await expect(page.getByTestId("speakernames-status")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId("speakernames-pill")).toHaveAttribute("data-state", "disconnected");
+});

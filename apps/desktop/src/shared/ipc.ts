@@ -242,6 +242,26 @@ export const IPC = {
    * manual refresh when the set changes.
    */
   calendarUpdated: "loqui:calendar:updated",
+
+  // --- Google Meet speaker-name attribution (PRD-6) ---
+  /**
+   * invoke: current extension-connection / name-capture status
+   * (-> {@link import("@loqui/shared").SpeakerNamesStatus}). Reports whether the
+   * browser extension is connected, whether names are being captured for the
+   * active meeting, and the connected extension/selector versions. READ-ONLY
+   * status only — this never writes anything. The whole feature degrades
+   * gracefully: a `disconnected` status is normal and the meeting still
+   * completes with generic `Speaker N` labels.
+   */
+  speakerNamesStatus: "loqui:speakerNames:status",
+  /**
+   * push (main -> renderer): the speaker-names extension status changed (payload
+   * {@link import("@loqui/shared").SpeakerNamesStatus}). The renderer indicator
+   * subscribes via `window.loqui.speakerNames.onStatus`. Fires on
+   * connect/disconnect of the extension WS and when capture starts/stops for the
+   * active meeting.
+   */
+  speakerNamesStatusChanged: "loqui:speakerNames:statusChanged",
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

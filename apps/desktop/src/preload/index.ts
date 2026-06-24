@@ -43,6 +43,7 @@ import type {
   ScreenPermissionStatus,
   SetApiKeyParams,
   SetHfTokenParams,
+  SpeakerNamesStatus,
   StartMeetingParams,
   StopMeetingParams,
   Summary,
@@ -78,6 +79,29 @@ export interface LoquiApi {
   mcp: LoquiMcpApi;
   /** Calendar integration + Home/Today view bridge (PRD-15). */
   calendar: LoquiCalendarApi;
+  /** Google Meet speaker-name attribution status bridge (PRD-6). */
+  speakerNames: LoquiSpeakerNamesApi;
+}
+
+/**
+ * Google Meet speaker-name attribution surface (PRD-6). Wraps the speaker-names
+ * IPC channels so the renderer indicator never references channel names directly.
+ * STATUS-ONLY + best-effort: this reports whether the browser extension is
+ * connected and capturing names for the active meeting — it cannot start a
+ * capture, write a name, or touch a transcript (correlation + name-apply run in
+ * main after diarization, reusing the PRD-5 rewrite path). The feature degrades
+ * gracefully: a `disconnected` status is normal and the meeting still completes
+ * with generic `Speaker N` labels; the indicator messaging makes that clear.
+ */
+export interface LoquiSpeakerNamesApi {
+  /** Current extension-connection / name-capture status. */
+  status(): Promise<SpeakerNamesStatus>;
+  /**
+   * Subscribe to extension status changes (connect/disconnect, capture
+   * start/stop). The callback fires with the full current status. Returns an
+   * unsubscribe fn.
+   */
+  onStatus(cb: (status: SpeakerNamesStatus) => void): () => void;
 }
 
 /**
@@ -353,6 +377,15 @@ const calendar: LoquiCalendarApi = {
   },
 };
 
+const speakerNames: LoquiSpeakerNamesApi = {
+  status: (): Promise<SpeakerNamesStatus> => ipcRenderer.invoke(IPC.speakerNamesStatus),
+  onStatus: (cb: (status: SpeakerNamesStatus) => void): (() => void) => {
+    const listener = (_e: unknown, status: SpeakerNamesStatus): void => cb(status);
+    ipcRenderer.on(IPC.speakerNamesStatusChanged, listener);
+    return () => ipcRenderer.removeListener(IPC.speakerNamesStatusChanged, listener);
+  },
+};
+
 const api: LoquiApi = {
   ping: () => ipcRenderer.invoke(IPC.ping),
   getSidecarHealth: () => ipcRenderer.invoke(IPC.getSidecarHealth),
@@ -372,6 +405,7 @@ const api: LoquiApi = {
   postprocess,
   mcp,
   calendar,
+  speakerNames,
 };
 
 contextBridge.exposeInMainWorld("loqui", api);

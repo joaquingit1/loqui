@@ -19,3 +19,4 @@ export * from "./postprocess.js";
 export * from "./store-read.js";
 export * from "./mcp.js";
 export * from "./calendar.js";
+export * from "./speakernames.js";
