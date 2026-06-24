@@ -33,7 +33,16 @@ Added after a deep comparison against **a comparable local app** — a polished 
 | 13 | [Export & interop + capture/privacy controls](PRD-13-export-privacy.md) | SRT/VTT/JSON/PDF/DOCX + Obsidian notes; hidden-from-screen-share; don't-keep-audio; per-app audio filtering. |
 | 14 | [No-token local diarization (sherpa-onnx default)](PRD-14-notoken-diarization.md) | **Removes the only mandatory token** — sherpa-onnx (Apache-2.0, no HF account, bundleable) becomes the default diarizer; pyannote becomes an opt-in HF-token accuracy upgrade. High-priority in this batch. |
 
-**Token/account posture (after PRD-14):** Loqui runs **fully local with zero tokens and zero accounts out of the box** — transcription (faster-whisper, public), diarization (sherpa-onnx, no token), summaries/chat (Apple-native on macOS via PRD-10, or Ollama cross-platform). Optional upgrades that *want* a token/cloud: Anthropic BYOK (best chat/summary quality) and pyannote `community-1` (best diarization, free HF token). None are required.
+**Token/account posture (after PRD-14):** Loqui runs **fully local with zero tokens and zero accounts out of the box** — transcription (faster-whisper, public), diarization (sherpa-onnx, no token), summaries/chat (Apple-native on macOS via PRD-10, or Ollama cross-platform). Optional upgrades that *want* a token/cloud: Anthropic BYOK (best chat/summary quality), pyannote `community-1` (best diarization, free HF token), and **calendar integration (PRD-15)** — an opt-in cloud connection. None are required for the core record→transcribe→summarize→search flow.
+
+## Calendar & Home view (PRD-15) — prioritized
+
+| # | PRD | Why |
+|---|---|---|
+| 15 | [Calendar integration + Home / "Today" view](PRD-15-calendar-home.md) | A **Home screen** listing today's/upcoming **scheduled** meetings from **Google Calendar + Microsoft 365 + Zoom** (with join links + "join & record"), plus a route to the existing past-meetings Library. Distinct from PRD-6 (in-call name scraping) and PRD-11 (detecting a call happening *now*) — this reads scheduled events ahead of time. |
+
+> **Sequencing:** PRD-15 is prioritized to run alongside the remaining core, but its Foundation edits `packages/shared` — so its orchestrated build starts **after PRD-7 greenlights** (both touch `packages/shared/src/index.ts`; they must not run concurrently). The `window.loqui.calendar` contract + `CalendarEvent` model are published in `docs/contract/FRONTEND-CONTRACT.md` so the renderer's Home view can be built in parallel.
+> **Privacy note:** PRD-15 is the one feature that intentionally calls a cloud API (the user's own calendar). It is opt-in, requests the **narrowest read-only scope**, stores OAuth tokens in the OS keychain, is disconnectable, and sends nothing to any Loqui server (there are none). This is an explicit, user-chosen exception to invariant #2 below — kept isolated behind a pluggable `CalendarProvider`.
 
 **Fold-ins** (executed inside their PRD, not standalone): custom summary prompt templates → PRD-10; hidden-from-screen-share + silence auto-stop + mic/system mute → PRD-11/PRD-13.
 
