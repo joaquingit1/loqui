@@ -73,6 +73,16 @@ function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
       getConfigSnippets: vi.fn(async () => []),
       onStatus: () => () => {},
     },
+    // PRD-15 calendar bridge: a no-op fake; the App under test does not use it yet.
+    calendar: {
+      listToday: vi.fn(async () => []),
+      listUpcoming: vi.fn(async () => []),
+      connect: vi.fn(async () => ({ connected: false })),
+      disconnect: vi.fn(async () => {}),
+      getConnections: vi.fn(async () => []),
+      refresh: vi.fn(async () => []),
+      onUpdated: () => () => {},
+    },
     ...overrides,
   };
   return { api, emitStatus: (s) => cb?.(s) };
@@ -96,11 +106,13 @@ describe("SidecarStatusBadge", () => {
 });
 
 describe("App", () => {
-  it("renders the Loqui home screen", () => {
+  it("renders the Loqui home screen as the landing view", () => {
     const { api } = makeFakeApi();
     render(<App api={api} />);
     expect(screen.getByRole("heading", { name: "Loqui" })).toBeTruthy();
-    expect(screen.getByTestId("ping-button")).toBeTruthy();
+    // Home is the landing view; the nav shell + Today view are mounted.
+    expect(screen.getByTestId("app-nav")).toBeTruthy();
+    expect(screen.getByTestId("home-view")).toBeTruthy();
   });
 
   it("starts in the connecting state and updates when a status push arrives", async () => {
@@ -123,10 +135,38 @@ describe("App", () => {
     expect(screen.getByTestId("sidecar-status").getAttribute("data-status")).toBe("connected");
   });
 
-  it("pings the sidecar and shows the round-trip result + latency", async () => {
+  it("navigates Home ↔ Library ↔ Meeting and keeps the existing views reachable", async () => {
+    const { api } = makeFakeApi();
+    render(<App api={api} />);
+
+    // Landing = Home.
+    expect(screen.getByTestId("home-view")).toBeTruthy();
+
+    // Library tab → the existing past-meetings Library.
+    fireEvent.click(screen.getByTestId("nav-library"));
+    await waitFor(() => expect(screen.getByTestId("library")).toBeTruthy());
+
+    // Meeting tab → the existing MeetingControls (Start meeting).
+    fireEvent.click(screen.getByTestId("nav-meeting"));
+    await waitFor(() => expect(screen.getByTestId("meeting-controls")).toBeTruthy());
+
+    // Settings tab → CalendarSettings + MCP + Debug all mounted.
+    fireEvent.click(screen.getByTestId("nav-settings"));
+    await waitFor(() => expect(screen.getByTestId("calendar-settings")).toBeTruthy());
+    expect(screen.getByTestId("mcp-settings")).toBeTruthy();
+    expect(screen.getByTestId("ping-button")).toBeTruthy();
+
+    // Back Home.
+    fireEvent.click(screen.getByTestId("nav-home"));
+    await waitFor(() => expect(screen.getByTestId("home-view")).toBeTruthy());
+  });
+
+  it("pings the sidecar (Debug panel under Settings) and shows the round-trip result", async () => {
     const { api } = makeFakeApi({ ping: vi.fn(async () => ({ ok: true, latencyMs: 42 })) });
     render(<App api={api} />);
 
+    fireEvent.click(screen.getByTestId("nav-settings"));
+    await waitFor(() => expect(screen.getByTestId("ping-button")).toBeTruthy());
     fireEvent.click(screen.getByTestId("ping-button"));
 
     await waitFor(() => expect(screen.getByTestId("ping-result")).toBeTruthy());
@@ -144,6 +184,8 @@ describe("App", () => {
     });
     render(<App api={api} />);
 
+    fireEvent.click(screen.getByTestId("nav-settings"));
+    await waitFor(() => expect(screen.getByTestId("ping-button")).toBeTruthy());
     fireEvent.click(screen.getByTestId("ping-button"));
 
     await waitFor(() => {

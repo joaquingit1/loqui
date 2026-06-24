@@ -7,7 +7,7 @@
  * STUB: the Build phase fills in window creation, IPC registration, and the
  * supervisor/store wiring. Imports below pin the contract.
  */
-import { app, BrowserWindow, safeStorage, session, systemPreferences } from "electron";
+import { app, BrowserWindow, safeStorage, session, shell, systemPreferences } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Meeting, ScreenPermissionStatus } from "@loqui/shared";
@@ -35,6 +35,19 @@ import {
   createTranscriptWriter,
 } from "./transcript/index.js";
 import { McpServerManager, makeMcpStatusPush, registerMcpIpc } from "./mcp/index.js";
+import {
+  CalendarKeystore,
+  FakeCalendarProvider,
+  GoogleProvider,
+  MicrosoftProvider,
+  ZoomProvider,
+  createCalendarService,
+  registerCalendarIpc,
+  type CalendarHttp,
+  type CalendarProviderRegistry,
+  type CalendarServiceImpl,
+} from "./calendar/index.js";
+import type { OAuthHttp } from "./calendar/oauth.js";
 
 const __dirname = join(fileURLToPath(import.meta.url), "..");
 
@@ -129,6 +142,10 @@ let disposeJobUpdatePush: (() => void) | null = null;
 let disposePostProcessPipeline: (() => void) | null = null;
 let mcpManager: McpServerManager | null = null;
 let disposeMcpIpc: (() => void) | null = null;
+// PRD-15 calendar seam: the disposer for the calendar IPC bridge + push, and
+// the service (fan-out/normalize/dedup/poll) it's bound to.
+let disposeCalendarIpc: (() => void) | null = null;
+let calendarService: CalendarServiceImpl | null = null;
 
 /**
  * Create the window, open the store, start + supervise the sidecar, register
@@ -240,6 +257,45 @@ export async function bootstrap(): Promise<void> {
   });
   disposeMcpIpc = registerMcpIpc({ manager: mcpManager });
 
+  // Calendar integration + Home/Today view (PRD-15). FOUNDATION SEAM — Build
+  // unit A implements `createCalendarService` (the service that fans out over
+  // connected accounts via injectable CalendarProviders, normalizes + merges +
+  // de-dups events, caches w/ short TTL + manual refresh, and emits a
+  // `calendar:updated` push) backed by a safeStorage-keystore CalendarTokenStore
+  // (REUSING the PRD-4/5 keychain mechanism — `safeStorage` is already in scope
+  // above). registerCalendarIpc (already wired below once the factory exists)
+  // binds the window.loqui.calendar channels to it. Strictly READ-ONLY over the
+  // provider calendar; never writes a transcript; OAuth runs a loopback-PKCE
+  // flow whose one-shot redirect listener binds 127.0.0.1 only.
+  //
+  // Production HTTP is a thin wrapper over the global `fetch` (the only place
+  // the calendar feature touches the network — and only inside a connected
+  // provider's OAuth/list calls). The consent page opens via shell.openExternal.
+  const calendarHttp: CalendarHttp = (url, init) => fetch(url, init);
+  const calendarOAuthHttp: OAuthHttp = (url, init) => fetch(url, init);
+  const openExternal = (url: string): Promise<void> => shell.openExternal(url);
+  const realProviderDeps = { http: calendarHttp, oauthHttp: calendarOAuthHttp, openExternal };
+  const calendarProviders: CalendarProviderRegistry = {
+    google: new GoogleProvider(realProviderDeps),
+    microsoft: new MicrosoftProvider(realProviderDeps),
+    zoom: new ZoomProvider(realProviderDeps),
+  };
+  // A hermetic FakeCalendarProvider is swapped in when LOQUI_CALENDAR_FAKE=1
+  // (the smoke + manual local runs) so connect/list never touch the network.
+  if (process.env["LOQUI_CALENDAR_FAKE"] === "1") {
+    calendarProviders.google = new FakeCalendarProvider({ source: "google" });
+    calendarProviders.microsoft = new FakeCalendarProvider({ source: "microsoft" });
+    calendarProviders.zoom = new FakeCalendarProvider({ source: "zoom" });
+  }
+  calendarService = createCalendarService({
+    tokenStore: new CalendarKeystore(safeStorage),
+    providers: calendarProviders,
+  });
+  disposeCalendarIpc = registerCalendarIpc({
+    service: calendarService,
+    getWindow: () => mainWindow,
+  });
+
   // Start the sidecar in the background; failure surfaces via status push and
   // must not block window creation.
   void supervisor.start().catch((err: unknown) => {
@@ -290,6 +346,12 @@ async function shutdown(): Promise<void> {
   disposeMcpIpc = null;
   mcpManager?.dispose();
   mcpManager = null;
+  // PRD-15 calendar teardown (disposes the IPC bridge + push + service polling
+  // once Build unit A wires it above).
+  disposeCalendarIpc?.();
+  disposeCalendarIpc = null;
+  calendarService?.dispose();
+  calendarService = null;
   disposeStatusPush?.();
   disposeStatusPush = null;
   disposeTranscriptPush?.();

@@ -157,6 +157,17 @@ jobs:
       - name: Smoke (MCP server stdio, read-only)
         run: pnpm smoke:mcp
 
+      # PRD-15 calendar Home/Today smoke (hermetic; FakeCalendarProvider, NO
+      # network, no Electron). Drives the REAL calendar service + token store +
+      # meeting store: connect (fake) -> listToday (merged, de-duped,
+      # soonest-first with platform+joinUrl) -> "join & record" (a meeting linked
+      # to the event, meetingId set, shown in the Library) and asserts the
+      # read-only invariants (no calendar file beyond calendar-tokens.json, no
+      # transcript.live.md written, an existing transcript stays byte-identical).
+      # Runs after the test step so better-sqlite3 is built for the node ABI.
+      - name: Smoke (calendar Home/Today, hermetic)
+        run: pnpm smoke:calendar
+
   e2e:
     name: e2e / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

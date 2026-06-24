@@ -14,6 +14,11 @@ import type {
   AudioCaptureStartParams,
   AudioCaptureStopParams,
   AudioFrameMessage,
+  CalendarConnection,
+  CalendarConnectResult,
+  CalendarEvent,
+  CalendarProviderId,
+  ListUpcomingParams,
   ChatProvider,
   ChatSendParams,
   ChatStreamEvent,
@@ -71,6 +76,39 @@ export interface LoquiApi {
   postprocess: LoquiPostProcessApi;
   /** Local read-only MCP server lifecycle + config bridge (PRD-7). */
   mcp: LoquiMcpApi;
+  /** Calendar integration + Home/Today view bridge (PRD-15). */
+  calendar: LoquiCalendarApi;
+}
+
+/**
+ * Calendar surface (PRD-15). Wraps the calendar IPC channels so the Home view +
+ * Calendar settings panel never reference channel names directly. READ-ONLY:
+ * reads SCHEDULED events from Google/Microsoft/Zoom (no calendar writes) and
+ * never writes a transcript. `connect` runs an in-app loopback-PKCE OAuth flow
+ * in main; tokens land in the OS keychain and NEVER reach the renderer. Shape
+ * matches the PRD-15 contract exactly; `onUpdated` returns an unsubscribe fn.
+ */
+export interface LoquiCalendarApi {
+  /** Today's events across all connected accounts, soonest-first, de-duplicated. */
+  listToday(): Promise<CalendarEvent[]>;
+  /** Upcoming events within a window (withinHours/limit defaulted), soonest-first. */
+  listUpcoming(params?: ListUpcomingParams): Promise<CalendarEvent[]>;
+  /**
+   * Connect a provider via the in-app OAuth flow (opens the system browser).
+   * Resolves with whether a connection now exists + the linked account label.
+   */
+  connect(provider: CalendarProviderId): Promise<CalendarConnectResult>;
+  /** Disconnect a provider account (clears keychain tokens); account omitted clears all. */
+  disconnect(provider: CalendarProviderId, account?: string): Promise<void>;
+  /** List connected accounts (provider/account/lastSyncAt). Never returns tokens. */
+  getConnections(): Promise<CalendarConnection[]>;
+  /** Force a re-sync across all connected accounts; resolves with the refreshed set. */
+  refresh(): Promise<CalendarEvent[]>;
+  /**
+   * Subscribe to event-set changes (push). The callback fires with the full
+   * current event set whenever it changes. Returns an unsubscribe fn.
+   */
+  onUpdated(cb: (events: CalendarEvent[]) => void): () => void;
 }
 
 /**
@@ -297,6 +335,24 @@ const mcp: LoquiMcpApi = {
   },
 };
 
+const calendar: LoquiCalendarApi = {
+  listToday: (): Promise<CalendarEvent[]> => ipcRenderer.invoke(IPC.calendarListToday),
+  listUpcoming: (params?: ListUpcomingParams): Promise<CalendarEvent[]> =>
+    ipcRenderer.invoke(IPC.calendarListUpcoming, params),
+  connect: (provider: CalendarProviderId): Promise<CalendarConnectResult> =>
+    ipcRenderer.invoke(IPC.calendarConnect, { provider }),
+  disconnect: (provider: CalendarProviderId, account?: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.calendarDisconnect, { provider, account }),
+  getConnections: (): Promise<CalendarConnection[]> =>
+    ipcRenderer.invoke(IPC.calendarGetConnections),
+  refresh: (): Promise<CalendarEvent[]> => ipcRenderer.invoke(IPC.calendarRefresh),
+  onUpdated: (cb: (events: CalendarEvent[]) => void): (() => void) => {
+    const listener = (_e: unknown, events: CalendarEvent[]): void => cb(events);
+    ipcRenderer.on(IPC.calendarUpdated, listener);
+    return () => ipcRenderer.removeListener(IPC.calendarUpdated, listener);
+  },
+};
+
 const api: LoquiApi = {
   ping: () => ipcRenderer.invoke(IPC.ping),
   getSidecarHealth: () => ipcRenderer.invoke(IPC.getSidecarHealth),
@@ -315,6 +371,7 @@ const api: LoquiApi = {
   chat,
   postprocess,
   mcp,
+  calendar,
 };
 
 contextBridge.exposeInMainWorld("loqui", api);

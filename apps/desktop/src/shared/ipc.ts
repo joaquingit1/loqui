@@ -196,6 +196,52 @@ export const IPC = {
    * via `window.loqui.mcp.onStatus`.
    */
   mcpStatusChanged: "loqui:mcp:statusChanged",
+
+  // --- Calendar integration + Home/Today view (PRD-15) ---
+  /**
+   * invoke: today's scheduled events across all connected accounts, soonest-first,
+   * de-duplicated (-> {@link import("@loqui/shared").CalendarEvent}[]). READ-ONLY:
+   * reads scheduled events from the provider; never writes a calendar or a transcript.
+   */
+  calendarListToday: "loqui:calendar:listToday",
+  /**
+   * invoke: upcoming events within a window (payload
+   * {@link import("@loqui/shared").ListUpcomingParams}; ->
+   * {@link import("@loqui/shared").CalendarEvent}[]), soonest-first.
+   */
+  calendarListUpcoming: "loqui:calendar:listUpcoming",
+  /**
+   * invoke: run a provider's loopback-PKCE OAuth connect flow (payload {provider};
+   * -> {@link import("@loqui/shared").CalendarConnectResult}). Opens the consent
+   * page via shell.openExternal, captures the redirect on a one-shot 127.0.0.1
+   * listener, exchanges the code, and stores tokens in the OS keychain. Tokens
+   * never reach the renderer.
+   */
+  calendarConnect: "loqui:calendar:connect",
+  /**
+   * invoke: disconnect a provider account (payload
+   * {@link import("@loqui/shared").CalendarDisconnectParams}; -> void). Clears the
+   * keychain tokens; omitting `account` clears all accounts for the provider.
+   */
+  calendarDisconnect: "loqui:calendar:disconnect",
+  /**
+   * invoke: list connected accounts (->
+   * {@link import("@loqui/shared").CalendarConnection}[] — provider/account/lastSyncAt).
+   * Never returns token material.
+   */
+  calendarGetConnections: "loqui:calendar:getConnections",
+  /**
+   * invoke: force a re-sync across all connected accounts (->
+   * {@link import("@loqui/shared").CalendarEvent}[], the refreshed set).
+   */
+  calendarRefresh: "loqui:calendar:refresh",
+  /**
+   * push (main -> renderer): the calendar event set changed (payload
+   * {@link import("@loqui/shared").CalendarEvent}[]). The Home view subscribes via
+   * `window.loqui.calendar.onUpdated`. Fires on poll-interval/on-focus re-sync +
+   * manual refresh when the set changes.
+   */
+  calendarUpdated: "loqui:calendar:updated",
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

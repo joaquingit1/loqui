@@ -31,7 +31,8 @@
     "smoke:meeting": "node scripts/smoke-meeting.mjs",
     "smoke:chat": "node scripts/smoke-chat.mjs",
     "smoke:postprocess": "node scripts/smoke-postprocess.mjs",
-    "smoke:mcp": "node scripts/smoke-mcp.mjs"
+    "smoke:mcp": "node scripts/smoke-mcp.mjs",
+    "smoke:calendar": "node scripts/smoke-calendar.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
