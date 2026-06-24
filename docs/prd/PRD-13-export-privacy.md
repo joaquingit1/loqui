@@ -4,7 +4,7 @@
 Add rich **export formats** (matching a comparable local app's SRT/JSON and exceeding with VTT/PDF/DOCX + Obsidian-style notes) and the **privacy/capture controls** they ship (hidden-from-screen-share, don't-keep-audio, per-app system-audio filtering) — so Loqui is a strict superset on output and privacy.
 
 ## Background (competitive)
-a comparable local app exports Markdown (Obsidian-frontmatter), SRT, and JSON; is hidden from screen sharing by default; saves transcripts-only (no audio on disk); and filters system audio to the detected conferencing app (ScreenCaptureKit per-process). Loqui persists `transcript.live.md` / diarized JSON+MD / `summary.md` and `mic.wav`/`system.wav`, but has no explicit export action, no screen-share hiding, no audio-retention policy, and captures all system loopback. This PRD closes those and adds PDF/DOCX/VTT to go beyond them.
+A comparable local app exports Markdown (Obsidian-frontmatter), SRT, and JSON; is hidden from screen sharing by default; saves transcripts-only (no audio on disk); and filters system audio to the detected conferencing app (ScreenCaptureKit per-process). Loqui persists `transcript.live.md` / diarized JSON+MD / `summary.md` and `mic.wav`/`system.wav`, but has no explicit export action, no screen-share hiding, no audio-retention policy, and captures all system loopback. This PRD closes those and adds PDF/DOCX/VTT to go beyond them.
 
 ## Scope / deliverables
 ### Export & interop

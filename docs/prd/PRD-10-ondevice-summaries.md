@@ -4,7 +4,7 @@
 Add **zero-config, fully on-device summary providers** to the PRD-4 provider abstraction — so a user gets summaries (and chat) with **no API key and no separate install** — matching a comparable local app's on-device summary choice (Apple NaturalLanguage, Qwen3, Gemma via MLX) while keeping our best-quality BYOK-cloud option that they lack. Also add **custom summary prompt templates**.
 
 ## Background (competitive)
-a comparable local app summarizes 100% on-device with selectable models (Apple NaturalLanguage + MLX Qwen3/Gemma) and three custom-prompt slots — zero key, zero cloud. Loqui's PRD-4 providers are BYOK Anthropic, local Ollama (needs install), and local Claude Code/Codex CLI. We lack a **zero-config** on-device option and **custom prompt templates**. This PRD adds native/bundled on-device providers through the existing `ChatProvider` interface (reused by both chat and PRD-5 summaries), so we end up offering *both* zero-config-local *and* best-quality-cloud — a superset of theirs.
+A comparable local app summarizes 100% on-device with selectable models (Apple NaturalLanguage + MLX Qwen3/Gemma) and three custom-prompt slots — zero key, zero cloud. Loqui's PRD-4 providers are BYOK Anthropic, local Ollama (needs install), and local Claude Code/Codex CLI. We lack a **zero-config** on-device option and **custom prompt templates**. This PRD adds native/bundled on-device providers through the existing `ChatProvider` interface (reused by both chat and PRD-5 summaries), so we end up offering *both* zero-config-local *and* best-quality-cloud — a superset of theirs.
 
 ## Scope / deliverables
 - New `ChatProvider` implementations (sidecar, behind the existing interface):

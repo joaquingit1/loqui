@@ -4,7 +4,7 @@
 Let users **transcribe an existing audio/video file** (and diarize + summarize it like a meeting), and add a lightweight **mic-only Voice Memo** capture mode — matching a comparable local app's "Transcribe File" and "Voice Memo" features.
 
 ## Background (competitive)
-a comparable local app offers "Transcribe File" (drop an m4a/mp4/mov/mp3/wav → transcript) and a mic-only "Voice Memo" mode (separate storage). Loqui is meeting-recording-only. Both are natural extensions of the existing pipeline (decode → 16 kHz mono PCM → the PRD-2 transcription engine → PRD-3 store → PRD-5 diarization/summary).
+A comparable local app offers "Transcribe File" (drop an m4a/mp4/mov/mp3/wav → transcript) and a mic-only "Voice Memo" mode (separate storage). Loqui is meeting-recording-only. Both are natural extensions of the existing pipeline (decode → 16 kHz mono PCM → the PRD-2 transcription engine → PRD-3 store → PRD-5 diarization/summary).
 
 ## Scope / deliverables
 - **File import**: a "Transcribe a file" action accepting common audio/video (m4a, mp3, wav, mp4, mov, m4v, …). Decode + resample to 16 kHz mono (ffmpeg/PyAV in the sidecar), run the chosen transcription engine (PRD-9), create a meeting record (kind `"import"`) with the produced transcript, then run diarization + summary (PRD-5) on it. Progress via the existing JobUpdate events. Single-stream source (no separate You/They) → diarize all speakers as Speaker 1/2/…

@@ -1,6 +1,6 @@
 # Loqui
 
-**Open-source, local-first meeting intelligence.** A privacy-first, fully in-house alternative to meeting-notes for macOS and Windows.
+**Open-source, local-first meeting intelligence.** A privacy-first, fully in-house meeting-notes and transcription app for macOS and Windows.
 
 Loqui records your meetings, transcribes them in real time, lets you chat with the live transcript, diarizes and summarizes them afterward, and exposes everything to *your own* AI agent through a local MCP server — no cloud account required.
 

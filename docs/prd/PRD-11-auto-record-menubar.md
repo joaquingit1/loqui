@@ -4,7 +4,7 @@
 Automatically start recording when the user joins a meeting and stop when it ends, and run as an unobtrusive **menubar/tray** app — matching a comparable local app's auto-record UX while also covering **browser-based meetings** (which a comparable local app explicitly cannot detect).
 
 ## Background (competitive)
-a comparable local app auto-starts when a native conferencing app (Zoom/Teams/Slack/FaceTime/Webex/Discord/Meet/Loom) is running + the mic is active, auto-stops ~5s after the call ends, supports a configurable silence auto-stop, and lives in the menubar. It cannot detect browser meetings. Loqui requires manual start/stop and is a windowed app. This PRD adds auto-record + a tray presence; combined with the PRD-6 Google Meet browser extension, Loqui detects **both** native and browser meetings.
+A comparable local app auto-starts when a native conferencing app (Zoom/Teams/Slack/FaceTime/Webex/Discord/Meet/Loom) is running + the mic is active, auto-stops ~5s after the call ends, supports a configurable silence auto-stop, and lives in the menubar. It cannot detect browser meetings. Loqui requires manual start/stop and is a windowed app. This PRD adds auto-record + a tray presence; combined with the PRD-6 Google Meet browser extension, Loqui detects **both** native and browser meetings.
 
 ## Scope / deliverables
 - **Meeting detection** (cross-platform, best-effort):

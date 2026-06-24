@@ -22,7 +22,7 @@ Each PRD is executed with the **orchestrated-build** workflow: Foundation (lock 
 
 ## Competitive-parity build order (after the core 0–8)
 
-Added after a deep comparison against **a comparable local app** (a comparable local app) — a polished macOS-only local app. Loqui already beats it on the differentiators (real-time streaming, separate You/They streams, in-call chat, cross-meeting search, MCP agent-memory, Google-Meet speaker-name auto-attribution, browser-meeting support, BYOK cloud quality, cross-platform, auto-update). These PRDs close the remaining gaps so Loqui is a strict superset. Sequenced **after** the core (decision: core-first); all four buckets are v1 must-haves.
+Added after a deep comparison against **a comparable local app** — a polished macOS-only local app. Loqui already beats it on the differentiators (real-time streaming, separate You/They streams, in-call chat, cross-meeting search, MCP agent-memory, Google-Meet speaker-name auto-attribution, browser-meeting support, BYOK cloud quality, cross-platform, auto-update). These PRDs close the remaining gaps so Loqui is a strict superset. Sequenced **after** the core (decision: core-first); all four buckets are v1 must-haves.
 
 | # | PRD | Closes (a comparable local app parity / beyond) |
 |---|---|---|
