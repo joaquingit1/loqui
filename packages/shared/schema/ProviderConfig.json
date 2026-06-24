@@ -1,0 +1,42 @@
+{
+  "$ref": "#/definitions/ProviderConfig",
+  "definitions": {
+    "ProviderConfig": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": [
+            "anthropic",
+            "ollama",
+            "agent-cli",
+            "fake"
+          ],
+          "default": "fake"
+        },
+        "model": {
+          "type": "string",
+          "default": "claude-opus-4-8"
+        },
+        "baseUrl": {
+          "type": "string",
+          "default": "http://localhost:11434"
+        },
+        "ollamaModel": {
+          "type": "string",
+          "default": "llama3.1"
+        },
+        "cli": {
+          "type": "string",
+          "enum": [
+            "claude",
+            "codex"
+          ],
+          "default": "claude"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

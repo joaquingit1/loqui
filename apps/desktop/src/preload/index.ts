@@ -9,10 +9,14 @@
  */
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  ApiKeyStatus,
   AudioCaptureResult,
   AudioCaptureStartParams,
   AudioCaptureStopParams,
   AudioFrameMessage,
+  ChatProvider,
+  ChatSendParams,
+  ChatStreamEvent,
   GetTranscriptParams,
   Health,
   ListMeetingsQuery,
@@ -20,8 +24,10 @@ import type {
   Meeting,
   MeetingSearchHit,
   MeetingStatusEvent,
+  ProviderConfig,
   RenameMeetingParams,
   ScreenPermissionStatus,
+  SetApiKeyParams,
   StartMeetingParams,
   StopMeetingParams,
   TranscriptSegment,
@@ -48,6 +54,43 @@ export interface LoquiApi {
   onTranscriptSegment(cb: (segment: TranscriptSegment) => void): () => void;
   /** Meeting lifecycle + Library bridge (PRD-3). */
   library: LoquiLibraryApi;
+  /** In-call AI chat + provider abstraction bridge (PRD-4). */
+  chat: LoquiChatApi;
+}
+
+/**
+ * In-call AI chat surface (PRD-4). Wraps the chat IPC channels so the renderer
+ * never references channel names directly. READ-ONLY over the transcript: there
+ * is no method here that writes a transcript/meta file — `send` only streams a
+ * completion grounded in the (sidecar-read) transcript.
+ */
+export interface LoquiChatApi {
+  /**
+   * Begin a streaming chat completion (fire-and-forget). Returns nothing — the
+   * reply arrives as a series of {@link ChatStreamEvent}s on
+   * {@link LoquiChatApi.onStream}, correlated by `params.chatId` and terminated
+   * by a `done` or `error` event. Main pulls the BYOK key from the OS keychain
+   * and forwards the request to the sidecar; the renderer never handles the key.
+   */
+  send(params: ChatSendParams): void;
+  /**
+   * Subscribe to chat stream events for ALL in-flight chats. The callback fires
+   * once per `token` / `done` / `error`; filter on `event.chatId` to route to
+   * the right panel. Returns an unsubscribe fn.
+   */
+  onStream(cb: (event: ChatStreamEvent) => void): () => void;
+  /** Read the persisted provider settings (provider/model/baseUrl/cli). */
+  getProviderSettings(): Promise<ProviderConfig>;
+  /** Persist the provider settings; takes effect on the next send (no restart). */
+  setProviderSettings(config: ProviderConfig): Promise<ProviderConfig>;
+  /**
+   * Store (or clear, with an empty/null key) a provider's BYOK API key in the OS
+   * keychain via Electron safeStorage. Never echoes the key back; returns only
+   * whether a key is now stored.
+   */
+  setApiKey(params: SetApiKeyParams): Promise<ApiKeyStatus>;
+  /** Whether a BYOK key is currently stored for a provider (never returns the key). */
+  getApiKeyStatus(provider?: ChatProvider): Promise<ApiKeyStatus>;
 }
 
 /**
@@ -120,6 +163,28 @@ const library: LoquiLibraryApi = {
   },
 };
 
+const chat: LoquiChatApi = {
+  send: (params: ChatSendParams): void => {
+    // Fire-and-forget: the streamed reply rides the chatStream push, correlated
+    // by chatId. No per-request round-trip (a long-lived token stream is not an
+    // invoke). Main injects the keychain key before forwarding to the sidecar.
+    ipcRenderer.send(IPC.chatSend, params);
+  },
+  onStream: (cb: (event: ChatStreamEvent) => void): (() => void) => {
+    const listener = (_e: unknown, event: ChatStreamEvent): void => cb(event);
+    ipcRenderer.on(IPC.chatStream, listener);
+    return () => ipcRenderer.removeListener(IPC.chatStream, listener);
+  },
+  getProviderSettings: (): Promise<ProviderConfig> =>
+    ipcRenderer.invoke(IPC.chatGetProviderSettings),
+  setProviderSettings: (config: ProviderConfig): Promise<ProviderConfig> =>
+    ipcRenderer.invoke(IPC.chatSetProviderSettings, config),
+  setApiKey: (params: SetApiKeyParams): Promise<ApiKeyStatus> =>
+    ipcRenderer.invoke(IPC.chatSetApiKey, params),
+  getApiKeyStatus: (provider?: ChatProvider): Promise<ApiKeyStatus> =>
+    ipcRenderer.invoke(IPC.chatGetApiKeyStatus, provider),
+};
+
 const api: LoquiApi = {
   ping: () => ipcRenderer.invoke(IPC.ping),
   getSidecarHealth: () => ipcRenderer.invoke(IPC.getSidecarHealth),
@@ -135,6 +200,7 @@ const api: LoquiApi = {
     return () => ipcRenderer.removeListener(IPC.transcriptSegment, listener);
   },
   library,
+  chat,
 };
 
 contextBridge.exposeInMainWorld("loqui", api);

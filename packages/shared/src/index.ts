@@ -14,3 +14,4 @@ export * from "./audio-bridge.js";
 export * from "./events.js";
 export * from "./transcript.js";
 export * from "./library.js";
+export * from "./chat.js";

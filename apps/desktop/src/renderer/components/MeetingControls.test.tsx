@@ -201,6 +201,34 @@ describe("MeetingControls", () => {
     expect(screen.getByTestId("segment-mic-a").textContent).toBe("hello there");
   });
 
+  it("mounts the in-call ChatPanel scoped to the active meeting while recording", async () => {
+    // Regression guard for the dead-UI defect: ChatPanel must actually be on the
+    // live render tree for an active meeting (not just built + unit-tested).
+    const { api } = makeFakeApi();
+    const cap = makeFakeCaptureFactory();
+    render(<MeetingControls api={api} createCaptureController={cap.factory} />);
+
+    // No active meeting yet -> no chat panel.
+    expect(screen.queryByTestId("chat-panel")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("meeting-toggle"));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("recording-status").getAttribute("data-phase")).toBe(
+        "recording",
+      ),
+    );
+
+    // The chat surface is now mounted for this meeting.
+    const panel = await screen.findByTestId("chat-panel");
+    expect(panel).toBeTruthy();
+    // Composer is scoped to an active meeting (input enabled, not the
+    // "open a meeting" placeholder).
+    expect(screen.getByTestId("chat-input")).toHaveProperty("disabled", false);
+    expect(screen.getByTestId("chat-readonly-note")).toBeTruthy();
+  });
+
   it("Stop tears capture down and stops the meeting (→ processing)", async () => {
     const { api } = makeFakeApi();
     const cap = makeFakeCaptureFactory();

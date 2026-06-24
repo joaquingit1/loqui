@@ -16,6 +16,14 @@ dependencies = [
     # faster-whisper, so neither pulls in a model download at test time.
     "faster-whisper>=1.0.0",
     "numpy>=1.26.0",
+    # PRD-4 AI chat provider abstraction. `anthropic` is the OFFICIAL SDK for the
+    # BYOK provider (streaming via client.messages.stream, adaptive thinking);
+    # `httpx` is the client for the Ollama provider (POST /api/chat, stream=true).
+    # The default unit gate uses the FAKE chat provider and imports neither, so
+    # the gate stays hermetic (no network/key/CLI). The agent-CLI provider shells
+    # out to an installed `claude`/`codex` via subprocess (no extra dep).
+    "anthropic>=0.40.0",
+    "httpx>=0.27.0",
 ]
 
 [project.scripts]

@@ -28,7 +28,8 @@
     "smoke:foundation": "node scripts/smoke-foundation.mjs",
     "smoke:audio": "node scripts/smoke-audio.mjs",
     "smoke:transcription": "node scripts/smoke-transcription.mjs",
-    "smoke:meeting": "node scripts/smoke-meeting.mjs"
+    "smoke:meeting": "node scripts/smoke-meeting.mjs",
+    "smoke:chat": "node scripts/smoke-chat.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

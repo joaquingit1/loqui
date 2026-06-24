@@ -20,6 +20,7 @@ import { useCallback, useMemo, type JSX } from "react";
 import type { AudioSource, StartMeetingParams } from "@loqui/shared";
 import type { LoquiApi, SidecarStatus } from "../../preload/index.js";
 import { LiveTranscript } from "./LiveTranscript.js";
+import { ChatPanel } from "./ChatPanel.js";
 import { CaptureLevelMeter } from "./CaptureLevelMeter.js";
 import { RecordingStatus } from "./RecordingStatus.js";
 import {
@@ -180,6 +181,14 @@ export function MeetingControls({
 
       {(recording || phase === "stopping" || phase === "processing") && (
         <LiveTranscript api={loqui} meetingId={meeting?.id ?? null} />
+      )}
+
+      {(recording || phase === "stopping" || phase === "processing") && meeting?.id && (
+        // In-call AI chat, grounded READ-ONLY in this meeting's live transcript
+        // (PRD-4). ChatPanel talks to window.loqui.chat itself; it never writes
+        // the transcript. Scoped to the active meeting id so history resets per
+        // meeting.
+        <ChatPanel meetingId={meeting.id} />
       )}
 
       {phase === "done" && meeting && (

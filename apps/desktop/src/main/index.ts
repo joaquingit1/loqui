@@ -7,7 +7,7 @@
  * STUB: the Build phase fills in window creation, IPC registration, and the
  * supervisor/store wiring. Imports below pin the contract.
  */
-import { app, BrowserWindow, session, systemPreferences } from "electron";
+import { app, BrowserWindow, safeStorage, session, systemPreferences } from "electron";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ScreenPermissionStatus } from "@loqui/shared";
@@ -20,6 +20,8 @@ import {
   registerIpcHandlers,
 } from "./ipc/register.js";
 import { registerAudioIpc } from "./audio/register.js";
+import { ChatKeystore } from "./chat/keystore.js";
+import { forwardChatStream, registerChatIpc } from "./chat/register.js";
 import {
   consumeFinalTranscriptSegments,
   createMeetingController,
@@ -112,6 +114,8 @@ let disposeTranscriptPush: (() => void) | null = null;
 let disposeTranscriptPersist: (() => void) | null = null;
 let disposeMeetingStatusPush: (() => void) | null = null;
 let disposeAudioIpc: (() => void) | null = null;
+let disposeChatIpc: (() => void) | null = null;
+let disposeChatStreamPush: (() => void) | null = null;
 
 /**
  * Create the window, open the store, start + supervise the sidecar, register
@@ -162,6 +166,17 @@ export async function bootstrap(): Promise<void> {
     getScreenPermission: getScreenPermissionStatus,
   });
 
+  // In-call AI chat + provider abstraction (PRD-4). The keystore stores the BYOK
+  // key encrypted via the OS keychain (safeStorage) and the non-secret provider
+  // settings as JSON. registerChatIpc forwards `chat:send` to the sidecar as a
+  // `chatRequest` WS notification (injecting the transient key out of band);
+  // forwardChatStream relays the sidecar's streamed chatToken/chatDone/chatError
+  // notifications to the renderer. The AI never edits the transcript — this
+  // bridge has no transcript write path; the sidecar reads it READ-ONLY.
+  const chatKeystore = new ChatKeystore(safeStorage);
+  disposeChatIpc = registerChatIpc({ supervisor, keystore: chatKeystore });
+  disposeChatStreamPush = forwardChatStream(supervisor, () => mainWindow);
+
   // Start the sidecar in the background; failure surfaces via status push and
   // must not block window creation.
   void supervisor.start().catch((err: unknown) => {
@@ -198,6 +213,10 @@ async function shutdown(): Promise<void> {
   disposeIpc = null;
   disposeAudioIpc?.();
   disposeAudioIpc = null;
+  disposeChatIpc?.();
+  disposeChatIpc = null;
+  disposeChatStreamPush?.();
+  disposeChatStreamPush = null;
   disposeStatusPush?.();
   disposeStatusPush = null;
   disposeTranscriptPush?.();

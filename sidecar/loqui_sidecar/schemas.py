@@ -33,6 +33,8 @@ _ROOT_MARKER = "pnpm-workspace.yaml"
 WS_ENVELOPE = "WsEnvelope"
 AUDIO_START = "AudioStart"
 AUDIO_STOP = "AudioStop"
+#: PRD-4: the inbound `chatRequest` notification payload (main -> sidecar).
+CHAT_REQUEST = "ChatRequest"
 
 
 class SchemaError(RuntimeError):
@@ -159,5 +161,5 @@ def preload() -> None:
     Called during startup so a missing/broken schema dir fails before we print
     the handshake line and begin serving.
     """
-    for name in (WS_ENVELOPE, AUDIO_START, AUDIO_STOP):
+    for name in (WS_ENVELOPE, AUDIO_START, AUDIO_STOP, CHAT_REQUEST):
         _validator_for(name)

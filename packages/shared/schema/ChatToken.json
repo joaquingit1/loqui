@@ -1,0 +1,23 @@
+{
+  "$ref": "#/definitions/ChatToken",
+  "definitions": {
+    "ChatToken": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "delta": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "chatId"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

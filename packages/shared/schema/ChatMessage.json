@@ -1,0 +1,27 @@
+{
+  "$ref": "#/definitions/ChatMessage",
+  "definitions": {
+    "ChatMessage": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": [
+            "system",
+            "user",
+            "assistant"
+          ]
+        },
+        "content": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "role"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

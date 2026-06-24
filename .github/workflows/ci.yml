@@ -114,6 +114,17 @@ jobs:
       - name: Smoke (meeting end-to-end)
         run: pnpm smoke:meeting
 
+      # PRD-4 acceptance gate (headless, hermetic): spawns the REAL sidecar with
+      # LOQUI_FAKE_CHAT=1 + a temp LOQUI_DATA_DIR, seeds a transcript.live.md,
+      # then drives the REAL chat path end-to-end over the WS control channel
+      # (chatRequest -> app.py dispatch -> handle_chat -> READ-ONLY transcript
+      # context -> FakeChatProvider stream). Asserts chatToken deltas arrive and
+      # reference the seeded content, then a single chatDone, and — the
+      # cross-cutting invariant — that transcript.live.md is BYTE-IDENTICAL after
+      # the chat (the AI never edits the transcript). No model/key/CLI/network.
+      - name: Smoke (chat end-to-end)
+        run: pnpm smoke:chat
+
   e2e:
     name: e2e / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

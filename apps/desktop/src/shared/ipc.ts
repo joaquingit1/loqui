@@ -82,6 +82,43 @@ export const IPC = {
    * are superseded by a later `final` with the same `segId`.
    */
   transcriptSegment: "loqui:transcriptSegment",
+
+  // --- AI chat + provider abstraction (PRD-4) ---
+  /**
+   * send (renderer -> main, fire-and-forget): begin a streaming chat completion.
+   * Payload is a {@link import("@loqui/shared").ChatSendParams} ({chatId, meetingId,
+   * messages, providerConfig}). NOT an invoke — the reply is the streamed
+   * {@link chatStream} pushes correlated by `chatId`, terminated by a `done` or
+   * `error` event. Main reads the BYOK key from the OS keychain and forwards a
+   * `chatRequest` WS notification to the sidecar; the sidecar reads the
+   * transcript READ-ONLY and streams tokens back. The AI never edits the
+   * transcript — there is NO channel here that writes a transcript/meta file.
+   */
+  chatSend: "loqui:chat:send",
+  /**
+   * push (main -> renderer): one chat stream event — a
+   * {@link import("@loqui/shared").ChatStreamEvent} (`token` | `done` | `error`),
+   * forwarded from the sidecar's `chatToken`/`chatDone`/`chatError` WS
+   * notifications and tagged with the originating `chatId`. The chat panel
+   * subscribes via `window.loqui.chat.onStream`.
+   */
+  chatStream: "loqui:chat:stream",
+  /** invoke: read the persisted provider settings (-> ProviderConfig). */
+  chatGetProviderSettings: "loqui:chat:getProviderSettings",
+  /** invoke: persist the provider settings (payload + -> ProviderConfig). */
+  chatSetProviderSettings: "loqui:chat:setProviderSettings",
+  /**
+   * invoke: store/clear a provider's BYOK API key in the OS keychain via
+   * Electron safeStorage (payload {@link import("@loqui/shared").SetApiKeyParams};
+   * -> {@link import("@loqui/shared").ApiKeyStatus}). Never returns the key.
+   */
+  chatSetApiKey: "loqui:chat:setApiKey",
+  /**
+   * invoke: whether a BYOK key is currently stored for a provider (payload
+   * {provider}; -> {@link import("@loqui/shared").ApiKeyStatus}). Never returns
+   * the key itself.
+   */
+  chatGetApiKeyStatus: "loqui:chat:getApiKeyStatus",
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

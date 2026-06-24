@@ -46,6 +46,15 @@ function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
       renameMeeting: vi.fn(async () => ({}) as never),
       onMeetingStatus: () => () => {},
     },
+    // PRD-4 chat bridge: a no-op fake; the App under test does not use it yet.
+    chat: {
+      send: vi.fn(),
+      onStream: () => () => {},
+      getProviderSettings: vi.fn(async () => ({}) as never),
+      setProviderSettings: vi.fn(async () => ({}) as never),
+      setApiKey: vi.fn(async () => ({}) as never),
+      getApiKeyStatus: vi.fn(async () => ({}) as never),
+    },
     ...overrides,
   };
   return { api, emitStatus: (s) => cb?.(s) };

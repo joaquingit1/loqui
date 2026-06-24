@@ -81,6 +81,27 @@ test("the preload contextBridge exposes a minimal window.loqui (no Node leak)", 
   expect(surface.leakedProcess).toBe(false);
 });
 
+test("the chat bridge is exposed on window.loqui (PRD-4 chat wire is on the live tree)", async () => {
+  // Regression guard: the chat feature's bridge must reach the renderer. The
+  // ChatPanel itself only mounts during an active meeting (which needs real
+  // audio capture, not available headlessly), but the bridge presence proves
+  // the preload chat surface is wired into the running app.
+  const chat = await page.evaluate(() => {
+    const api = (window as unknown as { loqui?: { chat?: Record<string, unknown> } }).loqui;
+    const c = api?.chat;
+    return {
+      hasSend: typeof c?.send === "function",
+      hasOnStream: typeof c?.onStream === "function",
+      hasGetProviderSettings: typeof c?.getProviderSettings === "function",
+      hasSetApiKey: typeof c?.setApiKey === "function",
+    };
+  });
+  expect(chat.hasSend).toBe(true);
+  expect(chat.hasOnStream).toBe(true);
+  expect(chat.hasGetProviderSettings).toBe(true);
+  expect(chat.hasSetApiKey).toBe(true);
+});
+
 test("sidecar reaches healthy + ping round-trips through the real IPC/WS seam", async () => {
   // The main process spawns the sidecar (uv run) and connects; poll the REAL
   // bridge until it reports healthy.

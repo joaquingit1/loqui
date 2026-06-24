@@ -43,6 +43,28 @@ logger = logging.getLogger("loqui_sidecar.app")
 #: HTTP header / WS subprotocol name carrying the auth token.
 TOKEN_HEADER = "x-loqui-token"
 
+
+def _default_chat_handler(
+    data: dict[str, Any], emit: Callable[[str, dict[str, Any]], None]
+) -> None:
+    """Default chat handler (PRD-4): decode the ``chatRequest`` ``data`` and run
+    :func:`loqui_sidecar.providers.handle_chat`, streaming via ``emit``.
+
+    Imports the providers package lazily so the chat dependency surface
+    (``anthropic`` / ``httpx``, pulled by the build units) is not imported at app
+    startup. Wires the PRODUCTION selector (:func:`build_selector`) so the REAL
+    Anthropic / Ollama / agent-CLI providers are used in production; the selector
+    still forces the hermetic ``FakeChatProvider`` when ``LOQUI_FAKE_CHAT`` is set
+    or ``providerConfig.provider == "fake"`` (so tests/smoke stay offline and need
+    no key/CLI). The heavy provider deps are lazy-imported by ``build_selector``
+    only when a real provider is actually constructed, so importing here stays
+    light. Never raises (handle_chat guards internally).
+    """
+    from .providers import ChatRequest, build_selector, handle_chat
+
+    handle_chat(ChatRequest.from_wire(data), emit, selector=build_selector())
+
+
 #: WS close code used when a connection fails token auth (policy violation).
 WS_CLOSE_POLICY_VIOLATION = 1008
 
@@ -84,6 +106,20 @@ class AppState:
     #: open WAV after ``audioStop`` — and so PRD-5 diarization can safely read it).
     #: Thread-safe: the closure schedules the send onto the serving loop.
     notify: Callable[[str, dict[str, Any]], None] = field(default=lambda _event, _data: None)
+    #: Chat handler entry point (PRD-4). Called for each inbound ``chatRequest``
+    #: notification with the decoded ``data`` dict + an ``emit(event, data)`` bound
+    #: to the live WS sender (``notify``); it reads the meeting transcript
+    #: READ-ONLY, selects a provider, and streams ``chatToken``/``chatDone``/
+    #: ``chatError`` notifications. Defaulted to the real :func:`handle_chat`
+    #: wrapper (fake-only selector at Foundation; build units inject the real
+    #: providers via a selector). Injectable so tests can stub it. Run OFF the WS
+    #: receive loop (a provider call blocks) on the chat executor.
+    chat_handler: Callable[[dict[str, Any], Callable[[str, dict[str, Any]], None]], None] = field(
+        default=_default_chat_handler
+    )
+    #: Single-thread executor for chat requests so a slow/streaming provider call
+    #: never blocks the WS control channel. Lazily created; closed by ``close``.
+    _chat_executor: Any = None
 
     def __post_init__(self) -> None:
         # Wire transcription as a consumer of the decoded-PCM stream alongside
@@ -99,10 +135,25 @@ class AppState:
             self._frame_executors[source] = ex
         return ex
 
+    def chat_executor(self) -> ThreadPoolExecutor:
+        """Return (creating on first use) the single-thread chat executor (PRD-4).
+
+        Chat runs OFF the WS receive loop so a slow/streaming provider call never
+        stalls ping/getHealth/shutdown or audio ingest. Single-threaded so
+        concurrent chats queue rather than fan out unbounded; ``emit`` is
+        thread-safe (schedules onto the serving loop).
+        """
+        if self._chat_executor is None:
+            self._chat_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="chat")
+        return self._chat_executor
+
     def close(self) -> None:
-        """Release per-source decode executors (process-shutdown safety net)."""
+        """Release per-source decode + chat executors (process-shutdown safety net)."""
         executors = list(self._frame_executors.values())
         self._frame_executors.clear()
+        if self._chat_executor is not None:
+            executors.append(self._chat_executor)
+            self._chat_executor = None
         for ex in executors:
             ex.shutdown(wait=False, cancel_futures=True)
 
@@ -354,6 +405,46 @@ async def _handle_request(state: AppState, websocket: WebSocket, frame: dict[str
         )
 
 
+async def _handle_chat_request(state: AppState, websocket: WebSocket, data: Any) -> None:
+    """Validate + dispatch one ``chatRequest`` notification (PRD-4).
+
+    Validates ``data`` against the emitted ``ChatRequest`` schema, then runs the
+    chat handler on the single-thread chat executor (OFF the WS receive loop) so a
+    slow/streaming provider call cannot stall the control channel. The handler
+    streams ``chatToken``/``chatDone``/``chatError`` notifications via
+    ``state.notify`` (the thread-safe per-connection sender), so a dropped socket
+    simply no-ops the emits. The handler never raises (it guards internally); the
+    submit is guarded too. NEVER logs the api key (it lives only in ``data`` and
+    is consumed transiently by the provider).
+    """
+    try:
+        schemas.validate(schemas.CHAT_REQUEST, data)
+    except schemas.FrameValidationError as exc:
+        await websocket.send_json(
+            _make_error(None, "invalid_frame", f"chatRequest validation failed: {exc}")
+        )
+        return
+    if not isinstance(data, dict):
+        return
+
+    # Snapshot the live sender so the worker emits onto THIS connection (reset to
+    # a no-op on disconnect, which harmlessly drops late chat tokens).
+    emit = state.notify
+    handler = state.chat_handler
+
+    def _run() -> None:
+        try:
+            handler(data, emit)
+        except Exception:  # noqa: BLE001 - chat must never break the control channel.
+            logger.exception("chat handler crashed")
+
+    try:
+        state.chat_executor().submit(_run)
+    except RuntimeError:
+        # Executor shut down (shutdown race): run inline as a last resort.
+        _run()
+
+
 async def _handle_notification(
     state: AppState, websocket: WebSocket, frame: dict[str, Any]
 ) -> None:
@@ -366,6 +457,17 @@ async def _handle_notification(
     """
     event = frame.get("event")
     data = frame.get("data")
+
+    # AI chat (PRD-4): a `chatRequest` notification (main -> sidecar) begins a
+    # streaming chat completion. It is validated against the emitted ChatRequest
+    # schema, then dispatched to the chat handler on the chat executor (OFF this
+    # receive loop — a provider call blocks). The handler streams chatToken /
+    # chatDone / chatError notifications back via the live WS sender. Runs the
+    # handler with `state.notify` so a dropped socket simply no-ops the emit.
+    if event == "chatRequest":
+        await _handle_chat_request(state, websocket, data)
+        return
+
     schema_name = {"audioStart": schemas.AUDIO_START, "audioStop": schemas.AUDIO_STOP}.get(event)
     if schema_name is None:
         return  # unknown notification: accept + ignore.

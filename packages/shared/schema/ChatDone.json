@@ -1,0 +1,35 @@
+{
+  "$ref": "#/definitions/ChatDone",
+  "definitions": {
+    "ChatDone": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string",
+          "default": ""
+        },
+        "provider": {
+          "type": "string",
+          "enum": [
+            "anthropic",
+            "ollama",
+            "agent-cli",
+            "fake"
+          ]
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "chatId"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

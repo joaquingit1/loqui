@@ -28,6 +28,14 @@ import {
 } from "../src/meeting.js";
 import { audioStartSchema, audioStopSchema } from "../src/audio.js";
 import { transcriptSegmentSchema, jobUpdateSchema } from "../src/events.js";
+import {
+  chatMessageSchema,
+  providerConfigSchema,
+  chatRequestSchema,
+  chatTokenSchema,
+  chatDoneSchema,
+  chatErrorSchema,
+} from "../src/chat.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, "..", "schema");
@@ -50,6 +58,14 @@ const schemas: Record<string, ZodTypeAny> = {
   AudioStop: audioStopSchema,
   TranscriptSegment: transcriptSegmentSchema,
   JobUpdate: jobUpdateSchema,
+  // PRD-4 chat contract (sidecar validates the inbound `chatRequest` notification
+  // against ChatRequest; the rest are emitted so the contract is fully visible).
+  ChatMessage: chatMessageSchema,
+  ProviderConfig: providerConfigSchema,
+  ChatRequest: chatRequestSchema,
+  ChatToken: chatTokenSchema,
+  ChatDone: chatDoneSchema,
+  ChatError: chatErrorSchema,
 };
 
 rmSync(outDir, { recursive: true, force: true });

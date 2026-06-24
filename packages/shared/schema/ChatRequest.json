@@ -1,0 +1,92 @@
+{
+  "$ref": "#/definitions/ChatRequest",
+  "definitions": {
+    "ChatRequest": {
+      "type": "object",
+      "properties": {
+        "chatId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "meetingId": {
+          "type": "string"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "user",
+                  "assistant"
+                ]
+              },
+              "content": {
+                "type": "string",
+                "default": ""
+              }
+            },
+            "required": [
+              "role"
+            ],
+            "additionalProperties": false
+          },
+          "default": []
+        },
+        "providerConfig": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": [
+                "anthropic",
+                "ollama",
+                "agent-cli",
+                "fake"
+              ],
+              "default": "fake"
+            },
+            "model": {
+              "type": "string",
+              "default": "claude-opus-4-8"
+            },
+            "baseUrl": {
+              "type": "string",
+              "default": "http://localhost:11434"
+            },
+            "ollamaModel": {
+              "type": "string",
+              "default": "llama3.1"
+            },
+            "cli": {
+              "type": "string",
+              "enum": [
+                "claude",
+                "codex"
+              ],
+              "default": "claude"
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
+        "apiKey": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "chatId",
+        "meetingId"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
