@@ -31,6 +31,9 @@ Added after a deep comparison against **a comparable local app** (a comparable l
 | 11 | [Auto-record on meeting detection + menubar/tray](PRD-11-auto-record-menubar.md) | Auto start/stop on meeting detection (native **and** browser), silence auto-stop, tray presence. |
 | 12 | [File import transcription + Voice Memo](PRD-12-file-import-voice-memo.md) | Transcribe an existing audio/video file; mic-only quick-capture mode. |
 | 13 | [Export & interop + capture/privacy controls](PRD-13-export-privacy.md) | SRT/VTT/JSON/PDF/DOCX + Obsidian notes; hidden-from-screen-share; don't-keep-audio; per-app audio filtering. |
+| 14 | [No-token local diarization (sherpa-onnx default)](PRD-14-notoken-diarization.md) | **Removes the only mandatory token** — sherpa-onnx (Apache-2.0, no HF account, bundleable) becomes the default diarizer; pyannote becomes an opt-in HF-token accuracy upgrade. High-priority in this batch. |
+
+**Token/account posture (after PRD-14):** Loqui runs **fully local with zero tokens and zero accounts out of the box** — transcription (faster-whisper, public), diarization (sherpa-onnx, no token), summaries/chat (Apple-native on macOS via PRD-10, or Ollama cross-platform). Optional upgrades that *want* a token/cloud: Anthropic BYOK (best chat/summary quality) and pyannote `community-1` (best diarization, free HF token). None are required.
 
 **Fold-ins** (executed inside their PRD, not standalone): custom summary prompt templates → PRD-10; hidden-from-screen-share + silence auto-stop + mic/system mute → PRD-11/PRD-13.
 
