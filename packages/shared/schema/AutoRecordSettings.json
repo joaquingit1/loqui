@@ -1,0 +1,71 @@
+{
+  "$ref": "#/definitions/AutoRecordSettings",
+  "definitions": {
+    "AutoRecordSettings": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "onDetect": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "ask"
+          ],
+          "default": "ask"
+        },
+        "detectNativeApps": {
+          "type": "boolean",
+          "default": true
+        },
+        "detectBrowserMeetings": {
+          "type": "boolean",
+          "default": true
+        },
+        "appAllowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "zoom",
+            "teams",
+            "slack",
+            "facetime",
+            "webex",
+            "discord",
+            "meet",
+            "loom"
+          ]
+        },
+        "autoStopDelayMs": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 5000
+        },
+        "silenceTimeoutMs": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "silenceCountdownMs": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 30000
+        },
+        "runInBackground": {
+          "type": "boolean",
+          "default": false
+        },
+        "launchAtLogin": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

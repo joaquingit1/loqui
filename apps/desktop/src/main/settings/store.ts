@@ -23,8 +23,12 @@ import { join } from "node:path";
 import {
   captureSettingsSchema,
   updateCaptureSettingsSchema,
+  autoRecordSettingsSchema,
+  updateAutoRecordSettingsSchema,
   type CaptureSettings,
   type UpdateCaptureSettings,
+  type AutoRecordSettings,
+  type UpdateAutoRecordSettings,
 } from "@loqui/shared";
 import { dataRoot } from "../store/paths.js";
 
@@ -33,6 +37,8 @@ const APP_SETTINGS_FILE = "app-settings.json";
 /** On-disk shape of `app-settings.json`. */
 interface AppSettingsFile {
   capture?: unknown;
+  /** PRD-11 auto-record + tray policy (additive; absent => all-defaults = off). */
+  autoRecord?: unknown;
 }
 
 function appSettingsPath(): string {
@@ -61,6 +67,31 @@ export class SettingsStore {
     const merged = captureSettingsSchema.parse({ ...current, ...clean });
     const file = this.#readFile();
     file.capture = merged;
+    this.#writeFile(file);
+    return merged;
+  }
+
+  /**
+   * Read the persisted auto-record + tray settings (PRD-11; validated +
+   * defaulted). An older `app-settings.json` (or a missing `autoRecord` key)
+   * parses forward to the all-defaults value — which is MANUAL-ONLY (enabled:
+   * false), preserving PRD-3 behavior.
+   */
+  getAutoRecordSettings(): AutoRecordSettings {
+    const file = this.#readFile();
+    return autoRecordSettingsSchema.parse(file.autoRecord ?? {});
+  }
+
+  /**
+   * Patch the auto-record + tray settings (any subset). Merges over the current
+   * settings, re-validates, persists, and returns the stored value.
+   */
+  setAutoRecordSettings(patch: UpdateAutoRecordSettings): AutoRecordSettings {
+    const clean = updateAutoRecordSettingsSchema.parse(patch ?? {});
+    const current = this.getAutoRecordSettings();
+    const merged = autoRecordSettingsSchema.parse({ ...current, ...clean });
+    const file = this.#readFile();
+    file.autoRecord = merged;
     this.#writeFile(file);
     return merged;
   }

@@ -1,0 +1,28 @@
+{
+  "$ref": "#/definitions/BrowserCallState",
+  "definitions": {
+    "BrowserCallState": {
+      "type": "object",
+      "properties": {
+        "inCall": {
+          "type": "boolean",
+          "default": false
+        },
+        "lastSeenAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

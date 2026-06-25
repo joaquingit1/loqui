@@ -72,3 +72,39 @@ describe("SettingsStore", () => {
     expect(new SettingsStore().getCaptureSettings().contentProtection).toBe(true);
   });
 });
+
+describe("SettingsStore — auto-record (PRD-11)", () => {
+  it("defaults to MANUAL-ONLY (auto-record disabled) when no file exists", () => {
+    const ar = new SettingsStore().getAutoRecordSettings();
+    expect(ar.enabled).toBe(false);
+    expect(ar.onDetect).toBe("ask");
+    expect(ar.autoStopDelayMs).toBe(5000);
+    expect(ar.silenceTimeoutMs).toBe(0); // silence stop is opt-in
+    expect(ar.appAllowlist).toContain("zoom");
+    expect(ar.launchAtLogin).toBe(false);
+    expect(ar.runInBackground).toBe(false);
+  });
+
+  it("persists + merges auto-record patches independently of capture settings", () => {
+    const s = new SettingsStore();
+    s.setCaptureSettings({ contentProtection: false });
+    const a = s.setAutoRecordSettings({ enabled: true, onDetect: "auto" });
+    expect(a.enabled).toBe(true);
+    expect(a.onDetect).toBe("auto");
+    // A second partial patch must not reset the first, nor touch capture settings.
+    const b = s.setAutoRecordSettings({ silenceTimeoutMs: 90_000 });
+    expect(b.enabled).toBe(true);
+    expect(b.silenceTimeoutMs).toBe(90_000);
+    expect(new SettingsStore().getCaptureSettings().contentProtection).toBe(false);
+    expect(new SettingsStore().getAutoRecordSettings()).toEqual(b);
+  });
+
+  it("loads an older config (no autoRecord key) forward as manual-only", () => {
+    writeFileSync(
+      join(tmp, "app-settings.json"),
+      JSON.stringify({ capture: { audioRetention: "keep" } }),
+      "utf8",
+    );
+    expect(new SettingsStore().getAutoRecordSettings().enabled).toBe(false);
+  });
+});

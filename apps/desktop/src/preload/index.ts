@@ -14,6 +14,9 @@ import type {
   AudioCaptureStartParams,
   AudioCaptureStopParams,
   AudioFrameMessage,
+  AutoRecordSettings,
+  AutoRecordState,
+  UpdateAutoRecordSettings,
   CaptureCapability,
   CaptureSettings,
   ExportMeetingParams,
@@ -89,6 +92,8 @@ export interface LoquiApi {
   calendar: LoquiCalendarApi;
   /** Google Meet speaker-name attribution status bridge (PRD-6). */
   speakerNames: LoquiSpeakerNamesApi;
+  /** Auto-record on meeting detection + menubar/tray bridge (PRD-11). */
+  autoRecord: LoquiAutoRecordApi;
   /** Export & interop bridge (PRD-13). */
   export: LoquiExportApi;
   /** Capture / privacy controls bridge (PRD-13). */
@@ -146,6 +151,33 @@ export interface LoquiSpeakerNamesApi {
    * unsubscribe fn.
    */
   onStatus(cb: (status: SpeakerNamesStatus) => void): () => void;
+}
+
+/**
+ * Auto-record + menubar/tray surface (PRD-11). Wraps the auto-record IPC channels
+ * so the Settings panel + window badge + detection prompt never reference channel
+ * names directly. MANUAL-FIRST: auto-record is OFF by default and nothing here
+ * blocks manual start/stop (that stays on `library.startMeeting`/`stopMeeting`).
+ * Settings writes apply live (toggling `enabled` starts/stops detection;
+ * `launchAtLogin` reflects to the OS). `onState` returns an unsubscribe fn.
+ */
+export interface LoquiAutoRecordApi {
+  /** Read the persisted auto-record + tray settings. */
+  getSettings(): Promise<AutoRecordSettings>;
+  /** Patch the auto-record + tray settings; applies live (engine + login item). */
+  setSettings(patch: UpdateAutoRecordSettings): Promise<AutoRecordSettings>;
+  /** The current auto-record runtime state (phase / recording / countdown). */
+  getState(): Promise<AutoRecordState>;
+  /** Accept a pending `ask`-policy detection prompt (start the detected meeting). */
+  acceptPending(): Promise<void>;
+  /** Dismiss a pending `ask`-policy detection prompt without starting. */
+  dismissPending(): Promise<void>;
+  /**
+   * Subscribe to auto-record state changes (push). Fires with the full current
+   * state on detection, start/stop, the silence countdown, and settings changes.
+   * Returns an unsubscribe fn.
+   */
+  onState(cb: (state: AutoRecordState) => void): () => void;
 }
 
 /**
@@ -459,6 +491,21 @@ const speakerNames: LoquiSpeakerNamesApi = {
   },
 };
 
+const autoRecord: LoquiAutoRecordApi = {
+  getSettings: (): Promise<AutoRecordSettings> =>
+    ipcRenderer.invoke(IPC.autoRecordGetSettings),
+  setSettings: (patch: UpdateAutoRecordSettings): Promise<AutoRecordSettings> =>
+    ipcRenderer.invoke(IPC.autoRecordSetSettings, patch),
+  getState: (): Promise<AutoRecordState> => ipcRenderer.invoke(IPC.autoRecordGetState),
+  acceptPending: (): Promise<void> => ipcRenderer.invoke(IPC.autoRecordAcceptPending),
+  dismissPending: (): Promise<void> => ipcRenderer.invoke(IPC.autoRecordDismissPending),
+  onState: (cb: (state: AutoRecordState) => void): (() => void) => {
+    const listener = (_e: unknown, state: AutoRecordState): void => cb(state);
+    ipcRenderer.on(IPC.autoRecordStateChanged, listener);
+    return () => ipcRenderer.removeListener(IPC.autoRecordStateChanged, listener);
+  },
+};
+
 const exportApi: LoquiExportApi = {
   exportMeeting: (params: ExportMeetingParams): Promise<ExportResult> =>
     ipcRenderer.invoke(IPC.exportMeeting, params),
@@ -494,6 +541,7 @@ const api: LoquiApi = {
   mcp,
   calendar,
   speakerNames,
+  autoRecord,
   export: exportApi,
   privacy,
 };

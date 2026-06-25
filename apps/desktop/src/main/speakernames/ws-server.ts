@@ -32,6 +32,8 @@ import {
   MEET_ORIGIN,
   extensionMessageSchema,
   speakerNamesStatusSchema,
+  browserCallStateSchema,
+  type BrowserCallState,
   type SpeakerActivityEvent,
   type SpeakerNamesStatus,
 } from "@loqui/shared";
@@ -42,6 +44,8 @@ import type {
   ExtensionWsServer,
   ExtensionWsServerDeps,
 } from "./types.js";
+
+export const BROWSER_CALL_STALE_MS = 20_000;
 
 /** Per-meeting accumulated activity (events in arrival order + distinct names). */
 interface MeetingBuffer {
@@ -75,6 +79,42 @@ export const createExtensionWsServer: CreateExtensionWsServer = (
   let lastEventAt: string | null = null;
   let selectorVersion = "";
   let extensionVersion = "";
+
+  // PRD-11 browser in-call signal (independent of the active-meeting buffering
+  // above, so the auto-record engine can detect a browser meeting BEFORE a Loqui
+  // meeting starts). `inCall` is true while an extension is connected AND in a
+  // call (a hello announcing a meeting code, or any activity); cleared on `bye`
+  // or when the last socket drops. Published to subscribers on change.
+  let browserInCall = false;
+  let browserLastSeenAt: string | null = null;
+  const browserCallListeners = new Set<(state: BrowserCallState) => void>();
+
+  function computeBrowserCallState(): BrowserCallState {
+    const lastSeenMs =
+      browserLastSeenAt === null ? Number.NaN : Date.parse(browserLastSeenAt);
+    const fresh =
+      browserInCall &&
+      Number.isFinite(lastSeenMs) &&
+      Date.now() - lastSeenMs <= BROWSER_CALL_STALE_MS;
+    return browserCallStateSchema.parse({
+      inCall: fresh,
+      lastSeenAt: browserLastSeenAt,
+    });
+  }
+
+  function setBrowserInCall(inCall: boolean): void {
+    if (inCall) browserLastSeenAt = new Date().toISOString();
+    if (browserInCall === inCall) return;
+    browserInCall = inCall;
+    const state = computeBrowserCallState();
+    for (const cb of browserCallListeners) {
+      try {
+        cb(state);
+      } catch {
+        /* a listener throwing must not break the server */
+      }
+    }
+  }
 
   /** The meeting id currently recording (per the injected source), or null. */
   function activeMeetingId(): string | null {
@@ -155,13 +195,23 @@ export const createExtensionWsServer: CreateExtensionWsServer = (
       // "active meeting + connected tab"), so we do not gate buffering on them.
       selectorVersion = msg.selectorVersion;
       extensionVersion = msg.extensionVersion;
+      // PRD-11: a hello that carries a Meet meeting code means the tab is in a
+      // call — surface the browser in-call signal for auto-record detection.
+      if (msg.meetingCode !== null && msg.meetingCode.trim() !== "") {
+        setBrowserInCall(true);
+      }
       notifyStatus();
       return;
     }
 
     if (msg.type === "activity") {
-      // IGNORE activity when no meeting is recording. This is the load-bearing
-      // "loopback channel ignores events with no active meeting" invariant.
+      // PRD-11: any activity frame means the browser tab is in a call — surface
+      // the in-call signal REGARDLESS of whether a Loqui meeting is active (the
+      // engine uses it to decide whether to START one).
+      setBrowserInCall(true);
+      // IGNORE activity buffering when no meeting is recording. This is the
+      // load-bearing "loopback channel ignores events with no active meeting"
+      // invariant (the buffer feeds PRD-6 correlation, which only runs per meeting).
       const meetingId = activeMeetingId();
       if (meetingId === null) return;
       const event = msg.event;
@@ -174,7 +224,12 @@ export const createExtensionWsServer: CreateExtensionWsServer = (
       return;
     }
 
-    // "bye" — advisory only; the raw socket close is handled identically.
+    // "bye" — the content script left the call / tore down. Advisory for the
+    // PRD-6 buffer (a raw close is handled identically) but it DOES clear the
+    // PRD-11 browser in-call signal.
+    if (msg.type === "bye") {
+      setBrowserInCall(false);
+    }
   }
 
   function onConnection(socket: WebSocket): void {
@@ -194,9 +249,11 @@ export const createExtensionWsServer: CreateExtensionWsServer = (
       if (sockets.delete(socket)) {
         connections = Math.max(0, connections - 1);
         if (connections === 0) {
-          // No extension connected: clear the echoed versions back to "unknown".
+          // No extension connected: clear the echoed versions back to "unknown"
+          // and drop the PRD-11 browser in-call signal (the tab is gone).
           selectorVersion = "";
           extensionVersion = "";
+          setBrowserInCall(false);
         }
         notifyStatus();
       }
@@ -297,6 +354,17 @@ export const createExtensionWsServer: CreateExtensionWsServer = (
       };
     },
 
+    getBrowserCallState(): BrowserCallState {
+      return computeBrowserCallState();
+    },
+
+    onBrowserCallChange(cb: (state: BrowserCallState) => void): () => void {
+      browserCallListeners.add(cb);
+      return () => {
+        browserCallListeners.delete(cb);
+      };
+    },
+
     stop(): Promise<void> {
       const server = wss;
       wss = null;
@@ -314,6 +382,7 @@ export const createExtensionWsServer: CreateExtensionWsServer = (
       selectorVersion = "";
       extensionVersion = "";
       lastEventAt = null;
+      setBrowserInCall(false);
       notifyStatus();
       if (!server) return Promise.resolve();
       return new Promise<void>((resolve) => {

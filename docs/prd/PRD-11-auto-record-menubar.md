@@ -28,3 +28,4 @@ The capture mechanism itself (PRD-1) and the Meet extension (PRD-6) — this PRD
 ## Notes for implementers
 - Detection is inherently OS-specific and best-effort — keep it behind a small platform-abstracted detector with a deterministic, unit-testable decision core; never let a detection miss block manual control.
 - Reuse the PRD-6 WS server for the browser signal; reuse the PRD-3 lifecycle for start/stop.
+- Native auto-record must remain inert until a real mic-in-use probe lands (Windows CapabilityAccessManager ConsentStore / WASAPI, macOS CoreAudio "device in use"); do not infer mic activity from process presence.

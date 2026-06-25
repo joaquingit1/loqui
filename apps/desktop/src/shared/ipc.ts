@@ -323,6 +323,48 @@ export const IPC = {
    * active meeting.
    */
   speakerNamesStatusChanged: "loqui:speakerNames:statusChanged",
+
+  // --- Auto-record on meeting detection + menubar/tray (PRD-11) ---
+  /**
+   * invoke: read the persisted auto-record + tray settings (->
+   * {@link import("@loqui/shared").AutoRecordSettings}): the master switch,
+   * on-detect policy (ask/auto), native/browser detection toggles, app allowlist,
+   * auto-stop delay, silence timeout + countdown window, run-in-background, and
+   * launch-at-login. Defaults preserve manual-only PRD-3 behavior (enabled:false).
+   */
+  autoRecordGetSettings: "loqui:autorecord:getSettings",
+  /**
+   * invoke: patch the auto-record + tray settings (payload
+   * {@link import("@loqui/shared").UpdateAutoRecordSettings}; ->
+   * {@link import("@loqui/shared").AutoRecordSettings}). Applies live: toggling
+   * `enabled` starts/stops the detection engine; `launchAtLogin` calls
+   * `app.setLoginItemSettings`. Never stops an in-progress recording.
+   */
+  autoRecordSetSettings: "loqui:autorecord:setSettings",
+  /**
+   * invoke: the current auto-record runtime state (->
+   * {@link import("@loqui/shared").AutoRecordState}): phase, whether recording,
+   * the detection source + resolved probe inputs, and any silence countdown.
+   * READ-ONLY status.
+   */
+  autoRecordGetState: "loqui:autorecord:getState",
+  /**
+   * invoke: accept a pending `ask`-policy detection prompt — start the detected
+   * meeting now via the PRD-3 lifecycle (-> void). No-op when nothing is pending.
+   */
+  autoRecordAcceptPending: "loqui:autorecord:acceptPending",
+  /**
+   * invoke: dismiss a pending `ask`-policy detection prompt WITHOUT starting
+   * (-> void). No-op when nothing is pending.
+   */
+  autoRecordDismissPending: "loqui:autorecord:dismissPending",
+  /**
+   * push (main -> renderer): the auto-record runtime state changed (payload
+   * {@link import("@loqui/shared").AutoRecordState}). The window badge + any
+   * detection prompt subscribe via `window.loqui.autoRecord.onState`. Fires on
+   * detection, start/stop, the silence countdown, and settings changes.
+   */
+  autoRecordStateChanged: "loqui:autorecord:stateChanged",
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

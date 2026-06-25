@@ -53,6 +53,14 @@ import {
   speakerCorrelationResultSchema,
   speakerNamesStatusSchema,
 } from "../src/speakernames.js";
+import {
+  autoRecordSettingsSchema,
+  updateAutoRecordSettingsSchema,
+  detectionInputsSchema,
+  detectionDecisionSchema,
+  autoRecordStateSchema,
+  browserCallStateSchema,
+} from "../src/autorecord.js";
 import { importFileRequestSchema, importFileDoneSchema } from "../src/importfile.js";
 import {
   exportFormatSchema,
@@ -115,6 +123,16 @@ const schemas: Record<string, ZodTypeAny> = {
   SpeakerNameResolution: speakerNameResolutionSchema,
   SpeakerCorrelationResult: speakerCorrelationResultSchema,
   SpeakerNamesStatus: speakerNamesStatusSchema,
+  // PRD-11 auto-record + menubar/tray. Emitted so the (TS-only) detection
+  // settings, the PURE decision-core inputs/outputs, the tray/auto-record runtime
+  // state, and the browser in-call signal are fully visible as cross-process
+  // contracts. The Python sidecar is NOT involved in PRD-11.
+  AutoRecordSettings: autoRecordSettingsSchema,
+  UpdateAutoRecordSettings: updateAutoRecordSettingsSchema,
+  DetectionInputs: detectionInputsSchema,
+  DetectionDecision: detectionDecisionSchema,
+  AutoRecordState: autoRecordStateSchema,
+  BrowserCallState: browserCallStateSchema,
   // PRD-12 file import. The sidecar validates the inbound `importFile`
   // notification against ImportFileRequest; ImportFileDone is emitted so the
   // terminal import contract is fully visible to Python.

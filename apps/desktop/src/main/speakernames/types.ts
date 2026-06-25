@@ -35,6 +35,7 @@
  * carries a user-set name is never overwritten by an auto-resolved name.
  */
 import type {
+  BrowserCallState,
   Meeting,
   SpeakerActivityEvent,
   SpeakerCorrelationParams,
@@ -91,6 +92,16 @@ export interface ExtensionWsServer {
   onStatusChange(cb: (status: SpeakerNamesStatus) => void): () => void;
   /** Take + clear the buffered activity for a meeting (empty when none captured). */
   drainActivity(meetingId: string): BufferedMeetingActivity;
+  /**
+   * The collapsed "a browser tab is in a call" signal (PRD-11) derived from the
+   * extension's hello/activity/bye over THIS existing WS (no new socket). Used by
+   * the auto-record engine to detect a browser meeting BEFORE/while recording —
+   * independent of the {@link drainActivity} buffering (which only runs once a
+   * Loqui meeting is active). Best-effort: `inCall:false` when no extension.
+   */
+  getBrowserCallState(): BrowserCallState;
+  /** Subscribe to browser in-call changes (enter/leave a call). Returns unsubscribe. */
+  onBrowserCallChange(cb: (state: BrowserCallState) => void): () => void;
   /** Stop the listener + drop all connections + clear buffers. Idempotent. */
   stop(): Promise<void>;
 }

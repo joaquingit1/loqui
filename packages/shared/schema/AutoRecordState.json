@@ -1,0 +1,68 @@
+{
+  "$ref": "#/definitions/AutoRecordState",
+  "definitions": {
+    "AutoRecordState": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "disabled",
+            "idle",
+            "detected",
+            "recording",
+            "countdown"
+          ],
+          "default": "disabled"
+        },
+        "recording": {
+          "type": "boolean",
+          "default": false
+        },
+        "autoStarted": {
+          "type": "boolean",
+          "default": false
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "none",
+            "native-app",
+            "browser"
+          ],
+          "default": "none"
+        },
+        "nativeAppActive": {
+          "type": "boolean",
+          "default": false
+        },
+        "micActive": {
+          "type": "boolean",
+          "default": false
+        },
+        "browserInCall": {
+          "type": "boolean",
+          "default": false
+        },
+        "silenceCountdownSec": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -100,6 +100,17 @@ function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
       })),
       onStatus: () => () => {},
     },
+    // PRD-11 auto-record bridge: a no-op fake; the current user-facing toggle is
+    // in the tray; renderer Settings arrive with the UI rehaul. Returns the
+    // disabled resting settings/state so any incidental read is well-formed.
+    autoRecord: {
+      getSettings: vi.fn(async () => ({}) as never),
+      setSettings: vi.fn(async () => ({}) as never),
+      getState: vi.fn(async () => ({}) as never),
+      acceptPending: vi.fn(async () => {}),
+      dismissPending: vi.fn(async () => {}),
+      onState: () => () => {},
+    },
     // PRD-13 export + privacy bridges: no-op fakes; the App under test does not
     // exercise them directly (they are reached from the settings/library panels).
     export: {

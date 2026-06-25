@@ -7,12 +7,27 @@
  * STUB: the Build phase fills in window creation, IPC registration, and the
  * supervisor/store wiring. Imports below pin the contract.
  */
-import { app, BrowserWindow, safeStorage, session, shell, systemPreferences } from "electron";
+import {
+  app,
+  BrowserWindow,
+  Menu,
+  nativeImage,
+  safeStorage,
+  session,
+  shell,
+  systemPreferences,
+  Tray,
+} from "electron";
 import { join } from "node:path";
 import { release as osRelease } from "node:os";
 import { fileURLToPath } from "node:url";
 import { rmSync } from "node:fs";
-import { AUDIO_WAV_FILENAME, type Meeting, type ScreenPermissionStatus } from "@loqui/shared";
+import {
+  AUDIO_WAV_FILENAME,
+  type Meeting,
+  type ScreenPermissionStatus,
+  type UpdateAutoRecordSettings,
+} from "@loqui/shared";
 import { SidecarSupervisor } from "./sidecar/supervisor.js";
 import { openStore, meetingAudioDir, type MeetingStore } from "./store/index.js";
 import { IPC } from "../shared/ipc.js";
@@ -74,6 +89,22 @@ import {
   subscribeSpeakerNamesCorrelation,
   type ExtensionWsServer,
 } from "./speakernames/index.js";
+// PRD-11 auto-record on meeting detection + menubar/tray. The PURE decision core
+// (decide) is wrapped by the engine, which polls the injectable native probe +
+// the browser in-call source (PRD-6 WS — no new socket) and applies start/stop
+// via the SAME PRD-3 lifecycle controller. The tray (Electron Tray/Menu) gives
+// quick controls + a recording-state icon + launch-at-login. Auto-record is OFF
+// by default (manual-only PRD-3) until the user opts in.
+import {
+  createAutoRecordEngine,
+  createNativeMeetingProbe,
+  browserCallSourceFromWsServer,
+  registerAutoRecordIpc,
+  createTray,
+  createTrayElectron,
+  type AutoRecordEngine,
+  type TrayController,
+} from "./autorecord/index.js";
 
 const __dirname = join(fileURLToPath(import.meta.url), "..");
 
@@ -200,6 +231,17 @@ let calendarService: CalendarServiceImpl | null = null;
 let extensionWsServer: ExtensionWsServer | null = null;
 let disposeSpeakerNamesIpc: (() => void) | null = null;
 let disposeSpeakerNamesCorrelation: (() => void) | null = null;
+// PRD-11 auto-record seam: the detection engine, its IPC bridge disposer, the
+// tray controller, and the engine's state-push -> tray subscription disposer.
+let autoRecordEngine: AutoRecordEngine | null = null;
+let disposeAutoRecordIpc: (() => void) | null = null;
+let tray: TrayController | null = null;
+let disposeTraySync: (() => void) | null = null;
+
+function applyRunInBackground(enabled: boolean): void {
+  if (enabled) app.dock?.hide();
+  else app.dock?.show();
+}
 
 /**
  * Create the window, open the store, start + supervise the sidecar, register
@@ -216,6 +258,7 @@ export async function bootstrap(): Promise<void> {
   // window is created so the content-protection toggle (ON by default) is applied
   // at creation. Shared with the audio retention path + the export service.
   settingsStore = new SettingsStore();
+  applyRunInBackground(settingsStore.getAutoRecordSettings().runInBackground);
 
   mainWindow = createWindow({
     contentProtection: settingsStore.getCaptureSettings().contentProtection,
@@ -448,6 +491,118 @@ export async function bootstrap(): Promise<void> {
     getMeeting: (id) => store?.getMeeting(id) ?? null,
   });
 
+  // Auto-record on meeting detection + menubar/tray (PRD-11). MANUAL-FIRST: the
+  // engine reads the persisted policy (OFF by default) and only watches when the
+  // user opts in. It REUSES the PRD-3 `controller` for start/stop, the OS native
+  // probe for conferencing apps + mic, and the PRD-6 WS server's browser in-call
+  // signal (no new socket). The tray gives quick controls + a recording-state
+  // icon + launch-at-login; the main window stays available.
+  const openMainWindow = (): void => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+      return;
+    }
+    mainWindow = createWindow({
+      contentProtection: settingsStore?.getCaptureSettings().contentProtection ?? true,
+    });
+    mainWindow.on("closed", () => {
+      mainWindow = null;
+    });
+  };
+
+  autoRecordEngine = createAutoRecordEngine({
+    settings: settingsStore.getAutoRecordSettings(),
+    lifecycle: controller,
+    nativeProbe: createNativeMeetingProbe(process.platform),
+    browserSource: browserCallSourceFromWsServer(extensionWsServer),
+  });
+  disposeAutoRecordIpc = registerAutoRecordIpc({
+    engine: autoRecordEngine,
+    settings: settingsStore,
+    setLoginItemSettings: (enabled: boolean) =>
+      app.setLoginItemSettings({ openAtLogin: enabled }),
+    applyRunInBackground,
+    getWindow: () => mainWindow,
+  });
+
+  // The tray view: rebuilt from the engine state + recent meetings on every
+  // engine state change (and once now). Recent meetings come straight from the
+  // store (newest-first, capped). Start/stop go through the SAME controller the
+  // manual IPC path uses; openMeeting surfaces + focuses the window.
+  const trayElectron = createTrayElectron({ Tray, Menu, nativeImage, app });
+  const recentMeetings = (): { id: string; title: string }[] => {
+    try {
+      return (store?.listMeetings({ limit: 5 }) ?? []).map((m) => ({
+        id: m.id,
+        title: m.title,
+      }));
+    } catch {
+      return [];
+    }
+  };
+  const trayModel = () => ({
+    state: autoRecordEngine!.getState(),
+    autoRecord: {
+      enabled: settingsStore!.getAutoRecordSettings().enabled,
+      onDetect: settingsStore!.getAutoRecordSettings().onDetect,
+    },
+    recentMeetings: recentMeetings(),
+    launchAtLogin: settingsStore!.getAutoRecordSettings().launchAtLogin,
+  });
+  const updateAutoRecordSettings = (patch: UpdateAutoRecordSettings): void => {
+    const merged = settingsStore!.setAutoRecordSettings(patch);
+    autoRecordEngine?.applySettings(merged);
+    applyRunInBackground(merged.runInBackground);
+    tray?.update(trayModel());
+  };
+  // Building the Tray requires the OS tray to be available; guard so a headless
+  // failure never blocks bootstrap (the app still works windowed).
+  try {
+    tray = createTray(
+      trayElectron,
+      {
+        startMeeting: () => void controller.startMeeting(),
+        stopMeeting: () => {
+          const active = controller.getActiveMeeting();
+          if (active) void controller.stopMeeting({ id: active.id });
+        },
+        acceptPendingStart: () => void autoRecordEngine?.acceptPendingStart(),
+        setAutoRecordEnabled: (enabled: boolean) =>
+          updateAutoRecordSettings({ enabled }),
+        setAutoRecordOnDetect: (onDetect) =>
+          updateAutoRecordSettings({ onDetect }),
+        openWindow: openMainWindow,
+        openMeeting: () => openMainWindow(),
+        setLaunchAtLogin: (enabled: boolean) => {
+          updateAutoRecordSettings({ launchAtLogin: enabled });
+          try {
+            app.setLoginItemSettings({ openAtLogin: enabled });
+          } catch (err) {
+            console.error("[loqui] auto-record: setLoginItemSettings failed:", err);
+          }
+        },
+        quit: () => app.quit(),
+      },
+      trayModel(),
+    );
+    disposeTraySync = autoRecordEngine.onStateChange(() => tray?.update(trayModel()));
+  } catch (err) {
+    console.error("[loqui] tray unavailable (continuing windowed):", err);
+  }
+
+  // Reflect the persisted launch-at-login to the OS at boot, then start watching
+  // (a no-op when auto-record is disabled).
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: settingsStore.getAutoRecordSettings().launchAtLogin,
+    });
+  } catch (err) {
+    console.error("[loqui] auto-record: setLoginItemSettings failed:", err);
+  }
+  autoRecordEngine.start();
+
   // Start the sidecar in the background; failure surfaces via status push and
   // must not block window creation.
   void supervisor.start().catch((err: unknown) => {
@@ -512,6 +667,18 @@ async function shutdown(): Promise<void> {
   disposeCalendarIpc = null;
   calendarService?.dispose();
   calendarService = null;
+  // PRD-11 auto-record teardown: dispose the IPC bridge, the tray, the engine
+  // state -> tray subscription, and the engine itself (stops the poll loop +
+  // releases the lifecycle subscription). Stopping the engine does NOT stop an
+  // in-progress recording — the lifecycle/sidecar teardown below handles that.
+  disposeAutoRecordIpc?.();
+  disposeAutoRecordIpc = null;
+  disposeTraySync?.();
+  disposeTraySync = null;
+  tray?.destroy();
+  tray = null;
+  autoRecordEngine?.dispose();
+  autoRecordEngine = null;
   // PRD-6 speaker-names teardown (unhooks the correlation pass + IPC/status push
   // and stops the loopback extension WS server once the Build phase wires them).
   disposeSpeakerNamesCorrelation?.();

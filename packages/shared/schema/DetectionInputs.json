@@ -1,0 +1,36 @@
+{
+  "$ref": "#/definitions/DetectionInputs",
+  "definitions": {
+    "DetectionInputs": {
+      "type": "object",
+      "properties": {
+        "nativeAppActive": {
+          "type": "boolean",
+          "default": false
+        },
+        "micActive": {
+          "type": "boolean",
+          "default": false
+        },
+        "browserInCall": {
+          "type": "boolean",
+          "default": false
+        },
+        "recording": {
+          "type": "boolean",
+          "default": false
+        },
+        "autoStarted": {
+          "type": "boolean",
+          "default": false
+        },
+        "now": {
+          "type": "number",
+          "default": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -1,0 +1,35 @@
+{
+  "$ref": "#/definitions/DetectionDecision",
+  "definitions": {
+    "DetectionDecision": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "none",
+            "start",
+            "prompt-start",
+            "stop"
+          ],
+          "default": "none"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "none",
+            "native-app",
+            "browser"
+          ],
+          "default": "none"
+        },
+        "reason": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

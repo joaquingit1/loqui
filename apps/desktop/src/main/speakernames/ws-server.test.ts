@@ -10,7 +10,7 @@
  * names tracked; drainActivity returns + clears the buffer; status transitions
  * (disconnected -> connected -> capturing); stop() is clean + idempotent.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import {
   SPEAKERNAMES_WS_HOST,
@@ -19,7 +19,11 @@ import {
   type Meeting,
   type SpeakerNamesStatus,
 } from "@loqui/shared";
-import { createExtensionWsServer, activeMeetingFromController } from "./ws-server.js";
+import {
+  BROWSER_CALL_STALE_MS,
+  createExtensionWsServer,
+  activeMeetingFromController,
+} from "./ws-server.js";
 import type { ActiveMeetingSource, ExtensionWsServer } from "./types.js";
 
 function meeting(id: string, status: Meeting["status"] = "recording"): Meeting {
@@ -301,5 +305,72 @@ describe("activeMeetingFromController adapter", () => {
     cb!(meeting("m1", "processing")); // not recording => cleared
     active = null;
     expect(seen).toEqual(["m1", null]);
+  });
+});
+
+describe("browser in-call signal (PRD-11) — flows over the EXISTING WS", () => {
+  it("is false with no extension connected", () => {
+    expect(server.getBrowserCallState().inCall).toBe(false);
+  });
+
+  it("goes in-call on activity (even with NO active Loqui meeting) and notifies", async () => {
+    const seen: boolean[] = [];
+    server.onBrowserCallChange((s) => seen.push(s.inCall));
+    const ws = await connect(port);
+    // No active meeting — the PRD-6 buffer ignores it, but the in-call signal
+    // still fires so auto-record can decide whether to START a meeting.
+    await send(ws, { type: "activity", event: { ts: 1000, name: "Alice", speaking: true } });
+    await until(() => server.getBrowserCallState().inCall === true);
+    expect(seen).toContain(true);
+    expect(server.drainActivity("none").events).toHaveLength(0);
+    ws.close();
+  });
+
+  it("goes in-call on a hello carrying a meeting code", async () => {
+    const ws = await connect(port);
+    await send(ws, {
+      type: "hello",
+      extensionVersion: "1.0.0",
+      selectorVersion: "2026-06-24",
+      meetingCode: "abc-defg-hij",
+      origin: "https://meet.google.com",
+    });
+    await until(() => server.getBrowserCallState().inCall === true);
+    ws.close();
+  });
+
+  it("treats an old browser in-call signal as stale", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const firstSeen = new Date("2026-06-24T00:00:00.000Z");
+      vi.setSystemTime(firstSeen);
+      const ws = await connect(port);
+      await send(ws, { type: "activity", event: { ts: 1000, name: "Alice", speaking: true } });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(server.getBrowserCallState().inCall).toBe(true);
+
+      vi.setSystemTime(new Date(firstSeen.getTime() + BROWSER_CALL_STALE_MS + 1));
+      expect(server.getBrowserCallState().inCall).toBe(false);
+      ws.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the in-call signal on a `bye` frame", async () => {
+    const ws = await connect(port);
+    await send(ws, { type: "activity", event: { ts: 1000, name: "Alice", speaking: true } });
+    await until(() => server.getBrowserCallState().inCall === true);
+    await send(ws, { type: "bye", reason: "left" });
+    await until(() => server.getBrowserCallState().inCall === false);
+    ws.close();
+  });
+
+  it("clears the in-call signal when the last socket drops", async () => {
+    const ws = await connect(port);
+    await send(ws, { type: "activity", event: { ts: 1000, name: "Alice", speaking: true } });
+    await until(() => server.getBrowserCallState().inCall === true);
+    ws.close();
+    await until(() => server.getBrowserCallState().inCall === false);
   });
 });
