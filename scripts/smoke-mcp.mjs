@@ -187,7 +187,10 @@ async function main() {
     command: process.execPath,
     args: [binPath],
     env: { ...process.env, LOQUI_DATA_DIR: dataRoot },
-    stderr: "pipe",
+    // inherit so the spawned server's stderr (any crash/throw) shows in the
+    // caller's output — otherwise a silent child exit reads as an opaque
+    // "Connection closed".
+    stderr: "inherit",
   });
   const client = new Client({ name: "loqui-smoke-mcp", version: "0.0.0" });
 

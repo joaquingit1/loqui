@@ -165,8 +165,12 @@ jobs:
       # Windows stdio handshake IS covered by mcp-server/test/cli.test.ts (run in
       # the Test step on windows-latest), so gating the redundant smoke here loses
       # no real coverage; macOS still runs the full integration smoke.
+      # TEMP DIAGNOSTIC: also run on Windows (continue-on-error) to capture the
+      # built server's inherited stderr and learn why the dist closes the stdio
+      # handshake on the windows runner. Revert to `if: runner.os != 'Windows'`
+      # (or fully un-gate once fixed) after diagnosis.
       - name: Smoke (MCP server stdio, read-only)
-        if: runner.os != 'Windows'
+        continue-on-error: ${{ runner.os == 'Windows' }}
         run: pnpm smoke:mcp
 
       # PRD-15 calendar Home/Today smoke (hermetic; FakeCalendarProvider, NO
