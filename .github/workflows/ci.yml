@@ -61,8 +61,13 @@ jobs:
       - name: Lint (TS)
         run: pnpm -r lint
 
+      # Use the root `test` script (not `pnpm -r test` directly): it rebuilds the
+      # shared better-sqlite3 native module to the Node ABI ONCE (apps/desktop's
+      # electron-rebuild postinstall leaves it at the Electron ABI) and then runs
+      # the workspaces serially, so a Node-based test never loads an Electron-ABI
+      # binary and no two packages rebuild the shared module concurrently.
       - name: Test (TS)
-        run: pnpm -r test
+        run: pnpm test
 
       - name: Lint (Python sidecar)
         working-directory: sidecar
