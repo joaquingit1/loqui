@@ -58,10 +58,16 @@ export interface MeetingControlsProps {
   /** Inject a capture-controller factory for tests (defaults to the real one). */
   createCaptureController?: (deps: CaptureControllerDeps) => CaptureController;
   /**
-   * One-shot ⌘N intent from the shell (PRD-16): when this counter increments and
-   * a start is possible, auto-start a meeting. 0 = no pending intent (default).
+   * A pending start request from the shell (Home "Start a meeting", a calendar
+   * "join & record", or ⌘N). When non-null and a start is possible, the
+   * controller performs the ATOMIC startMeeting + capture with these params — so
+   * the live transcript's meetingId is always the id actually being transcribed
+   * (one owner of start+capture, no divergence). The shell clears it via
+   * {@link onPendingStartConsumed} once consumed.
    */
-  autoStartSignal?: number;
+  pendingStart?: StartMeetingParams | null;
+  /** Called once the pending start has been initiated (the shell clears it). */
+  onPendingStartConsumed?: () => void;
 }
 
 const SOURCES: readonly AudioSource[] = ["mic", "system"];
@@ -82,7 +88,8 @@ export function MeetingControls({
   defaultParams,
   micDeviceId,
   createCaptureController,
-  autoStartSignal = 0,
+  pendingStart = null,
+  onPendingStartConsumed,
 }: MeetingControlsProps): JSX.Element {
   const loqui = api ?? (typeof window !== "undefined" ? window.loqui : undefined);
   const audio = loqui?.audio ?? NOOP_AUDIO;
@@ -133,16 +140,24 @@ export function MeetingControls({
     if (controller.canStart) void controller.start();
   }, [controller]);
 
-  // ⌘N auto-start (PRD-16): when the shell bumps the signal, start a meeting if
-  // we can. Skip the initial 0 and only react to a genuine increment so a
-  // re-render never re-triggers; gated on canStart + a ready sidecar (same guard
-  // as the Start button) so ⌘N is a no-op when starting isn't possible.
-  const lastAutoStart = useRef(autoStartSignal);
+  // Start a pending request from the shell (Home "Start a meeting" / "join &
+  // record" / ⌘N) through the controller — the ONE owner of startMeeting +
+  // capture. Fires once when a start is possible (canStart + a ready sidecar);
+  // if the sidecar isn't connected yet, this effect re-runs when it connects.
+  // The ref guards a double-start before the shell clears the request. Works on
+  // a fresh mount (unlike a counter, whose ref would equal its initial value).
+  const pendingStartedRef = useRef(false);
   useEffect(() => {
-    if (autoStartSignal === lastAutoStart.current) return;
-    lastAutoStart.current = autoStartSignal;
-    if (controller.canStart && sidecarStatus === "connected") void controller.start();
-  }, [autoStartSignal, controller, sidecarStatus]);
+    if (pendingStart == null) {
+      pendingStartedRef.current = false;
+      return;
+    }
+    if (pendingStartedRef.current) return;
+    if (!controller.canStart || sidecarStatus !== "connected") return;
+    pendingStartedRef.current = true;
+    void controller.start(pendingStart);
+    onPendingStartConsumed?.();
+  }, [pendingStart, controller, sidecarStatus, onPendingStartConsumed]);
 
   const onStop = useCallback(() => {
     if (controller.canStop) void controller.stop();
@@ -157,9 +172,14 @@ export function MeetingControls({
 
   // ---- LIVE (recording / stopping): the editorial transcript + ask surface ----
   if (live && meeting?.id) {
-    const captureError = SOURCES.map((s) => capture.statuses[s]).find(
-      (st) => st.state === "error",
-    );
+    // Mic is the REQUIRED source, so a mic error is a real alert (and should be
+    // rare). The system (loopback) source is OPTIONAL: on macOS it can't start
+    // without Screen Recording, which is expected + NON-FATAL (the mic still
+    // records) — surface it as a quiet one-line note, never a persistent alarm.
+    const micErr =
+      capture.statuses.mic.state === "error" ? capture.statuses.mic.error : null;
+    const systemErr =
+      capture.statuses.system.state === "error" ? capture.statuses.system.error : null;
     return (
       <section
         className="meeting meeting--live"
@@ -206,15 +226,22 @@ export function MeetingControls({
           </div>
         </header>
 
-        {captureError && (
+        {micErr && (
           <p
             className="meeting__note meeting__note--alert"
-            data-testid={`meeting-capture-error-${
-              capture.statuses.system.state === "error" ? "system" : "mic"
-            }`}
+            data-testid="meeting-capture-error-mic"
             role="alert"
           >
-            {captureError.error ?? "Capture failed."}
+            {micErr}
+          </p>
+        )}
+        {!micErr && systemErr && (
+          <p
+            className="meeting__note"
+            data-testid="meeting-capture-error-system"
+            role="status"
+          >
+            {systemErr}
           </p>
         )}
 

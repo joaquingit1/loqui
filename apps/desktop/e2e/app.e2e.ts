@@ -184,3 +184,41 @@ test("the PRD-6 speaker-names indicator renders + the status IPC round-trips (ab
   await expect(page.getByTestId("speakernames-status")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByTestId("speakernames-pill")).toHaveAttribute("data-state", "disconnected");
 });
+
+test("a transcriptSegment pushed from main reaches window.loqui.onTranscriptSegment (live push wired)", async () => {
+  // The live transcript depends on main → renderer IPC delivery of segments
+  // (the one seam not covered by the renderer-only LiveTranscript unit tests).
+  // Register a real listener, push a segment from MAIN on the real channel, and
+  // assert it arrives — proving the live push reaches the renderer.
+  await page.evaluate(() => {
+    (window as unknown as { __lastSeg: unknown }).__lastSeg = null;
+    (
+      window as unknown as {
+        loqui: { onTranscriptSegment: (cb: (s: unknown) => void) => () => void };
+      }
+    ).loqui.onTranscriptSegment((s) => {
+      (window as unknown as { __lastSeg: unknown }).__lastSeg = s;
+    });
+  });
+
+  await app.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows()[0];
+    win?.webContents.send("loqui:transcriptSegment", {
+      meetingId: "e2e-meeting",
+      source: "mic",
+      text: "hello from main",
+      tStart: 0,
+      tEnd: 1,
+      status: "final",
+      segId: "e2e-meeting:mic:0",
+    });
+  });
+
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as unknown as { __lastSeg: { text?: string } | null }).__lastSeg?.text ?? null,
+      ),
+    )
+    .toBe("hello from main");
+});

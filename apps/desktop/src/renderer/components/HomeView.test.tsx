@@ -8,9 +8,9 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { CalendarConnection, CalendarEvent, Meeting } from "@loqui/shared";
+import type { CalendarConnection, CalendarEvent } from "@loqui/shared";
 import { HomeView } from "./HomeView.js";
-import type { LoquiCalendarApi, LoquiLibraryApi } from "../../preload/index.js";
+import type { LoquiCalendarApi } from "../../preload/index.js";
 
 afterEach(cleanup);
 
@@ -102,19 +102,10 @@ function makeCalendar(
   return { api, emitUpdated: (events) => cb?.(events) };
 }
 
-function makeLibrary(
-  overrides: Partial<Pick<LoquiLibraryApi, "startMeeting">> = {},
-): Pick<LoquiLibraryApi, "startMeeting"> {
-  return {
-    startMeeting: vi.fn(async (params) => ({ id: "m1", ...params }) as unknown as Meeting),
-    ...overrides,
-  };
-}
-
 describe("HomeView", () => {
   it("renders the serif greeting + a meetings-ahead summary over the hero", async () => {
     const { api } = makeCalendar({ today: [TODAY_LATER, TODAY_SOON] });
-    render(<HomeView calendar={api} library={makeLibrary()} now={NOW} />);
+    render(<HomeView calendar={api} now={NOW} />);
 
     // NOW is 09:00 → "Good morning"; the greeting is the labelled home title.
     expect(screen.getByRole("heading", { name: /good morning/i })).toBeTruthy();
@@ -124,35 +115,26 @@ describe("HomeView", () => {
     expect(screen.getByTestId("home-meetings-ahead")).toBeTruthy();
   });
 
-  it("renders quick-start action cards; Start a meeting mints + hands up a meeting", async () => {
-    const onMeetingStarted = vi.fn();
-    const library = makeLibrary();
+  it("renders quick-start actions; Start a meeting requests a start (no prefill)", async () => {
+    const onStartMeeting = vi.fn();
     const { api } = makeCalendar({ today: [] });
-    render(
-      <HomeView
-        calendar={api}
-        library={library}
-        now={NOW}
-        onMeetingStarted={onMeetingStarted}
-      />,
-    );
+    render(<HomeView calendar={api} now={NOW} onStartMeeting={onStartMeeting} />);
 
     await waitFor(() => expect(screen.getByTestId("home-quick")).toBeTruthy());
     expect(screen.getByTestId("home-quick-start")).toBeTruthy();
     expect(screen.getByTestId("home-quick-library")).toBeTruthy();
 
     fireEvent.click(screen.getByTestId("home-quick-start"));
-    await waitFor(() => expect(library.startMeeting).toHaveBeenCalledTimes(1));
-    // No event prefill for a blank "start now".
-    expect(library.startMeeting).toHaveBeenCalledWith();
-    await waitFor(() => expect(onMeetingStarted).toHaveBeenCalledTimes(1));
+    // Home does NOT mint a meeting; it asks the host to start one (no prefill).
+    expect(onStartMeeting).toHaveBeenCalledTimes(1);
+    expect(onStartMeeting).toHaveBeenCalledWith();
   });
 
   it("the Browse library quick card calls onOpenLibrary", async () => {
     const onOpenLibrary = vi.fn();
     const { api } = makeCalendar({ today: [] });
     render(
-      <HomeView calendar={api} library={makeLibrary()} now={NOW} onOpenLibrary={onOpenLibrary} />,
+      <HomeView calendar={api} now={NOW} onOpenLibrary={onOpenLibrary} />,
     );
     await waitFor(() => expect(screen.getByTestId("home-quick-library")).toBeTruthy());
     fireEvent.click(screen.getByTestId("home-quick-library"));
@@ -161,7 +143,7 @@ describe("HomeView", () => {
 
   it("renders today's meetings soonest-first with time, platform, attendees", async () => {
     const { api } = makeCalendar({ today: [TODAY_LATER, TODAY_SOON] });
-    render(<HomeView calendar={api} library={makeLibrary()} now={NOW} />);
+    render(<HomeView calendar={api} now={NOW} />);
 
     await waitFor(() => expect(screen.getByTestId("home-today")).toBeTruthy());
     const ids = screen
@@ -182,7 +164,7 @@ describe("HomeView", () => {
       today: [TODAY_SOON],
       upcoming: [TODAY_SOON, TOMORROW], // service may include today's items
     });
-    render(<HomeView calendar={api} library={makeLibrary()} now={NOW} />);
+    render(<HomeView calendar={api} now={NOW} />);
 
     await waitFor(() => expect(screen.getByTestId("home-upcoming")).toBeTruthy());
     const peek = screen.getByTestId("home-upcoming");
@@ -194,7 +176,7 @@ describe("HomeView", () => {
 
   it("shows the today-empty state when connected but nothing is scheduled", async () => {
     const { api } = makeCalendar({ today: [], upcoming: [], connections: CONNECTIONS });
-    render(<HomeView calendar={api} library={makeLibrary()} now={NOW} />);
+    render(<HomeView calendar={api} now={NOW} />);
     await waitFor(() => expect(screen.getByTestId("home-today-empty")).toBeTruthy());
     expect(screen.queryByTestId("home-connect")).toBeNull();
   });
@@ -203,7 +185,7 @@ describe("HomeView", () => {
     const onOpenSettings = vi.fn();
     const { api } = makeCalendar({ today: [], upcoming: [], connections: [] });
     render(
-      <HomeView calendar={api} library={makeLibrary()} now={NOW} onOpenSettings={onOpenSettings} />,
+      <HomeView calendar={api} now={NOW} onOpenSettings={onOpenSettings} />,
     );
     await waitFor(() => expect(screen.getByTestId("home-connect")).toBeTruthy());
     expect(screen.getByTestId("home-connect").textContent).toMatch(/read-only/i);
@@ -214,7 +196,7 @@ describe("HomeView", () => {
 
   it("refreshes today on an onUpdated push", async () => {
     const { api, emitUpdated } = makeCalendar({ today: [TODAY_SOON] });
-    render(<HomeView calendar={api} library={makeLibrary()} now={NOW} />);
+    render(<HomeView calendar={api} now={NOW} />);
     await waitFor(() => expect(screen.getByTestId("home-event-t1")).toBeTruthy());
 
     // Push a new full set including a second today event.
@@ -223,18 +205,16 @@ describe("HomeView", () => {
     expect(screen.getByTestId("home-event-t1")).toBeTruthy();
   });
 
-  it("join & record opens the join URL and starts a meeting pre-filled from the event", async () => {
+  it("join & record opens the join URL and requests a start pre-filled from the event", async () => {
     const openExternal = vi.fn();
-    const onMeetingStarted = vi.fn();
-    const library = makeLibrary();
+    const onStartMeeting = vi.fn();
     const { api } = makeCalendar({ today: [TODAY_SOON] });
     render(
       <HomeView
         calendar={api}
-        library={library}
         now={NOW}
         openExternal={openExternal}
-        onMeetingStarted={onMeetingStarted}
+        onStartMeeting={onStartMeeting}
       />,
     );
     await waitFor(() => expect(screen.getByTestId("home-join-t1")).toBeTruthy());
@@ -242,26 +222,26 @@ describe("HomeView", () => {
     fireEvent.click(screen.getByTestId("home-join-t1"));
 
     expect(openExternal).toHaveBeenCalledWith("https://meet.example/abc");
-    await waitFor(() => expect(library.startMeeting).toHaveBeenCalledTimes(1));
-    expect(library.startMeeting).toHaveBeenCalledWith({
+    expect(onStartMeeting).toHaveBeenCalledWith({
       title: "Standup",
       platform: "google-meet",
     });
-    await waitFor(() => expect(onMeetingStarted).toHaveBeenCalledTimes(1));
   });
 
   it("records without a join URL (no openExternal) when the event has none", async () => {
     const openExternal = vi.fn();
-    const library = makeLibrary();
+    const onStartMeeting = vi.fn();
     const noLink = event({ id: "t1", title: "Phone call", joinUrl: null, platform: null });
     const { api } = makeCalendar({ today: [noLink] });
-    render(<HomeView calendar={api} library={library} now={NOW} openExternal={openExternal} />);
+    render(
+      <HomeView calendar={api} now={NOW} openExternal={openExternal} onStartMeeting={onStartMeeting} />,
+    );
     await waitFor(() => expect(screen.getByTestId("home-join-t1")).toBeTruthy());
     expect(screen.getByTestId("home-join-t1").textContent).toContain("Record");
 
     fireEvent.click(screen.getByTestId("home-join-t1"));
     expect(openExternal).not.toHaveBeenCalled();
-    await waitFor(() => expect(library.startMeeting).toHaveBeenCalledWith({ title: "Phone call" }));
+    expect(onStartMeeting).toHaveBeenCalledWith({ title: "Phone call" });
   });
 
   it("surfaces a load error without throwing", async () => {
@@ -272,7 +252,7 @@ describe("HomeView", () => {
         }),
       },
     });
-    render(<HomeView calendar={api} library={makeLibrary()} now={NOW} />);
+    render(<HomeView calendar={api} now={NOW} />);
     await waitFor(() => expect(screen.getByTestId("home-error").textContent).toContain("calendar offline"));
   });
 

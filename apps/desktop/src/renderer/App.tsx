@@ -23,7 +23,7 @@
  * (later phases); they render inside the new shell as-is.
  */
 import { useCallback, useEffect, useMemo, useState, type JSX, type ReactNode } from "react";
-import type { Meeting } from "@loqui/shared";
+import type { Meeting, StartMeetingParams } from "@loqui/shared";
 import type { LoquiApi, SidecarStatus } from "../preload/index.js";
 import { Icon, type IconName } from "./components/Icon.js";
 import { useKeyboardShortcuts, type Shortcut } from "./shortcuts/index.js";
@@ -131,7 +131,10 @@ export function App({
   // counter is a one-shot intent the active child consumes via an effect — keeps
   // the keyboard handler in the shell while the action stays in its component.
   // ⌘N → switch to Meeting + auto-start; ⌘F → focus the Library search field.
-  const [meetingStartSignal, setMeetingStartSignal] = useState(0);
+  // A pending "start a recording" request (with optional prefill) handed to the
+  // MeetingControls controller — the SINGLE owner of startMeeting + capture, so
+  // the meeting id / capture / live transcript never diverge across entry points.
+  const [pendingStart, setPendingStart] = useState<StartMeetingParams | null>(null);
   const [librarySearchSignal, setLibrarySearchSignal] = useState(0);
   // The workspace switcher is not built yet — clicking it briefly shows a
   // "Coming soon" hint instead of leaving a dead control.
@@ -187,11 +190,14 @@ export function App({
 
   const recentsList = useMemo(() => recents.slice(0, RECENTS_LIMIT), [recents]);
 
-  // "Join & record" from Home creates a meeting then hands it here so we switch
-  // to the active-meeting view. The MeetingControls component owns the meeting
-  // lifecycle/UI; the new meeting surfaces there via the lifecycle bridge.
-  const onMeetingStarted = useCallback((_meeting: Meeting) => {
+  // Start a recording from ANY entry point — Home "Start a meeting", a calendar
+  // "join & record" (with the event prefill), or ⌘N — by handing the intent to
+  // the Meeting view. MeetingControls' controller then does the ATOMIC
+  // startMeeting + capture, so capture always begins and the live transcript's
+  // meetingId is always the id actually being transcribed (no divergence).
+  const requestStart = useCallback((params?: StartMeetingParams) => {
     setSelectedMeeting(null);
+    setPendingStart(params ?? {});
     setView("meeting");
   }, []);
 
@@ -230,11 +236,7 @@ export function App({
   // ⌘N: jump to the Meeting view and auto-start a recording (one-shot signal the
   // MeetingControls consumes). ⌘F: focus the Library search (navigates there if
   // needed, then bumps a signal the Library focuses on).
-  const onStartMeetingShortcut = useCallback(() => {
-    setSelectedMeeting(null);
-    setView("meeting");
-    setMeetingStartSignal((n) => n + 1);
-  }, []);
+  const onStartMeetingShortcut = useCallback(() => requestStart(), [requestStart]);
   const onFocusSearchShortcut = useCallback(() => {
     setSelectedMeeting(null);
     setView("library");
@@ -273,15 +275,19 @@ export function App({
     content = (
       <HomeView
         calendar={api?.calendar}
-        library={api?.library}
         onOpenSettings={() => setView("settings")}
         onOpenLibrary={() => setView("library")}
-        onMeetingStarted={onMeetingStarted}
+        onStartMeeting={requestStart}
       />
     );
   } else if (view === "meeting") {
     content = (
-      <MeetingControls api={api} sidecarStatus={status} autoStartSignal={meetingStartSignal} />
+      <MeetingControls
+        api={api}
+        sidecarStatus={status}
+        pendingStart={pendingStart}
+        onPendingStartConsumed={() => setPendingStart(null)}
+      />
     );
   } else if (view === "library") {
     content = <Library api={api?.library} focusSearchSignal={librarySearchSignal} />;

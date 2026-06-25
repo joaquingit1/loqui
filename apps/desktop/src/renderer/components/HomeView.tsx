@@ -25,8 +25,8 @@
  * (injectable for hermetic tests), never to IPC channels or Node globals.
  */
 import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
-import type { CalendarConnection, CalendarEvent, Meeting } from "@loqui/shared";
-import type { LoquiCalendarApi, LoquiLibraryApi } from "../../preload/index.js";
+import type { CalendarConnection, CalendarEvent, StartMeetingParams } from "@loqui/shared";
+import type { LoquiCalendarApi } from "../../preload/index.js";
 import { Icon } from "./Icon.js";
 import {
   calendarPlatformIcon,
@@ -48,14 +48,17 @@ export interface HomeViewProps {
     LoquiCalendarApi,
     "listToday" | "listUpcoming" | "getConnections" | "refresh" | "onUpdated"
   >;
-  /** Library bridge for "join & record". Injectable; defaults to window.loqui.library. */
-  library?: Pick<LoquiLibraryApi, "startMeeting">;
   /** Open the Calendar settings panel (host-owned nav). */
   onOpenSettings?: () => void;
   /** Open the full searchable Library (host-owned nav). */
   onOpenLibrary?: () => void;
-  /** Called after "join & record" creates a meeting, so the host can switch views. */
-  onMeetingStarted?: (meeting: Meeting) => void;
+  /**
+   * Request a recording. The host switches to the Meeting view and the meeting
+   * controller does the single startMeeting + capture (with the optional prefill
+   * from "join & record"). Home NEVER mints a meeting itself, so the recording's
+   * meetingId / capture / live transcript can't diverge.
+   */
+  onStartMeeting?: (params?: StartMeetingParams) => void;
   /** Reference "now"; injectable so tests are deterministic. */
   now?: Date;
   /** Open a join URL; injectable for tests. Defaults to window.open in a new tab. */
@@ -72,24 +75,20 @@ function defaultOpenExternal(url: string): void {
 
 export function HomeView({
   calendar,
-  library,
   onOpenSettings,
   onOpenLibrary,
-  onMeetingStarted,
+  onStartMeeting,
   now,
   openExternal = defaultOpenExternal,
 }: HomeViewProps): JSX.Element {
   const cal =
     calendar ?? (typeof window !== "undefined" ? window.loqui?.calendar : undefined);
-  const lib =
-    library ?? (typeof window !== "undefined" ? window.loqui?.library : undefined);
 
   const [today, setToday] = useState<CalendarEvent[]>([]);
   const [upcoming, setUpcoming] = useState<CalendarEvent[]>([]);
   const [connections, setConnections] = useState<CalendarConnection[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [startingId, setStartingId] = useState<string | null>(null);
 
   const refNow = now;
 
@@ -160,37 +159,22 @@ export function HomeView({
     cal.getConnections?.().then(setConnections).catch(() => {});
   }, [cal, load, refNow]);
 
+  // "Join & record": open the meeting's join link, then ask the host to start a
+  // recording PREFILLED from the event (title/platform). The host's meeting
+  // controller does the actual startMeeting + capture (one owner; no divergence).
   const onJoinAndRecord = useCallback(
     (event: CalendarEvent) => {
       if (event.joinUrl) openExternal(event.joinUrl);
-      if (!lib?.startMeeting) return;
-      setStartingId(event.id);
-      lib
-        .startMeeting(eventStartParams(event))
-        .then((meeting) => onMeetingStarted?.(meeting))
-        .catch((err: unknown) => {
-          setError(err instanceof Error ? err.message : String(err));
-        })
-        .finally(() => setStartingId((id) => (id === event.id ? null : id)));
+      onStartMeeting?.(eventStartParams(event));
     },
-    [lib, onMeetingStarted, openExternal],
+    [onStartMeeting, openExternal],
   );
 
-  // "Start a meeting now" (quick action): mint a meeting with no event prefill,
-  // then hand it up so the host switches to the Meeting view. Reuses the same
-  // library.startMeeting bridge as "join & record" — no new contract.
-  const [startingNow, setStartingNow] = useState(false);
+  // "Start a meeting now" (quick action): hand the start intent up; the host
+  // switches to the Meeting view where the controller starts + captures.
   const onStartNow = useCallback(() => {
-    if (!lib?.startMeeting) return;
-    setStartingNow(true);
-    lib
-      .startMeeting()
-      .then((meeting) => onMeetingStarted?.(meeting))
-      .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => setStartingNow(false));
-  }, [lib, onMeetingStarted]);
+    onStartMeeting?.();
+  }, [onStartMeeting]);
 
   // Sort soonest-first defensively (the service already sorts, but a partial
   // cached push may not). Today comes pre-filtered to the local day.
@@ -263,7 +247,6 @@ export function HomeView({
                   key={event.id}
                   event={event}
                   now={refNow}
-                  starting={startingId === event.id}
                   onJoinAndRecord={onJoinAndRecord}
                 />
               ))}
@@ -287,10 +270,10 @@ export function HomeView({
         <p className="home__overline">Quick start</p>
         <div className="home__quick">
           <QuickAction
-            title={startingNow ? "Starting…" : "Start a meeting"}
+            title="Start a meeting"
             desc="Record + transcribe a live meeting now."
             testid="home-quick-start"
-            disabled={startingNow || !lib?.startMeeting}
+            disabled={!onStartMeeting}
             onClick={onStartNow}
           />
           <QuickAction
@@ -369,11 +352,10 @@ function ConnectPrompt({ onOpenSettings }: ConnectPromptProps): JSX.Element {
 interface EventRowProps {
   event: CalendarEvent;
   now?: Date;
-  starting: boolean;
   onJoinAndRecord: (event: CalendarEvent) => void;
 }
 
-function EventRow({ event, now, starting, onJoinAndRecord }: EventRowProps): JSX.Element {
+function EventRow({ event, now, onJoinAndRecord }: EventRowProps): JSX.Element {
   const attendees = summarizeAttendees(event.attendees);
   return (
     <li className="home__row" data-testid={`home-event-${event.id}`}>
@@ -395,10 +377,9 @@ function EventRow({ event, now, starting, onJoinAndRecord }: EventRowProps): JSX
         type="button"
         className="btn btn--join"
         data-testid={`home-join-${event.id}`}
-        disabled={starting}
         onClick={() => onJoinAndRecord(event)}
       >
-        {starting ? "Starting…" : event.joinUrl ? "Join & record" : "Record"}
+        {event.joinUrl ? "Join & record" : "Record"}
       </button>
     </li>
   );
