@@ -63,7 +63,7 @@ A few things make it different:
 | 📥 | **File import + Voice Memo** — transcribe an existing audio/video file (decoded via PyAV), or capture a mic-only voice memo; both flow through the same pipeline + library | ✅ |
 | 📤 | **Export & privacy controls** — export any meeting to Markdown (Obsidian) / SRT / VTT / JSON / PDF / DOCX; hide the window from screen-share; audio-retention policy (keep / delete-after-processing / never-save) | ✅ |
 | ⏺️ | **Auto-record + tray** — opt-in auto start/stop on meeting detection (native apps + browser meetings via the extension), silence auto-stop, and a menubar/tray app with quick controls | ✅ |
-| 🔄 | **Unsigned self-update** — checks GitHub for releases and updates itself, no code-signing certificate required | 🗺️ planned |
+| 🔄 | **Unsigned self-update** — checks GitHub for releases and updates itself (sha256-verified download → swap → relaunch), no code-signing certificate required | ✅ |
 | 🍎 | **Native on-device engines** — Apple Speech / on-device summaries, file import, export (SRT/VTT/PDF/DOCX), no-token diarization | 🗺️ planned |
 
 ✅ working · 🚧 in progress · 🗺️ on the [roadmap](docs/prd/ROADMAP.md)
@@ -215,7 +215,7 @@ Loqui is built milestone-by-milestone; each is specced in [`docs/prd/`](docs/prd
 
 **Done:** foundation & contracts · dual-stream capture · real-time transcription · transcript store + dated library · in-call AI chat · diarization + summaries · local MCP server · calendar + Home view · Google Meet speaker names.
 
-**Up next:** packaging + unsigned GitHub auto-updater.
+**Up next:** native on-device transcription engines (Apple Speech / WhisperKit) + summaries.
 
 **Done (competitive):** no-token local diarization (sherpa-onnx default) · file import + voice memo · export (SRT/VTT/PDF/DOCX) + capture/privacy controls · auto-record + menubar/tray.
 
