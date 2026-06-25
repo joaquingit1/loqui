@@ -335,6 +335,18 @@ export async function bootstrap(): Promise<void> {
     });
   }
 
+  // When the display-media handler can't supply a video source (system-audio
+  // capture needs macOS Screen Recording, which the dev Electron lacks on newer
+  // macOS), Electron rejects the request INTERNALLY with "Video was requested,
+  // but no video stream was provided". The renderer already turns its side into
+  // a clear "grant Screen Recording" message; swallow ONLY that benign main-side
+  // noise so it isn't logged as an unhandled rejection. Anything else is logged.
+  process.on("unhandledRejection", (reason: unknown) => {
+    const msg = reason instanceof Error ? reason.message : String(reason);
+    if (msg.includes("Video was requested")) return;
+    console.error("[loqui] unhandledRejection:", reason);
+  });
+
   await app.whenReady();
 
   // PRD-8: resolve dev-vs-packaged paths once (bundled sidecar/MCP binaries, the
