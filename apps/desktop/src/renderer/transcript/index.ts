@@ -8,6 +8,7 @@ export {
   applySegment,
   applySegments,
   emptyTranscriptState,
+  mergedSegments,
   SOURCE_LABEL,
   TRANSCRIPT_SOURCES,
   type StreamState,

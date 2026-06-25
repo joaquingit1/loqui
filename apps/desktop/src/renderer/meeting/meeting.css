@@ -1,46 +1,121 @@
 /**
- * Meeting controls + recording-status styles (PRD-3). Self-contained so the unit
- * owns its look; reuses the shared renderer design tokens (var(--panel) etc.)
- * and degrades gracefully if they're absent.
+ * Live meeting view styles (PRD-3, DESIGN-SYSTEM §9.10) — the signature
+ * in-meeting moment. Calm and editorial: an idle hero start state, then a
+ * restrained recording view where the transcript flows as the main column and
+ * the ask-composer docks at the bottom. Consumes the renderer design tokens
+ * (styles.css :root) only — no ad-hoc colours/sizes.
  */
 
-.meeting__bar {
+.meeting {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  flex-direction: column;
 }
 
-.meeting__note {
-  margin: 12px 0 0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(245, 166, 35, 0.5);
-  background: var(--bg, #0f1115);
-  color: var(--text-dim, #9aa3b2);
-  font-size: 13px;
-  line-height: 1.5;
+/* ===========================================================================
+   IDLE / DONE / ERROR — the editorial start state (§9.3 hero language).
+   A serif line, one quiet note, a single primary action + a ghost. Generous
+   space; not a control panel.
+   ========================================================================= */
+.meeting--idle {
+  min-height: 62vh;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
-/* --- Recording status pill + clock --- */
-.meeting-status {
+.meeting__hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  max-width: 52ch;
+}
+
+.meeting__hero-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-title);
+  font-weight: var(--weight-regular);
+  letter-spacing: var(--tracking-display);
+  color: var(--text);
+}
+
+.meeting__hero-note {
+  margin: 0;
+  max-width: 46ch;
+  color: var(--text-dim);
+  font-size: var(--text-body-lg);
+  line-height: 1.6;
+}
+
+.meeting__actions {
   display: flex;
   align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
   flex-wrap: wrap;
-  gap: 12px;
-  margin: 14px 0 0;
+  justify-content: center;
+}
+
+/* The single primary action carries the accent (accent allow-list). */
+.meeting__start {
+  height: 40px;
+  padding: 0 var(--space-5);
+  font-size: var(--text-label);
+}
+
+/* A truly quiet tertiary (Dismiss) — text only, recedes. */
+.meeting__ghost {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  padding: 0 var(--space-2);
+  height: 40px;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+.meeting__ghost:hover {
+  color: var(--text);
+}
+
+/* ===========================================================================
+   LIVE (recording / stopping) — restrained indicator + flowing transcript.
+   ========================================================================= */
+.meeting--live,
+.meeting--processing {
+  gap: var(--space-5);
+  /* Fill the content height so the transcript scrolls and the composer docks. */
+  min-height: calc(100vh - var(--titlebar-height) - var(--space-12));
+}
+
+.meeting__live-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+/* --- Recording indicator (RecordingStatus): a small pulsing red dot + a
+   --text-mono elapsed clock. Restrained — NOT a big red banner (status by
+   exception). --- */
+.meeting-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 .meeting-status__pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 12px;
-  border: 1px solid var(--panel-border, #262b36);
-  border-radius: 999px;
-  background: var(--bg, #0f1115);
-  font-size: 13px;
-  font-weight: 550;
+  gap: var(--space-2);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  color: var(--text-dim);
   white-space: nowrap;
 }
 
@@ -48,31 +123,30 @@
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--slate, #6b7280);
+  background: var(--slate);
   flex: 0 0 auto;
 }
 
 .meeting-status__pill--recording .meeting-status__dot {
-  background: var(--red, #e5484d);
-  box-shadow: 0 0 0 3px rgba(229, 72, 77, 0.18);
-  animation: meeting-pulse 1.2s ease-in-out infinite;
+  background: var(--record-live);
+  animation: meeting-pulse 1.6s var(--ease-standard) infinite;
+}
+.meeting-status__pill--recording {
+  color: var(--text);
 }
 
 .meeting-status__pill--starting .meeting-status__dot,
 .meeting-status__pill--stopping .meeting-status__dot,
 .meeting-status__pill--processing .meeting-status__dot {
-  background: var(--amber, #f5a623);
-  box-shadow: 0 0 0 3px rgba(245, 166, 35, 0.18);
-  animation: meeting-pulse 1.2s ease-in-out infinite;
+  background: var(--amber);
+  animation: meeting-pulse 1.6s var(--ease-standard) infinite;
 }
 
 .meeting-status__pill--done .meeting-status__dot {
-  background: var(--green, #2fbf71);
-  box-shadow: 0 0 0 3px rgba(47, 191, 113, 0.18);
+  background: var(--green);
 }
-
 .meeting-status__pill--error .meeting-status__dot {
-  background: var(--red, #e5484d);
+  background: var(--red);
 }
 
 @keyframes meeting-pulse {
@@ -81,74 +155,131 @@
     opacity: 1;
   }
   50% {
-    opacity: 0.4;
+    opacity: 0.35;
   }
 }
 
 .meeting-status__clock {
-  font-family: var(--mono, monospace);
-  font-size: 15px;
-  font-weight: 600;
+  font-family: var(--mono);
+  font-size: var(--text-mono);
   font-variant-numeric: tabular-nums;
-  color: var(--text, #e6e9ef);
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
 }
 
 .meeting-status__error {
-  flex: 1 1 100%;
   margin: 0;
-  font-size: 13px;
-  color: var(--red, #e5484d);
+  font-size: var(--text-caption);
+  color: var(--red);
   word-break: break-word;
 }
 
-/* --- Live meters --- */
-.meeting__meters {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin: 16px 0 0;
-}
-
-@media (max-width: 520px) {
-  .meeting__meters {
-    grid-template-columns: 1fr;
-  }
-}
-
-.meeting__meter {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.meeting__capture-error {
-  margin: 0;
-  font-size: 12px;
-  color: var(--red, #e5484d);
-  word-break: break-word;
-}
-
-/* The transcript panel sits below; restore its top margin in this context. */
-.meeting .transcript {
-  margin-top: 16px;
-}
-
-/* --- Done / dismiss --- */
-.meeting__done {
+.meeting__controls {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin: 16px 0 0;
-  padding: 14px;
-  border: 1px solid rgba(47, 191, 113, 0.45);
-  border-radius: 10px;
-  background: var(--bg, #0f1115);
+  gap: var(--space-2);
 }
 
-.meeting__done-text {
+/* Quiet line-icon control buttons (mute toggles + stop). Ghost by default. */
+.meeting__icon-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  height: 34px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+.meeting__icon-btn:hover:not(:disabled) {
+  background: var(--accent-tint);
+  color: var(--text);
+}
+.meeting__icon-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.meeting__icon-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Stop is a quiet neutral control (the recording dot already carries the red
+   signal — status by exception keeps red to that one place). It firms up to ink
+   on hover. */
+.meeting__icon-btn--stop {
+  color: var(--text-dim);
+}
+.meeting__icon-btn--stop:hover:not(:disabled) {
+  background: var(--surface-sunken);
+  color: var(--text);
+}
+
+/* Per-source mute control with a faint inline VU tick. */
+.meeting__src {
+  padding-right: var(--space-2);
+}
+.meeting__src-label {
+  color: inherit;
+}
+.meeting__src--muted {
+  color: var(--red);
+}
+
+.meeting__vu {
+  display: inline-block;
+  width: 28px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+.meeting__vu-fill {
+  display: block;
+  height: 100%;
+  background: var(--text-faint);
+  border-radius: var(--radius-pill);
+  transition: width var(--duration-fast) linear;
+}
+.meeting__src--muted .meeting__vu-fill {
+  background: var(--red);
+}
+
+/* The flowing transcript is the main column — let it take the height. */
+.meeting--live .transcript,
+.meeting--processing .transcript {
+  flex: 1 1 auto;
+  min-height: 220px;
+}
+
+/* The ask-composer docked at the bottom: the ChatPanel sits in its own region,
+   separated by space (no card chrome around the live transcript). */
+.meeting__ask {
+  flex: 0 0 auto;
+}
+
+/* ===========================================================================
+   Notes (status by exception): only shown for a real problem.
+   ========================================================================= */
+.meeting__note {
   margin: 0;
-  font-size: 13px;
-  color: var(--text, #e6e9ef);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  color: var(--text-dim);
+  font-size: var(--text-caption);
+  line-height: 1.5;
+}
+.meeting__note--alert {
+  background: var(--red-soft);
+  color: var(--text);
 }

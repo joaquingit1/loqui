@@ -1,5 +1,10 @@
 /**
- * HomeView — the app's landing "Today" view (PRD-15).
+ * HomeView — the app's landing "Home" view (PRD-15 data, PRD-16 Phase 2 skin).
+ *
+ * ref-1 aesthetic: a warm serif greeting ("Good afternoon") over the hero wash
+ * with a one-line "meetings ahead" summary, a "Meetings ahead" section showing
+ * today's/upcoming scheduled meetings as soft rounded cards (with the join-link
+ * / "join & record" actions preserved), and quick-start action cards.
  *
  * Shows the user's scheduled meetings pulled from their connected calendars:
  *   - Today's meetings (soonest-first) with time, a platform icon, an attendee
@@ -22,6 +27,7 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
 import type { CalendarConnection, CalendarEvent, Meeting } from "@loqui/shared";
 import type { LoquiCalendarApi, LoquiLibraryApi } from "../../preload/index.js";
+import { Icon, type IconName } from "./Icon.js";
 import {
   calendarPlatformIcon,
   calendarPlatformLabel,
@@ -29,7 +35,9 @@ import {
   formatEventDay,
   formatEventTime,
   formatRelativeStart,
+  greeting,
   isToday,
+  meetingsAhead,
   summarizeAttendees,
 } from "../home/format.js";
 import "../home/home.css";
@@ -44,6 +52,8 @@ export interface HomeViewProps {
   library?: Pick<LoquiLibraryApi, "startMeeting">;
   /** Open the Calendar settings panel (host-owned nav). */
   onOpenSettings?: () => void;
+  /** Open the full searchable Library (host-owned nav). */
+  onOpenLibrary?: () => void;
   /** Called after "join & record" creates a meeting, so the host can switch views. */
   onMeetingStarted?: (meeting: Meeting) => void;
   /** Reference "now"; injectable so tests are deterministic. */
@@ -64,6 +74,7 @@ export function HomeView({
   calendar,
   library,
   onOpenSettings,
+  onOpenLibrary,
   onMeetingStarted,
   now,
   openExternal = defaultOpenExternal,
@@ -165,6 +176,22 @@ export function HomeView({
     [lib, onMeetingStarted, openExternal],
   );
 
+  // "Start a meeting now" (quick action): mint a meeting with no event prefill,
+  // then hand it up so the host switches to the Meeting view. Reuses the same
+  // library.startMeeting bridge as "join & record" — no new contract.
+  const [startingNow, setStartingNow] = useState(false);
+  const onStartNow = useCallback(() => {
+    if (!lib?.startMeeting) return;
+    setStartingNow(true);
+    lib
+      .startMeeting()
+      .then((meeting) => onMeetingStarted?.(meeting))
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => setStartingNow(false));
+  }, [lib, onMeetingStarted]);
+
   // Sort soonest-first defensively (the service already sorts, but a partial
   // cached push may not). Today comes pre-filtered to the local day.
   const sortedToday = useMemo(
@@ -184,25 +211,31 @@ export function HomeView({
   }, [upcoming, refNow]);
 
   const connected = connections.length > 0;
+  const refDate = refNow ?? new Date();
+  const aheadLine = connected ? meetingsAhead(sortedToday, refDate) : null;
 
   return (
-    <section className="panel home" aria-labelledby="home-title" data-testid="home-view">
-      <div className="home__bar">
-        <div>
-          <h2 className="panel__title" id="home-title">
-            Today
+    <section className="home" aria-labelledby="home-title" data-testid="home-view">
+      <div className="home__hero">
+        <div className="home__hero-bar">
+          <h2 className="home__greeting" id="home-title">
+            {greeting(refDate)}
           </h2>
-          <p className="panel__subtitle">Your scheduled meetings, soonest first.</p>
+          {connected && (
+            <button
+              type="button"
+              className="btn btn--ghost"
+              data-testid="home-refresh"
+              onClick={onRefresh}
+            >
+              Refresh
+            </button>
+          )}
         </div>
-        {connected && (
-          <button
-            type="button"
-            className="btn btn--ghost"
-            data-testid="home-refresh"
-            onClick={onRefresh}
-          >
-            Refresh
-          </button>
+        {aheadLine && (
+          <p className="home__ahead" data-testid="home-ahead">
+            {aheadLine}
+          </p>
         )}
       </div>
 
@@ -215,11 +248,13 @@ export function HomeView({
       {!connected && loaded ? (
         <ConnectPrompt onOpenSettings={onOpenSettings} />
       ) : (
-        <>
+        <div className="home__section" data-testid="home-meetings-ahead">
+          <div className="home__section-head">
+            <h3 className="home__section-title">Meetings ahead</h3>
+          </div>
           {sortedToday.length === 0 ? (
             <p className="home__empty" data-testid="home-today-empty">
-              Nothing scheduled for today. Enjoy the quiet — or start a meeting from the
-              Library.
+              Nothing scheduled for today. Enjoy the quiet — or start a meeting below.
             </p>
           ) : (
             <ul className="home__rows" data-testid="home-today">
@@ -237,7 +272,7 @@ export function HomeView({
 
           {upcomingPeek.length > 0 && (
             <div className="home__upcoming" data-testid="home-upcoming">
-              <h3 className="home__subheading">Upcoming</h3>
+              <p className="home__overline">Upcoming</p>
               <ul className="home__rows home__rows--peek">
                 {upcomingPeek.map((event) => (
                   <UpcomingRow key={event.id} event={event} />
@@ -245,9 +280,74 @@ export function HomeView({
               </ul>
             </div>
           )}
-        </>
+        </div>
       )}
+
+      <div className="home__section" data-testid="home-quick">
+        <p className="home__overline">Quick start</p>
+        <div className="home__quick">
+          <QuickCard
+            icon="mic"
+            title={startingNow ? "Starting…" : "Start a meeting"}
+            desc="Record + transcribe a live meeting now."
+            testid="home-quick-start"
+            disabled={startingNow || !lib?.startMeeting}
+            onClick={onStartNow}
+          />
+          <QuickCard
+            icon="library"
+            title="Browse library"
+            desc="Search and reopen your past meetings."
+            testid="home-quick-library"
+            disabled={!onOpenLibrary}
+            onClick={() => onOpenLibrary?.()}
+          />
+          <QuickCard
+            icon="calendar"
+            title="Calendar settings"
+            desc="Connect or manage your calendars."
+            testid="home-quick-calendar"
+            disabled={!onOpenSettings}
+            onClick={() => onOpenSettings?.()}
+          />
+          <QuickCard
+            icon="refresh"
+            title="Refresh schedule"
+            desc="Re-sync today's events from your calendar."
+            testid="home-quick-refresh"
+            disabled={!connected}
+            onClick={onRefresh}
+          />
+        </div>
+      </div>
     </section>
+  );
+}
+
+interface QuickCardProps {
+  icon: IconName;
+  title: string;
+  desc: string;
+  testid: string;
+  disabled?: boolean;
+  onClick: () => void;
+}
+
+function QuickCard({ icon, title, desc, testid, disabled, onClick }: QuickCardProps): JSX.Element {
+  return (
+    <button
+      type="button"
+      className="home__quick-card"
+      data-testid={testid}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <span className="home__quick-icon" aria-hidden="true">
+        <Icon name={icon} size={20} />
+      </span>
+      <span className="home__quick-title">{title}</span>
+      <span className="home__quick-desc">{desc}</span>
+    </button>
   );
 }
 
@@ -286,7 +386,7 @@ function EventRow({ event, now, starting, onJoinAndRecord }: EventRowProps): JSX
   return (
     <li className="home__row" data-testid={`home-event-${event.id}`}>
       <span className="home__row-icon" aria-hidden="true">
-        {calendarPlatformIcon(event.platform)}
+        <Icon name={calendarPlatformIcon(event.platform)} size={18} />
       </span>
       <span className="home__row-main">
         <span className="home__row-title">{event.title || "Untitled meeting"}</span>
@@ -320,7 +420,7 @@ function UpcomingRow({ event }: UpcomingRowProps): JSX.Element {
   return (
     <li className="home__row home__row--peek" data-testid={`home-upcoming-${event.id}`}>
       <span className="home__row-icon" aria-hidden="true">
-        {calendarPlatformIcon(event.platform)}
+        <Icon name={calendarPlatformIcon(event.platform)} size={18} />
       </span>
       <span className="home__row-main">
         <span className="home__row-title">{event.title || "Untitled meeting"}</span>

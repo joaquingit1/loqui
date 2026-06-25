@@ -10,6 +10,7 @@ import {
   applySegment,
   applySegments,
   emptyTranscriptState,
+  mergedSegments,
   SOURCE_LABEL,
 } from "./model.js";
 
@@ -113,5 +114,23 @@ describe("transcript model", () => {
   it("labels mic as You and system as They", () => {
     expect(SOURCE_LABEL.mic).toBe("You");
     expect(SOURCE_LABEL.system).toBe("They");
+  });
+
+  it("merges both streams into one time-ordered flow (for the editorial view)", () => {
+    let s = emptyTranscriptState();
+    s = applySegment(s, seg({ source: "system", segId: "b", tStart: 2, text: "they" }));
+    s = applySegment(s, seg({ source: "mic", segId: "a", tStart: 5, text: "you" }));
+    s = applySegment(s, seg({ source: "system", segId: "c", tStart: 9, text: "again" }));
+    const merged = mergedSegments(s);
+    expect(merged.map((m) => m.segId)).toEqual(["b", "a", "c"]);
+    // Each line keeps its own source so the view can attribute the speaker.
+    expect(merged.map((m) => m.source)).toEqual(["system", "mic", "system"]);
+  });
+
+  it("keeps equal-timestamp lines stable by first-seen order", () => {
+    let s = emptyTranscriptState();
+    s = applySegment(s, seg({ source: "mic", segId: "m", tStart: 4, text: "you" }));
+    s = applySegment(s, seg({ source: "system", segId: "s", tStart: 4, text: "they" }));
+    expect(mergedSegments(s).map((m) => m.segId)).toEqual(["m", "s"]);
   });
 });

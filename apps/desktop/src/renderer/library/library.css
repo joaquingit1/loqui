@@ -3,68 +3,155 @@
  * styles.css (--panel, --accent, --text-dim, etc.). Minimal and clean.
  */
 
+/* ── Actions (Transcribe a file) ──────────────────────────────────────── */
+.library__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.library__import-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 0;
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  height: 34px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+.library__import-btn:hover:not(:disabled) {
+  background: var(--accent-tint);
+}
+.library__import-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 /* ── Controls ─────────────────────────────────────────────────────────── */
 .library__controls {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 12px;
-  margin-bottom: 18px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
 }
 
-.library__search {
+/* The search field + its inline ⌘F hint share a positioned wrapper so the chip
+   floats at the right edge of the field (PRD-16). */
+.library__search-wrap {
+  position: relative;
   flex: 1 1 220px;
+  display: flex;
+}
+.library__search {
+  flex: 1 1 auto;
+  width: 100%;
   appearance: none;
-  border: 1px solid var(--panel-border);
-  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
   color: var(--text);
   font-family: inherit;
-  font-size: 14px;
-  padding: 9px 12px;
-  border-radius: 8px;
+  font-size: var(--text-body);
+  height: 36px;
+  /* Right padding leaves room for the ⌘F chip so text never runs under it. */
+  padding: 0 var(--space-8) 0 var(--space-3);
+  border-radius: var(--radius-md);
+}
+/* The ⌘F hint inside the search field — faint, vertically centred at the right. */
+.library__search-kbd {
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.library__search::placeholder {
+  color: var(--text-faint);
 }
 .library__search:focus {
   outline: none;
-  border-color: var(--accent);
+  box-shadow: var(--shadow-focus);
 }
 
 .library__dates {
   display: flex;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
+/* Quiet, integrated date control. When empty, the native mm/dd/yyyy edit text is
+   hidden and a tokenized "From"/"To" placeholder shows in its place (§12.3 — no
+   raw native chrome). With a value, the field text shows normally. */
 .library__date {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-label);
   color: var(--text-dim);
+}
+.library__date-label {
+  position: absolute;
+  left: var(--space-3);
+  pointer-events: none;
+  color: var(--text-faint);
+  font-size: var(--text-label);
+  opacity: 0;
+}
+.library__date[data-empty] .library__date-label {
+  opacity: 1;
 }
 .library__date input {
   appearance: none;
-  border: 1px solid var(--panel-border);
-  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
   color: var(--text);
   font-family: inherit;
-  font-size: 13px;
-  padding: 7px 9px;
-  border-radius: 8px;
+  font-size: var(--text-label);
+  height: 36px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  /* Tokenize the native date control so it never shows a raw mm/dd/yyyy UI. */
+  color-scheme: light;
+}
+.library__date input:focus {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.library__date input::-webkit-calendar-picker-indicator {
+  opacity: 0.5;
+  cursor: pointer;
+}
+.library__date input::-webkit-datetime-edit {
+  color: var(--text-dim);
+}
+/* Hide the raw mm/dd/yyyy fields while the input is empty + unfocused; the
+   styled placeholder above stands in. They reappear on focus or once set. */
+.library__date[data-empty] input:not(:focus)::-webkit-datetime-edit {
+  color: transparent;
 }
 
 /* ── Groups + rows ────────────────────────────────────────────────────── */
 .library__groups {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: var(--space-6);
 }
 
 .library__group-heading {
-  margin: 0 0 8px;
-  font-size: 12px;
-  font-weight: 650;
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-overline);
+  font-weight: var(--weight-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-dim);
+  letter-spacing: var(--tracking-overline);
+  color: var(--text-faint);
 }
 
 .library__rows {
@@ -73,7 +160,7 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
 }
 
 .library__row {
@@ -81,85 +168,98 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   appearance: none;
   text-align: left;
-  border: 1px solid var(--panel-border);
-  background: var(--bg);
+  border: 0;
+  background: transparent;
   color: var(--text);
   font-family: inherit;
-  padding: 11px 14px;
-  border-radius: 10px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
   cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 .library__row:hover {
-  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+.library__row:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 
 .library__row--search {
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
+  gap: var(--space-1);
+}
+
+/* Title side: an optional exception-status dot precedes the prominent title. */
+.library__row-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 .library__row-title {
-  font-size: 14px;
-  font-weight: 550;
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+/* Status by exception (§12.5): a small dot only while processing (amber) or on
+   error (red). Completed meetings show no status chrome. */
+.library__row-status-dot {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.library__row-status-dot--processing {
+  color: var(--amber);
+}
+.library__row-status-dot--error {
+  color: var(--red);
+}
+
+/* ONE muted secondary line: time · platform, in --text-faint. */
 .library__row-meta {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-2);
   flex: 0 0 auto;
-  font-size: 12px;
-  color: var(--text-dim);
+  font-size: var(--text-caption);
+  color: var(--text-faint);
 }
 
-.library__row-duration {
-  font-family: var(--mono);
+.library__row-sep {
+  color: var(--text-faint);
 }
 
-.library__row-status {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--panel-border);
-}
-.library__row-status--recording {
-  color: var(--red);
-  border-color: rgba(229, 72, 77, 0.45);
-}
-.library__row-status--processing {
-  color: var(--amber);
-  border-color: rgba(245, 166, 35, 0.45);
-}
-.library__row-status--done {
-  color: var(--green);
-  border-color: rgba(47, 191, 113, 0.45);
-}
-.library__row-status--error {
-  color: var(--red);
-  border-color: rgba(229, 72, 77, 0.45);
+.library__row-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 
 .library__snippet {
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-dim);
   line-height: 1.45;
 }
 /* FTS5 snippet() emits <b>…</b> around the match. */
 .library__snippet b {
   color: var(--text);
-  font-weight: 650;
+  font-weight: var(--weight-semibold);
 }
 
 .library__empty,
 .library__hint,
 .library__error {
-  margin: 8px 0 0;
-  font-size: 13px;
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-label);
   text-align: center;
   color: var(--text-dim);
 }
@@ -167,53 +267,95 @@
   color: var(--red);
 }
 
+/* ── Empty state (UI disclosure — §9.11 / PRD-16) ─────────────────────────
+   Shown only when the library has no meetings at all (search + date controls
+   are hidden upstream). Centred line icon + subhead + caption hint + the single
+   primary action — calm, never blank. */
+.library__empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-3);
+  padding: var(--space-10) var(--space-6) var(--space-8);
+}
+.library__empty-icon {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+.library__empty-title {
+  margin: 0;
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.004em;
+  color: var(--text);
+}
+.library__empty-hint {
+  margin: 0;
+  max-width: 42ch;
+  font-size: var(--text-caption);
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+.library__empty-action {
+  margin-top: var(--space-2);
+}
+
 /* ── Meeting view ─────────────────────────────────────────────────────── */
 .meeting-view {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-4);
 }
 
 .meeting-view__top {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--space-3);
   flex-wrap: wrap;
 }
 
 .meeting-view__back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   appearance: none;
-  border: 1px solid var(--panel-border);
-  background: var(--bg);
-  color: var(--text);
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
   font-family: inherit;
-  font-size: 13px;
-  padding: 6px 12px;
-  border-radius: 8px;
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-1);
+  border-radius: var(--radius-md);
   cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 .meeting-view__back:hover {
-  border-color: var(--accent);
+  background: var(--accent-tint);
+  color: var(--text);
 }
 
 .meeting-view__title {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   margin: 0;
-  font-size: 18px;
-  font-weight: 650;
+  font-family: var(--font-serif);
+  font-size: var(--text-title);
+  font-weight: var(--weight-regular);
+  letter-spacing: -0.012em;
 }
 
 .meeting-view__rename-trigger {
   appearance: none;
   border: none;
   background: none;
-  color: var(--accent);
+  color: var(--accent-ink);
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--text-caption);
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 2px var(--space-1);
 }
 .meeting-view__rename-trigger:hover {
   text-decoration: underline;
@@ -222,60 +364,58 @@
 .meeting-view__rename {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   flex: 1 1 auto;
 }
 .meeting-view__rename-input {
   flex: 1 1 auto;
   appearance: none;
-  border: 1px solid var(--accent);
-  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
   color: var(--text);
-  font-family: inherit;
-  font-size: 16px;
-  font-weight: 600;
-  padding: 7px 10px;
-  border-radius: 8px;
+  font-family: var(--font-serif);
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-regular);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+}
+.meeting-view__rename-input:focus {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 .meeting-view__rename-cancel {
   appearance: none;
-  border: 1px solid var(--panel-border);
-  background: var(--bg);
+  border: 0;
+  background: var(--surface-sunken);
   color: var(--text);
   font-family: inherit;
-  font-size: 13px;
-  padding: 8px 12px;
-  border-radius: 8px;
+  font-size: var(--text-label);
+  height: 34px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
   cursor: pointer;
 }
+.meeting-view__rename-cancel:hover {
+  background: var(--accent-tint);
+}
 
+/* One muted line: platform · duration (§12.5). */
 .meeting-view__meta {
   display: flex;
-  flex-wrap: wrap;
-  gap: 24px;
+  align-items: center;
+  gap: var(--space-2);
   margin: 0;
+  font-size: var(--text-caption);
+  color: var(--text-faint);
 }
-.meeting-view__meta div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.meeting-view__meta dt {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-dim);
-}
-.meeting-view__meta dd {
-  margin: 0;
-  font-size: 14px;
+.meeting-view__meta-sep {
+  color: var(--text-faint);
 }
 
 .meeting-view__transcript {
-  border: 1px solid var(--panel-border);
-  background: var(--bg);
-  border-radius: 10px;
-  padding: 14px 16px;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
   max-height: 420px;
   overflow-y: auto;
 }
@@ -283,7 +423,7 @@
 .meeting-view__transcript-text {
   margin: 0;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: var(--text-mono);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -292,12 +432,111 @@
 .meeting-view__hint {
   margin: 0;
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: var(--text-label);
   text-align: center;
 }
 
 .meeting-view__error {
   margin: 0;
   color: var(--red);
-  font-size: 13px;
+  font-size: var(--text-label);
+}
+
+/* ── Export menu (a single Export ▾ button + dropdown — §12.3/§12.5) ─────── */
+.export-menu {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.export-menu__trigger {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 0;
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  height: 34px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+.export-menu__trigger:hover:not(:disabled) {
+  background: var(--accent-tint);
+}
+.export-menu__trigger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.export-menu__trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.export-menu__list {
+  position: absolute;
+  top: calc(34px + var(--space-1));
+  left: 0;
+  z-index: 20;
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1);
+  min-width: 180px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-radius: var(--radius-md);
+  box-shadow:
+    inset 0 1px 0 var(--edge-light),
+    var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.export-menu__item {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+.export-menu__item:hover:not(:disabled) {
+  background: var(--accent-tint);
+}
+.export-menu__item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.export-menu__result,
+.export-menu__error {
+  flex: 1 1 100%;
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-caption);
+  color: var(--text-dim);
+  word-break: break-word;
+}
+.export-menu__error {
+  color: var(--red);
+}
+
+/* Chat-below the summary (PRD-16 Phase 2): separated from the meeting card by
+   space + a faint hairline so the past-meeting detail reads as
+   "summary, then ask about it". */
+.meeting-view__chat {
+  margin-top: var(--space-3);
+  padding-top: var(--space-6);
+  box-shadow: inset 0 1px 0 var(--panel-border);
 }

@@ -134,10 +134,27 @@ export const SECURE_WEB_PREFERENCES = {
 } as const;
 
 export function createWindow(opts?: { contentProtection?: boolean }): BrowserWindow {
+  const isMac = process.platform === "darwin";
+  const isWin = process.platform === "win32";
+  // PRD-16 macOS-native vibrancy/glass: on macOS the window requests
+  // "under-window" vibrancy with a transparent body so the renderer's frosted
+  // panels float over real desktop blur (matching the reference aesthetic). On
+  // Windows 11 we request the "mica" backdrop material; everywhere else the
+  // window stays opaque and the renderer's CSS glass recipe is the fallback.
+  // Guarded so it never breaks Windows/Linux: unsupported options are simply
+  // omitted (transparent stays false off-macOS so window controls render).
   const win = new BrowserWindow({
     width: 1100,
     height: 740,
     show: false,
+    // Warm paper backstop behind the renderer (and the colour Electron uses
+    // before first paint); on macOS the transparent window lets vibrancy show.
+    backgroundColor: isMac ? "#00000000" : "#FBF8F3",
+    ...(isMac
+      ? { vibrancy: "under-window" as const, visualEffectState: "active" as const, transparent: true }
+      : {}),
+    ...(isWin ? { backgroundMaterial: "mica" as const } : {}),
+    titleBarStyle: isMac ? ("hiddenInset" as const) : undefined,
     webPreferences: {
       ...SECURE_WEB_PREFERENCES,
       // CommonJS preload (.cjs) — required because sandbox is enabled; see the

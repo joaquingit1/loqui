@@ -1,20 +1,147 @@
 /**
- * Renderer styles. Minimal but clean. Loaded once from main.tsx.
+ * Loqui renderer styles — global tokens + app-shell chrome.
+ *
+ * The :root block below is the SINGLE SOURCE OF TRUTH for the design system
+ * (see docs/design/DESIGN-SYSTEM.md). All per-feature CSS consumes these CSS
+ * custom properties; no ad-hoc colours/sizes are allowed in feature CSS.
+ *
+ * PRD-16 (UI rehaul, Phase 1): a refined, light, macOS-native palette derived
+ * from docs/design/reference/ref-1.png + ref-2.png — warm near-white surfaces,
+ * a muted sage accent, an elegant serif for display + a clean system sans for
+ * UI. The legacy token NAMES (--bg/--panel/--panel-border/--text/--text-dim/
+ * --accent/--green/--amber/--red/--slate/--sans/--mono) are preserved and
+ * re-pointed to the light palette so existing views render unchanged.
  */
 :root {
-  --bg: #0f1115;
-  --panel: #181b22;
-  --panel-border: #262b36;
-  --text: #e6e9ef;
-  --text-dim: #9aa3b2;
-  --accent: #5b8cff;
-  --green: #2fbf71;
-  --amber: #f5a623;
-  --red: #e5484d;
-  --slate: #6b7280;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  --sans:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* --- Surfaces (back -> front) ------------------------------------------- */
+  --bg: #fbf8f3; /* app canvas (warm off-white "paper") */
+  --surface-sunken: #f4f0e9; /* wells, inset/track backgrounds */
+  --panel: #fffefb; /* opaque card (glass fallback) */
+  --panel-glass: rgba(255, 254, 251, 0.78); /* default translucent card over the wash */
+  --sidebar-bg: rgba(247, 243, 237, 0.55); /* translucent sidebar (over vibrancy) */
+  --raised: #ffffff; /* elevated chip: active nav pill, focused composer */
+  --scrim: rgba(34, 30, 26, 0.38); /* modal/overlay scrim */
+
+  /* --- Ink (warm near-black -> faint) ------------------------------------- */
+  --text: #26221e; /* primary text + serif headings */
+  --text-dim: #6e665b; /* secondary text, labels, inactive nav */
+  --text-faint: #a89e90; /* tertiary, placeholders, overlines */
+  --text-muted: #c9c0b3; /* disabled, faint dividers */
+  --accent-contrast: #ffffff; /* text/icon on the accent fill */
+
+  /* --- Hairlines (sparingly) ---------------------------------------------- */
+  --panel-border: rgba(38, 34, 30, 0.07); /* the only default hairline */
+  --border-strong: rgba(38, 34, 30, 0.12); /* input outline, control track */
+  --edge-light: rgba(255, 255, 255, 0.6); /* inner top light edge on glass */
+  --kbd-on-accent-bg: rgba(255, 255, 255, 0.18); /* <kbd> inset over an accent fill */
+
+  /* --- Accent (muted sage, used sparingly) -------------------------------- */
+  --accent: #6f8a72; /* primary actions, active indicators */
+  --accent-strong: #5c7660; /* hover/pressed accent */
+  --accent-ink: #4e6a54; /* accent-coloured text on paper (AA) */
+  --accent-tint: rgba(111, 138, 114, 0.12); /* subtle tint fills (hover, selected) */
+  --accent-ring: rgba(111, 138, 114, 0.35); /* focus ring */
+
+  /* --- Hero wash (ref-1) — the Home signature ----------------------------- */
+  --hero-gradient:
+    radial-gradient(120% 90% at 88% 4%, #f7e0cb 0%, rgba(247, 224, 203, 0) 46%),
+    radial-gradient(110% 80% at 6% 96%, #f3e6dc 0%, rgba(243, 230, 220, 0) 52%), var(--bg);
+
+  /* --- Status (desaturated, warm) ----------------------------------------- */
+  --green: #5e8e6a; /* connected/up */
+  --amber: #c2974c; /* degraded */
+  --red: #bc6a5e; /* error/stop — warm terracotta */
+  --slate: #6e7e86; /* neutral info */
+
+  /* --- Vivid signal colours (used ONLY on the two live "real action" moments:
+     the recording dot + the chat send button). These are deliberately more
+     saturated than the calm status palette so the live record/send affordances
+     read as confident, real controls — not muted decoration. --- */
+  --record-live: #e0392b; /* recording-in-progress dot (vivid red) */
+  --send: #2f9e6b; /* chat send button fill (vivid green) */
+  --send-strong: #268457; /* send hover/pressed */
+
+  /* --- Typography --------------------------------------------------------- */
+  --font-serif: ui-serif, "New York", "Newsreader", "Iowan Old Style", Georgia, serif;
+  --font-sans: -apple-system, "SF Pro Text", "Inter", system-ui, "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", "Cascadia Code", monospace;
+  /* Legacy aliases (existing feature CSS references these names). */
+  --sans: var(--font-sans);
+  --mono: var(--font-mono);
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --tracking-display: -0.015em;
+
+  /* --- Spacing (4px scale) ------------------------------------------------ */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* --- Layout ------------------------------------------------------------- */
+  --sidebar-width: 252px;
+  --content-max: 920px;
+  --content-pad: var(--space-10);
+  --titlebar-height: 38px;
+
+  /* --- Radii (generous — anti-boxy) --------------------------------------- */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-2xl: 28px;
+  --radius-pill: 999px;
+
+  /* --- Elevation (soft, warm, diffuse — prefer over borders) -------------- */
+  --shadow-xs: 0 1px 2px rgba(38, 34, 30, 0.04), 0 1px 1px rgba(38, 34, 30, 0.03);
+  --shadow-sm: 0 8px 22px rgba(38, 34, 30, 0.07), 0 2px 5px rgba(38, 34, 30, 0.05);
+  --shadow-md: 0 14px 40px rgba(38, 34, 30, 0.1), 0 3px 8px rgba(38, 34, 30, 0.05);
+  --shadow-lg: 0 24px 60px rgba(38, 34, 30, 0.14), 0 6px 16px rgba(38, 34, 30, 0.06);
+  --shadow-focus: 0 0 0 3px var(--accent-ring);
+
+  /* --- Glass / translucency (the signature material) ---------------------- */
+  --glass-bg: rgba(251, 248, 243, 0.66);
+  /* Saturate bumped 150% -> 180% (PRD-16 macOS-skill: prevents the translucent
+     wash from washing out the warm hues behind it — the macOS vibrancy recipe). */
+  --glass-blur: saturate(180%) blur(26px);
+  /* The macOS signature hairline RING for crisp edge definition without a visible
+     border — a 0.5px ink ring layered into the glass/card box-shadow (PRD-16). */
+  --glass-edge: 0 0 0 0.5px var(--panel-border);
+
+  /* --- Motion ------------------------------------------------------------- */
+  --ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+
+  /* --- Type scale (px sizes consumed by feature CSS; see DESIGN-SYSTEM §2) - */
+  --text-display-xl: 44px; /* Home greeting (serif) */
+  --text-display-lg: 34px; /* rare splash (serif) */
+  --text-title: 30px; /* page titles (serif) */
+  --text-numeric: 38px; /* big numbers (serif) */
+  --text-heading: 22px; /* section/card headings (sans 600) */
+  --text-subhead: 17px; /* card titles, sub-heads (sans 600) */
+  --text-body-lg: 15px; /* primary reading text / chat */
+  --text-body: 14px; /* default UI text */
+  --text-caption: 13px; /* descriptions, secondary */
+  --text-label: 13px; /* buttons, nav, field labels */
+  --text-overline: 11px; /* UPPERCASE section labels */
+  --text-mono: 12.5px; /* timestamps, ids */
+  --tracking-overline: 0.09em;
+
+  /* --- Soft semantic tints (status/role surfaces, low-alpha on paper). ----- */
+  --accent-soft: var(--accent-tint);
+  --green-soft: rgba(94, 142, 106, 0.14);
+  --amber-soft: rgba(194, 151, 76, 0.16);
+  --red-soft: rgba(188, 106, 94, 0.13);
 }
 
 * {
@@ -29,71 +156,389 @@ body,
 
 body {
   margin: 0;
-  background: var(--bg);
+  /* Transparent so the native macOS vibrancy shows through; the CSS
+     --hero-gradient/--bg on .app is the cross-platform fallback fill. */
+  background: transparent;
   color: var(--text);
-  font-family: var(--sans);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  font-weight: var(--weight-regular);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
+::selection {
+  background: var(--accent-tint);
+}
+
+/* --- Tokenized scrollbars (thin, overlay, no arrows; §9.7) ----------------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-muted) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ===========================================================================
+   App shell (PRD-16) — left sidebar + main content, macOS-native chrome.
+   ========================================================================= */
 .app {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 48px 24px;
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  height: 100%;
+  min-height: 100%;
+  /* Cross-platform fallback canvas (transparent body lets native vibrancy show
+     on macOS; elsewhere this warm wash fills behind the glass panels). */
+  background: var(--hero-gradient);
+}
+
+/* --- Sidebar (glass §6; no hard right border) ----------------------------- */
+.sidebar {
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  height: 100vh;
+  background: var(--sidebar-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  /* A faint hairline only — the primary separation is space + translucency. */
+  box-shadow: inset -1px 0 0 var(--panel-border);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  /* The whole sidebar top is part of the draggable macOS title region. */
+  -webkit-app-region: drag;
 }
 
-.app__header {
+/* Interactive elements inside the drag region must opt back out. */
+.sidebar button,
+.sidebar a,
+.sidebar input {
+  -webkit-app-region: no-drag;
+}
+
+.sidebar__brand {
+  /* Clear the macOS traffic lights (top-left inset ~72px tall). */
+  padding: var(--space-6) var(--space-2) var(--space-5);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.sidebar__wordmark {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-heading);
+  font-weight: var(--weight-regular);
+  letter-spacing: var(--tracking-display);
+  color: var(--text);
+}
+
+.sidebar__tagline {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar__spacer {
+  flex: 1 1 auto;
+}
+
+.sidebar__foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-top: var(--space-3);
+  /* Separated by space + a whisper of a hairline, never a hard border. */
+  box-shadow: inset 0 1px 0 var(--panel-border);
+}
+
+.sidebar__user {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: default;
 }
 
-.app__title {
-  margin: 0;
-  font-size: 28px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
+.avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-tint);
+  color: var(--accent-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  flex: none;
 }
 
-.app__tagline {
-  margin: 4px 0 0;
+.sidebar__user-name {
+  flex: 1 1 auto;
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar__user-chevron {
+  flex: none;
+  color: var(--text-faint);
+  display: inline-flex;
+}
+
+/* --- Nav item -------------------------------------------------------------- */
+.nav-item {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  height: 34px;
+  text-align: left;
+  border: 0;
+  background: transparent;
   color: var(--text-dim);
-  font-size: 14px;
+  font-family: inherit;
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
 }
 
-/* Sidecar status indicator */
+.nav-item:hover {
+  color: var(--text);
+  background: var(--accent-tint);
+}
+
+/* Active = an elevated white pill (ref-2), not a flat coloured block. */
+.nav-item--active,
+.nav-item--active:hover {
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.nav-item--active .nav-item__icon {
+  color: var(--accent-ink);
+}
+
+.nav-item:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.nav-item__icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.nav-item:hover .nav-item__icon {
+  color: var(--text-dim);
+}
+
+.nav-item__icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* --- Sidebar RECENTS (PRD-16 Phase 2) -------------------------------------- */
+.sidebar__recents {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: var(--space-5);
+}
+
+.sidebar__eyebrow {
+  margin: 0 0 var(--space-2);
+  padding: 0 var(--space-3);
+  font-size: var(--text-overline);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-overline);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.sidebar__recents-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  /* Scroll the recents independently; the foot stays pinned. */
+  min-height: 0;
+}
+
+.recent-item {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.recent-item:hover {
+  background: var(--accent-tint);
+  color: var(--text);
+}
+
+.recent-item--active,
+.recent-item--active:hover {
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: var(--shadow-xs);
+}
+
+.recent-item__title {
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-item__meta {
+  font-size: var(--text-caption);
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar__recents-empty {
+  margin: 0;
+  padding: 0 var(--space-3);
+  font-size: var(--text-caption);
+  color: var(--text-faint);
+  line-height: 1.45;
+}
+
+/* --- Main content ---------------------------------------------------------- */
+.app__main {
+  height: 100vh;
+  overflow-y: auto;
+  /* The top strip of the content area is also draggable (clears the inset). */
+}
+
+.app__main-drag {
+  height: var(--titlebar-height);
+  -webkit-app-region: drag;
+}
+
+.app__content {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-2) var(--content-pad) var(--space-12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+/* Accessible visually-hidden helper (kept for the preserved "Loqui" heading). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ===========================================================================
+   Sidecar status badge (pill + dot)
+   ========================================================================= */
 .status {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border: 1px solid var(--panel-border);
-  border-radius: 999px;
-  background: var(--panel);
-  font-size: 13px;
-  font-weight: 500;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--accent-tint);
+  color: var(--text-dim);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
   white-space: nowrap;
 }
 
 .status__dot {
-  width: 10px;
-  height: 10px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--slate);
   flex: 0 0 auto;
 }
 
+.status--connected {
+  background: var(--green-soft);
+}
 .status--connected .status__dot {
   background: var(--green);
-  box-shadow: 0 0 0 3px rgba(47, 191, 113, 0.18);
+  box-shadow: 0 0 0 3px var(--green-soft);
 }
 
+.status--connecting {
+  background: var(--amber-soft);
+}
 .status--connecting .status__dot {
   background: var(--amber);
-  box-shadow: 0 0 0 3px rgba(245, 166, 35, 0.18);
+  box-shadow: 0 0 0 3px var(--amber-soft);
   animation: pulse 1.2s ease-in-out infinite;
 }
 
@@ -101,9 +546,12 @@ body {
   background: var(--slate);
 }
 
+.status--error {
+  background: var(--red-soft);
+}
 .status--error .status__dot {
   background: var(--red);
-  box-shadow: 0 0 0 3px rgba(229, 72, 77, 0.18);
+  box-shadow: 0 0 0 3px var(--red-soft);
 }
 
 @keyframes pulse {
@@ -116,60 +564,136 @@ body {
   }
 }
 
-/* Panels */
+/* ===========================================================================
+   Cards / panels (consumed by every per-feature view)
+   ========================================================================= */
 .panel {
-  border: 1px solid var(--panel-border);
-  background: var(--panel);
-  border-radius: 12px;
-  padding: 20px;
+  background: var(--panel-glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  /* Layered: 0.5px ink ring (crisp macOS edge) + inner top light edge + soft
+     warm float — definition without a visible hard border (PRD-16). */
+  box-shadow:
+    var(--glass-edge),
+    inset 0 1px 0 var(--edge-light),
+    var(--shadow-sm);
 }
 
 .panel__title {
-  margin: 0 0 4px;
-  font-size: 15px;
-  font-weight: 600;
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.004em;
+  color: var(--text);
 }
 
 .panel__subtitle {
-  margin: 0 0 16px;
+  margin: 0 0 var(--space-4);
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: var(--text-caption);
+  line-height: 1.5;
 }
 
+/* ===========================================================================
+   Buttons / pills
+   ========================================================================= */
 .btn {
   appearance: none;
-  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 0;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-contrast);
   font-family: inherit;
-  font-size: 14px;
-  font-weight: 550;
-  padding: 9px 16px;
-  border-radius: 8px;
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  height: 34px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
   cursor: pointer;
+  box-shadow: var(--shadow-xs);
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 .btn:hover:not(:disabled) {
-  filter: brightness(1.08);
+  background: var(--accent-strong);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 
 .btn:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: default;
 }
 
+/* Secondary / ghost button: transparent, ink text, accent-tint on hover. The
+   accent fill is reserved for the single primary action in a group. */
+.btn--secondary {
+  background: var(--surface-sunken);
+  color: var(--text);
+  box-shadow: none;
+}
+.btn--secondary:hover:not(:disabled) {
+  background: var(--accent-tint);
+}
+
+/* ===========================================================================
+   Keyboard-hint chip (<kbd>) — PRD-16 macOS-skill compliance.
+   A faint, mono chip showing a shortcut next to its action (⌘F, ⌘N, ⌘⏎). It is
+   a quiet affordance: --surface-sunken bg, --radius-sm, --text-faint ink, mono.
+   ========================================================================= */
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  box-shadow: var(--glass-edge);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+/* On an accent-filled surface (e.g. the primary Start button) the chip inverts
+   to a translucent white so it reads as a faint inset, not a pale box. */
+.kbd--on-accent {
+  background: var(--kbd-on-accent-bg);
+  box-shadow: none;
+  color: var(--accent-contrast);
+  opacity: 0.85;
+}
+
+/* ===========================================================================
+   Debug panel (Settings → ping)
+   ========================================================================= */
 .debug__row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   flex-wrap: wrap;
 }
 
 .debug__result {
-  margin: 16px 0 0;
-  padding: 12px 14px;
-  border-radius: 8px;
-  background: var(--bg);
+  margin: var(--space-4) 0 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
   border: 1px solid var(--panel-border);
   font-family: var(--mono);
   font-size: 13px;
@@ -179,28 +703,30 @@ body {
 }
 
 .debug__result--ok {
-  border-color: rgba(47, 191, 113, 0.45);
+  border-color: rgba(79, 157, 105, 0.5);
 }
 
 .debug__result--err {
-  border-color: rgba(229, 72, 77, 0.45);
+  border-color: rgba(200, 80, 79, 0.5);
 }
 
 .debug__latency {
   color: var(--text-dim);
 }
 
-/* MCP server (PRD-7) */
+/* ===========================================================================
+   MCP server (PRD-7)
+   ========================================================================= */
 .mcp__status-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   flex-wrap: wrap;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .mcp__detail {
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   color: var(--text-dim);
   font-size: 13px;
 }
@@ -215,10 +741,10 @@ body {
 }
 
 .mcp__snippets {
-  margin-top: 18px;
+  margin-top: var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-4);
 }
 
 .mcp__snippets-intro {
@@ -231,25 +757,28 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
 }
 
 .mcp__snippet-label {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .mcp__copy {
   appearance: none;
   border: 1px solid var(--panel-border);
-  background: var(--bg);
+  background: var(--panel);
   color: var(--text-dim);
   font-family: inherit;
   font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 6px;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
 }
 
 .mcp__copy:hover {
@@ -259,13 +788,21 @@ body {
 
 .mcp__code {
   margin: 0;
-  padding: 12px 14px;
-  border-radius: 8px;
-  background: var(--bg);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
   border: 1px solid var(--panel-border);
   font-family: var(--mono);
   font-size: 12.5px;
   line-height: 1.5;
   overflow-x: auto;
   white-space: pre;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

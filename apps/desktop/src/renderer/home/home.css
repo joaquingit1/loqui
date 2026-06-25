@@ -3,92 +3,148 @@
  * shared design tokens (declared in styles.css) so the palette stays consistent.
  */
 
-/* --- Nav shell ------------------------------------------------------------ */
-.app__nav {
+/* The nav shell moved to the sidebar in styles.css (PRD-16). */
+
+/* ===========================================================================
+   Home view (PRD-16 Phase 2) — ref-1 aesthetic: a warm serif greeting over the
+   hero wash, a "meetings ahead" section as soft rounded cards, and quick-action
+   cards. Tokens only (DESIGN-SYSTEM is authoritative).
+   ========================================================================= */
+.home {
   display: flex;
-  gap: 4px;
-  padding: 4px;
-  background: var(--panel);
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
+  flex-direction: column;
+  gap: var(--space-10);
 }
 
-.app__nav-tab {
-  appearance: none;
-  flex: 1;
-  border: 0;
-  background: transparent;
-  color: var(--text-dim);
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  padding: 8px 12px;
-  border-radius: 7px;
-  cursor: pointer;
+/* --- Hero greeting (ref-1) — a borderless wash that BLEEDS seamlessly into
+   the canvas; full-bleed past the centered column so there's no card edge. --- */
+.home__hero {
+  position: relative;
+  /* Pull the wash out to the window edges (cancels .app__content padding). */
+  margin: calc(var(--space-2) * -1) calc(var(--content-pad) * -1) 0;
+  padding: var(--space-12) var(--content-pad) var(--space-10);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
-.app__nav-tab:hover {
-  color: var(--text);
-}
-
-.app__nav-tab--active {
-  background: var(--bg);
-  color: var(--text);
-}
-
-/* --- Home view ------------------------------------------------------------ */
-.home__bar {
+.home__hero-bar {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
+.home__greeting {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-display-xl);
+  font-weight: var(--weight-regular);
+  letter-spacing: var(--tracking-display);
+  line-height: 1.06;
+  color: var(--text);
+}
+
+.home__ahead {
+  margin: 0;
+  font-size: var(--text-body-lg);
+  line-height: 1.5;
+  color: var(--text-dim);
+  max-width: 52ch;
+}
+
+/* --- Section scaffolding -------------------------------------------------- */
+.home__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.home__section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.home__section-title {
+  margin: 0;
+  font-size: var(--text-heading);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.006em;
+  color: var(--text);
+}
+
+.home__overline {
+  margin: 0;
+  font-size: var(--text-overline);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-overline);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* --- Meetings-ahead cards -------------------------------------------------- */
 .home__rows {
   list-style: none;
-  margin: 16px 0 0;
+  margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-.home__rows--peek {
-  margin-top: 8px;
+  gap: var(--space-2);
 }
 
 .home__row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  background: var(--bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  background: var(--panel-glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    inset 0 1px 0 var(--edge-light),
+    var(--shadow-sm);
 }
 
 .home__row--peek {
-  opacity: 0.85;
-  padding: 10px 14px;
+  background: transparent;
+  box-shadow: none;
+  padding: var(--space-3) var(--space-5);
 }
 
 .home__row-icon {
-  font-size: 20px;
-  line-height: 1;
   flex: none;
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: var(--accent-tint);
+  color: var(--accent-ink);
+}
+
+.home__row--peek .home__row-icon {
+  width: 30px;
+  height: 30px;
+  background: var(--surface-sunken);
+  color: var(--text-dim);
 }
 
 .home__row-main {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
   flex: 1;
 }
 
 .home__row-title {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -98,18 +154,19 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
+  gap: var(--space-2);
+  font-size: var(--text-caption);
   color: var(--text-dim);
 }
 
 .home__row-time {
-  font-weight: 600;
+  font-weight: var(--weight-medium);
   color: var(--text);
 }
 
 .home__row-rel {
-  color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: var(--weight-medium);
 }
 
 .home__row-platform,
@@ -118,20 +175,82 @@
   color: var(--text-dim);
 }
 
-.home__subheading {
-  margin: 24px 0 0;
-  font-size: 13px;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+/* --- Quick-start action cards (ref-1 2x2 grid) ---------------------------- */
+.home__quick {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.home__quick-card {
+  appearance: none;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-5) var(--space-5);
+  background: var(--panel-glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    inset 0 1px 0 var(--edge-light),
+    var(--shadow-sm);
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--text);
+  transition:
+    transform var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.home__quick-card:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 var(--edge-light),
+    var(--shadow-md);
+}
+
+.home__quick-card:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus), var(--shadow-sm);
+}
+
+.home__quick-card:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.home__quick-icon {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: var(--accent-tint);
+  color: var(--accent-ink);
+  margin-bottom: var(--space-1);
+}
+
+.home__quick-title {
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
+  color: var(--text);
+}
+
+.home__quick-desc {
+  font-size: var(--text-caption);
+  line-height: 1.45;
   color: var(--text-dim);
 }
 
+/* --- States --------------------------------------------------------------- */
 .home__empty,
 .home__connect-text,
 .home__error {
-  margin: 16px 0 0;
-  font-size: 13.5px;
+  margin: 0;
+  font-size: var(--text-body);
   line-height: 1.5;
 }
 
@@ -144,73 +263,85 @@
 }
 
 .home__connect {
-  margin-top: 16px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 14px;
-  padding: 20px;
-  background: var(--bg);
-  border: 1px dashed var(--panel-border);
-  border-radius: 12px;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  background: var(--panel-glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    inset 0 1px 0 var(--edge-light),
+    var(--shadow-sm);
 }
 
 .home__connect-text {
   margin: 0;
   color: var(--text-dim);
+  line-height: 1.55;
+  max-width: 60ch;
 }
 
 .btn--join {
   flex: none;
+  border-radius: var(--radius-pill);
 }
 
 .btn--ghost {
   background: transparent;
+  color: var(--text-dim);
+  box-shadow: none;
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--accent-tint);
+  color: var(--text);
 }
 
 /* --- Calendar settings ---------------------------------------------------- */
 .calendar-settings__rows {
   list-style: none;
-  margin: 16px 0 0;
+  margin: var(--space-4) 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .calendar-settings__row {
-  padding: 14px;
-  background: var(--bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
+  padding: var(--space-4);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-md);
 }
 
 .calendar-settings__row-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .calendar-settings__row-name {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
 }
 
 .calendar-settings__scope {
-  margin: 6px 0 0;
-  font-size: 12.5px;
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-caption);
   color: var(--text-dim);
   line-height: 1.5;
 }
 
 .calendar-settings__accounts {
   list-style: none;
-  margin: 10px 0 0;
+  margin: var(--space-2) 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .calendar-settings__account {
@@ -232,12 +363,12 @@
 }
 
 .calendar-settings__sync {
-  font-size: 12px;
+  font-size: var(--text-caption);
   color: var(--text-dim);
 }
 
 .calendar-settings__error {
-  margin: 12px 0 0;
-  font-size: 13px;
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-label);
   color: var(--amber);
 }

@@ -82,3 +82,27 @@ export function applySegments(
   for (const segment of segments) next = applySegment(next, segment);
   return next;
 }
+
+/**
+ * Merge the two independent streams into ONE time-ordered flow for the editorial
+ * live-transcript view (DESIGN-SYSTEM §9.10): a single calm column of lines, each
+ * carrying its own speaker, rather than two side-by-side chat columns.
+ *
+ * Ordering is by media time (`tStart`), with a stable tiebreak on first-seen
+ * arrival within each stream so a speaker's interleaved partials don't reshuffle
+ * as they grow. The per-stream lists already preserve first-seen order, so we do
+ * a stable merge: equal timestamps keep mic before system only when they truly
+ * tie, otherwise the earlier media time wins.
+ */
+export function mergedSegments(state: TranscriptState): TranscriptSegment[] {
+  // Tag each segment with its stream's first-seen index so ties are stable.
+  const tagged: Array<{ seg: TranscriptSegment; order: number }> = [];
+  TRANSCRIPT_SOURCES.forEach((source) => {
+    state[source].forEach((seg, i) => tagged.push({ seg, order: i }));
+  });
+  tagged.sort((a, b) => {
+    if (a.seg.tStart !== b.seg.tStart) return a.seg.tStart - b.seg.tStart;
+    return a.order - b.order;
+  });
+  return tagged.map((t) => t.seg);
+}

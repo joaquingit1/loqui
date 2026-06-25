@@ -5,11 +5,34 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { Meeting } from "@loqui/shared";
 import { App } from "./App.js";
 import { SidecarStatusBadge } from "./components/SidecarStatusBadge.js";
+import { isMacPlatform } from "./shortcuts/index.js";
 import type { LoquiApi, SidecarStatus } from "../preload/index.js";
 
 afterEach(cleanup);
+
+/** A couple of past meetings the sidebar RECENTS list can surface. */
+const RECENT_A: Meeting = {
+  id: "aaaaaaaa-1111-4111-8111-111111111111",
+  title: "Sprint planning",
+  platform: "teams",
+  startedAt: "2026-06-23T14:00:00Z",
+  endedAt: "2026-06-23T14:30:00Z",
+  status: "done",
+  kind: "meeting",
+  participants: [],
+  modelVersions: {},
+  createdAt: "2026-06-23T14:00:00",
+  updatedAt: "2026-06-23T14:30:00",
+};
+const RECENT_B: Meeting = {
+  ...RECENT_A,
+  id: "bbbbbbbb-2222-4222-8222-222222222222",
+  title: "Design review",
+  createdAt: "2026-06-22T10:00:00",
+};
 
 /** A controllable fake of the contextBridge LoquiApi. */
 function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
@@ -237,6 +260,153 @@ describe("App", () => {
     // Back Home.
     fireEvent.click(screen.getByTestId("nav-home"));
     await waitFor(() => expect(screen.getByTestId("home-view")).toBeTruthy());
+  });
+
+  it("surfaces recent past meetings in the sidebar (RECENTS), dated + clickable", async () => {
+    const listMeetings = vi.fn(async () => [RECENT_A, RECENT_B]);
+    const { api } = makeFakeApi({
+      library: {
+        startMeeting: vi.fn(async () => ({}) as never),
+        stopMeeting: vi.fn(async () => ({}) as never),
+        listMeetings,
+        searchMeetings: vi.fn(async () => []),
+        getTranscript: vi.fn(async () => ""),
+        renameMeeting: vi.fn(async () => ({}) as never),
+        importFile: vi.fn(async () => ({}) as never),
+        pickAndImportFile: vi.fn(async () => null),
+        onMeetingStatus: () => () => {},
+      },
+    });
+    render(<App api={api} />);
+
+    await waitFor(() => expect(screen.getByTestId("sidebar-recents")).toBeTruthy());
+    expect(listMeetings).toHaveBeenCalled();
+    const recents = screen.getByTestId("sidebar-recents");
+    expect(recents.textContent).toContain("Sprint planning");
+    expect(recents.textContent).toContain("Design review");
+    expect(screen.getByTestId(`recent-${RECENT_A.id}`)).toBeTruthy();
+  });
+
+  it("opens a recent's detail (summary + chat-below) and returns Home", async () => {
+    const getTranscript = vi.fn(async () => "[00:00:01] You said: Hi\n");
+    const { api } = makeFakeApi({
+      library: {
+        startMeeting: vi.fn(async () => ({}) as never),
+        stopMeeting: vi.fn(async () => ({}) as never),
+        listMeetings: vi.fn(async () => [RECENT_A]),
+        searchMeetings: vi.fn(async () => []),
+        getTranscript,
+        renameMeeting: vi.fn(async () => ({}) as never),
+        importFile: vi.fn(async () => ({}) as never),
+        pickAndImportFile: vi.fn(async () => null),
+        onMeetingStatus: () => () => {},
+      },
+    });
+    render(<App api={api} />);
+
+    await waitFor(() => expect(screen.getByTestId(`recent-${RECENT_A.id}`)).toBeTruthy());
+    fireEvent.click(screen.getByTestId(`recent-${RECENT_A.id}`));
+
+    // The past-meeting detail = the MeetingView (summary) + the chat panel below.
+    await waitFor(() => expect(screen.getByTestId("meeting-view")).toBeTruthy());
+    expect(getTranscript).toHaveBeenCalledWith({ id: RECENT_A.id, variant: "live" });
+    expect(screen.getByTestId("summary-view")).toBeTruthy();
+    expect(screen.getByTestId("meeting-chat")).toBeTruthy();
+    expect(screen.getByTestId("chat-panel")).toBeTruthy();
+
+    // Back leaves the detail and returns to Home.
+    fireEvent.click(screen.getByTestId("meeting-back"));
+    await waitFor(() => expect(screen.getByTestId("home-view")).toBeTruthy());
+    expect(screen.queryByTestId("meeting-view")).toBeNull();
+  });
+
+  // PRD-16 macOS-skill compliance: primary-action keyboard shortcuts wired in
+  // the shell. The App detects the platform at runtime; under jsdom that's
+  // non-mac, so we press the PLATFORM-correct primary modifier (Ctrl here) to
+  // match what the shell binds — the same detection drives the visible glyphs.
+  function pressMeta(key: string): void {
+    const mac = isMacPlatform();
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key,
+        metaKey: mac,
+        ctrlKey: !mac,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  }
+
+  describe("keyboard shortcuts", () => {
+    it("navigates with ⌘1 Home · ⌘2 Meeting · ⌘3 Library · ⌘, Settings", async () => {
+      const { api } = makeFakeApi();
+      render(<App api={api} initialView="home" />);
+      expect(screen.getByTestId("home-view")).toBeTruthy();
+
+      act(() => pressMeta("3"));
+      await waitFor(() => expect(screen.getByTestId("library")).toBeTruthy());
+
+      act(() => pressMeta("2"));
+      await waitFor(() => expect(screen.getByTestId("meeting-controls")).toBeTruthy());
+
+      act(() => pressMeta(","));
+      await waitFor(() => expect(screen.getByTestId("calendar-settings")).toBeTruthy());
+
+      act(() => pressMeta("1"));
+      await waitFor(() => expect(screen.getByTestId("home-view")).toBeTruthy());
+    });
+
+    it("⌘F jumps to the Library and focuses its search field", async () => {
+      const { api } = makeFakeApi({
+        library: {
+          startMeeting: vi.fn(async () => ({}) as never),
+          stopMeeting: vi.fn(async () => ({}) as never),
+          listMeetings: vi.fn(async () => [RECENT_A]),
+          searchMeetings: vi.fn(async () => []),
+          getTranscript: vi.fn(async () => ""),
+          renameMeeting: vi.fn(async () => ({}) as never),
+          importFile: vi.fn(async () => ({}) as never),
+          pickAndImportFile: vi.fn(async () => null),
+          onMeetingStatus: () => () => {},
+        },
+      });
+      render(<App api={api} initialView="home" />);
+
+      act(() => pressMeta("f"));
+      await waitFor(() => expect(screen.getByTestId("library-search")).toBeTruthy());
+      await waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByTestId("library-search")),
+      );
+    });
+
+    it("Esc backs out of an open meeting detail to Home", async () => {
+      const { api } = makeFakeApi({
+        library: {
+          startMeeting: vi.fn(async () => ({}) as never),
+          stopMeeting: vi.fn(async () => ({}) as never),
+          listMeetings: vi.fn(async () => [RECENT_A]),
+          searchMeetings: vi.fn(async () => []),
+          getTranscript: vi.fn(async () => ""),
+          renameMeeting: vi.fn(async () => ({}) as never),
+          importFile: vi.fn(async () => ({}) as never),
+          pickAndImportFile: vi.fn(async () => null),
+          onMeetingStatus: () => () => {},
+        },
+      });
+      render(<App api={api} />);
+
+      await waitFor(() => expect(screen.getByTestId(`recent-${RECENT_A.id}`)).toBeTruthy());
+      fireEvent.click(screen.getByTestId(`recent-${RECENT_A.id}`));
+      await waitFor(() => expect(screen.getByTestId("meeting-view")).toBeTruthy());
+
+      act(() =>
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+        ),
+      );
+      await waitFor(() => expect(screen.getByTestId("home-view")).toBeTruthy());
+      expect(screen.queryByTestId("meeting-view")).toBeNull();
+    });
   });
 
   it("pings the sidecar (Debug panel under Settings) and shows the round-trip result", async () => {

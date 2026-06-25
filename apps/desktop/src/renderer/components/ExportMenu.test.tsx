@@ -19,6 +19,8 @@ describe("ExportMenu", () => {
     }));
     render(<ExportMenu meetingId="m1" api={{ exportMeeting } as never} />);
 
+    // Formats live behind a single Export ▾ menu now (§12.3).
+    fireEvent.click(screen.getByTestId("export-trigger"));
     fireEvent.click(screen.getByTestId("export-srt"));
     await waitFor(() => {
       expect(screen.getByTestId("export-result").textContent).toContain("roadmap.srt");
@@ -26,8 +28,11 @@ describe("ExportMenu", () => {
     expect(exportMeeting).toHaveBeenCalledWith({ meetingId: "m1", format: "srt" });
   });
 
-  it("offers all seven formats", () => {
+  it("offers all seven formats behind the Export menu", () => {
     render(<ExportMenu meetingId="m1" api={{ exportMeeting: vi.fn() } as never} />);
+    // One Export trigger, not a row of inline pills.
+    expect(screen.getByTestId("export-trigger")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("export-trigger"));
     for (const f of ["md", "obsidian", "srt", "vtt", "json", "pdf", "docx"]) {
       expect(screen.getByTestId(`export-${f}`)).toBeTruthy();
     }
@@ -38,6 +43,7 @@ describe("ExportMenu", () => {
       throw new Error("disk full");
     });
     render(<ExportMenu meetingId="m1" api={{ exportMeeting } as never} />);
+    fireEvent.click(screen.getByTestId("export-trigger"));
     fireEvent.click(screen.getByTestId("export-pdf"));
     await waitFor(() => {
       expect(screen.getByTestId("export-error").textContent).toContain("disk full");

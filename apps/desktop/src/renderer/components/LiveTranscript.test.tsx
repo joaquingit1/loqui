@@ -1,9 +1,12 @@
 /**
  * LiveTranscript render/interaction tests (jsdom). HERMETIC: no window.loqui,
  * no Electron, no sidecar — the onTranscriptSegment bridge is injected as a
- * controllable fake. Covers: empty state, partial render, partial-replace in
- * place, final-commit, two-stream (You/They) separation, meeting filter, and
- * the auto-scroll pause-on-scroll-up + jump-to-live affordance.
+ * controllable fake. The view is the editorial FLOWING stream (DESIGN-SYSTEM
+ * §9.10): one time-ordered column of lines (timestamp + speaker + text), not
+ * two side-by-side chat columns. Covers: empty state, partial render, partial-
+ * replace in place, final-commit, two-source (You/They) attribution + ordering,
+ * meeting filter, unsubscribe, and the auto-scroll pause-on-scroll-up +
+ * jump-to-live affordance.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -49,14 +52,11 @@ function makeFakeBridge(): {
 }
 
 describe("LiveTranscript", () => {
-  it("renders both stream headers (You / They) and an empty hint", () => {
+  it("renders an empty/listening hint with no lines", () => {
     const { api } = makeFakeBridge();
     render(<LiveTranscript api={api} />);
     expect(screen.getByTestId("live-transcript")).toBeTruthy();
-    expect(screen.getByTestId("transcript-stream-mic")).toBeTruthy();
-    expect(screen.getByTestId("transcript-stream-system")).toBeTruthy();
-    expect(screen.getByText("You")).toBeTruthy();
-    expect(screen.getByText("They")).toBeTruthy();
+    expect(screen.getByTestId("transcript-flow")).toBeTruthy();
     expect(screen.getByTestId("transcript-empty")).toBeTruthy();
   });
 
@@ -65,7 +65,7 @@ describe("LiveTranscript", () => {
     render(<LiveTranscript api={api} />);
     emit({ source: "mic", segId: "a", text: "hello", status: "partial" });
     const line = screen.getByTestId("segment-mic-a");
-    expect(line.textContent).toBe("hello");
+    expect(line.textContent).toContain("hello");
     expect(line.getAttribute("data-status")).toBe("partial");
     expect(screen.queryByTestId("transcript-empty")).toBeNull();
   });
@@ -77,7 +77,7 @@ describe("LiveTranscript", () => {
     emit({ source: "mic", segId: "a", text: "hello", status: "partial" });
     const lines = screen.getAllByTestId(/^segment-mic-/);
     expect(lines).toHaveLength(1);
-    expect(lines[0]!.textContent).toBe("hello");
+    expect(lines[0]!.textContent).toContain("hello");
   });
 
   it("commits a partial to final in place (status flips to final)", () => {
@@ -90,22 +90,29 @@ describe("LiveTranscript", () => {
     emit({ source: "mic", segId: "a", text: "hello world", status: "final" });
     const line = screen.getByTestId("segment-mic-a");
     expect(line.getAttribute("data-status")).toBe("final");
-    expect(line.textContent).toBe("hello world");
+    expect(line.textContent).toContain("hello world");
     expect(screen.getAllByTestId(/^segment-mic-/)).toHaveLength(1);
   });
 
-  it("keeps You (mic) and They (system) separate — same segId, two streams", () => {
+  it("attributes You (mic) and They (system) lines distinctly and orders by time", () => {
     const { api, emit } = makeFakeBridge();
     render(<LiveTranscript api={api} />);
-    emit({ source: "mic", segId: "x", text: "you said", status: "final" });
-    emit({ source: "system", segId: "x", text: "they said", status: "final" });
+    emit({ source: "system", segId: "x", text: "they said", status: "final", tStart: 2 });
+    emit({ source: "mic", segId: "y", text: "you said", status: "final", tStart: 8 });
 
-    const micLines = screen.getByTestId("transcript-lines-mic");
-    const sysLines = screen.getByTestId("transcript-lines-system");
-    expect(micLines.textContent).toContain("you said");
-    expect(micLines.textContent).not.toContain("they said");
-    expect(sysLines.textContent).toContain("they said");
-    expect(sysLines.textContent).not.toContain("you said");
+    const you = screen.getByTestId("segment-mic-y");
+    const they = screen.getByTestId("segment-system-x");
+    expect(you.getAttribute("data-source")).toBe("mic");
+    expect(they.getAttribute("data-source")).toBe("system");
+    expect(you.textContent).toContain("you said");
+    expect(they.textContent).toContain("they said");
+
+    // The merged flow is ordered by media time: They (t=2) precedes You (t=8).
+    const flow = screen.getByTestId("transcript-flow");
+    const order = [...flow.querySelectorAll("[data-seg-id]")].map((n) =>
+      n.getAttribute("data-seg-id"),
+    );
+    expect(order).toEqual(["x", "y"]);
   });
 
   it("ignores segments from other meetings when a meetingId filter is set", () => {
@@ -135,23 +142,25 @@ describe("LiveTranscript", () => {
   it("pauses auto-scroll when the user scrolls up and shows Jump-to-live, which resumes", () => {
     const { api, emit } = makeFakeBridge();
     render(<LiveTranscript api={api} />);
-    const lines = screen.getByTestId("transcript-lines-mic");
+    // A line so the flow has content (jump only shows with lines present).
+    emit({ source: "mic", segId: "seed", text: "first", status: "final" });
+    const flow = screen.getByTestId("transcript-flow");
 
     // jsdom doesn't lay out, so fake the scroll geometry: a tall, scrolled-up box.
-    Object.defineProperty(lines, "scrollHeight", { value: 1000, configurable: true });
-    Object.defineProperty(lines, "clientHeight", { value: 200, configurable: true });
-    lines.scrollTop = 0; // scrolled to the top => not at bottom
+    Object.defineProperty(flow, "scrollHeight", { value: 1000, configurable: true });
+    Object.defineProperty(flow, "clientHeight", { value: 200, configurable: true });
+    flow.scrollTop = 0; // scrolled to the top => not at bottom
 
-    fireEvent.scroll(lines);
-    expect(screen.getByTestId("transcript-jump-mic")).toBeTruthy();
+    fireEvent.scroll(flow);
+    expect(screen.getByTestId("transcript-jump")).toBeTruthy();
 
     // New content arrives while paused — auto-scroll must NOT yank to bottom.
     emit({ source: "mic", segId: "a", text: "stay put", status: "partial" });
-    expect(lines.scrollTop).toBe(0);
+    expect(flow.scrollTop).toBe(0);
 
     // Jump-to-live resumes sticking and pins to the bottom.
-    fireEvent.click(screen.getByTestId("transcript-jump-mic"));
-    expect(lines.scrollTop).toBe(lines.scrollHeight);
-    expect(screen.queryByTestId("transcript-jump-mic")).toBeNull();
+    fireEvent.click(screen.getByTestId("transcript-jump"));
+    expect(flow.scrollTop).toBe(flow.scrollHeight);
+    expect(screen.queryByTestId("transcript-jump")).toBeNull();
   });
 });

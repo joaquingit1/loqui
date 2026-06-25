@@ -7,6 +7,7 @@
  */
 import { useCallback, useState } from "react";
 import type { LoquiApi } from "../../preload/index.js";
+import { Icon } from "./Icon.js";
 
 type PingState =
   | { kind: "idle" }
@@ -61,7 +62,13 @@ export function DebugPanel({ api }: DebugPanelProps): JSX.Element {
           className={`debug__result ${state.ok ? "debug__result--ok" : "debug__result--err"}`}
           data-testid="ping-result"
         >
-          {state.ok ? "pong ✓" : "no response ✗"}{" "}
+          <Icon
+            name={state.ok ? "check-circle" : "x-circle"}
+            size={15}
+            aria-hidden="true"
+            style={{ verticalAlign: "-2px", marginRight: "var(--space-1)" }}
+          />
+          {state.ok ? "pong" : "no response"}{" "}
           <span className="debug__latency">({state.latencyMs} ms round-trip)</span>
         </p>
       )}

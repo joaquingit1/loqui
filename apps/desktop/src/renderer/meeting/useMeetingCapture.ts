@@ -48,6 +48,12 @@ export interface UseMeetingCaptureResult {
   startAll(meetingId: string, sources?: readonly AudioSource[]): Promise<void>;
   /** Stop both sources and dispose the controller. */
   stopAll(): Promise<void>;
+  /**
+   * Toggle mute for one source (PRD-13). Returns the new muted state (false if no
+   * controller is live). The controller stops forwarding that source's frames
+   * while muted; the change surfaces through `statuses[source].muted`.
+   */
+  toggleMute(source: AudioSource): boolean;
 }
 
 export function useMeetingCapture(
@@ -108,5 +114,9 @@ export function useMeetingCapture(
     if (mountedRef.current) setStatuses({ mic: IDLE, system: IDLE });
   }, []);
 
-  return { statuses, startAll, stopAll };
+  const toggleMute = useCallback((source: AudioSource): boolean => {
+    return controllerRef.current?.toggleMute(source) ?? false;
+  }, []);
+
+  return { statuses, startAll, stopAll, toggleMute };
 }

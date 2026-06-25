@@ -48,9 +48,11 @@ describe("MeetingView", () => {
     expect(text).toContain("They said: Hello");
 
     expect(api.getTranscript).toHaveBeenCalledWith({ id: MEETING.id, variant: "live" });
-    expect(screen.getByTestId("meeting-meta").textContent).toContain("Teams");
-    expect(screen.getByTestId("meeting-meta").textContent).toContain("Done");
-    expect(screen.getByTestId("meeting-meta").textContent).toContain("30:00"); // duration
+    // Meta collapses to one muted line: platform · duration (no "STATUS Done").
+    const meta = screen.getByTestId("meeting-meta");
+    expect(meta.textContent).toContain("Teams");
+    expect(meta.textContent).toContain("30:00"); // duration
+    expect(meta.textContent).not.toContain("Done"); // status surfaces by exception, not as a stat
     expect(screen.getByTestId("meeting-title").textContent).toContain("Sprint planning");
   });
 
@@ -148,6 +150,21 @@ describe("MeetingView", () => {
     await waitFor(() => expect(screen.getByTestId("meeting-rename-error")).toBeTruthy());
     expect(screen.getByTestId("meeting-rename-error").textContent).toContain("index locked");
     expect(screen.getByTestId("meeting-rename-input")).toBeTruthy();
+  });
+
+  it("renders the read-only chat panel below the summary (PRD-16 chat-below)", async () => {
+    const api = makeApi();
+    render(<MeetingView meeting={MEETING} api={api} />);
+
+    // A "done" meeting shows the summary, and the ask-about-this-meeting chat
+    // surface sits below it (grounded in the transcript, read-only).
+    await waitFor(() => expect(screen.getByTestId("summary-view")).toBeTruthy());
+    const chat = screen.getByTestId("meeting-chat");
+    expect(chat).toBeTruthy();
+    expect(screen.getByTestId("chat-panel")).toBeTruthy();
+    // The AI-never-edits-the-transcript guarantee is structural (the bridge has
+    // no transcript writer), not user-facing chrome — so no nagging note.
+    expect(screen.queryByTestId("chat-readonly-note")).toBeNull();
   });
 
   it("fires onBack when the back button is clicked", async () => {

@@ -1,118 +1,150 @@
 /**
- * Live-transcript view styles (PRD-2). Two visually distinct, independent
- * streams: You (mic) accented blue, They (system) accented teal. Partials are
- * dimmed/italic until committed to final. Reuses the renderer design tokens
- * from styles.css (--panel, --accent, etc.).
+ * Live-transcript styles (PRD-2) — the editorial flowing stream (DESIGN-SYSTEM
+ * §9.10). One calm, time-ordered column of lines: a faint --text-mono timestamp,
+ * a speaker label (You = --accent-ink, They = --text-dim), and the text in
+ * --text-body-lg. Reads like a transcript, not a chat log. Partials render
+ * dimmed/italic until committed to final; new lines fade/slide in. Reuses the
+ * renderer design tokens from styles.css.
  */
-.transcript__columns {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-@media (max-width: 640px) {
-  .transcript__columns {
-    grid-template-columns: 1fr;
-  }
-}
-
-.transcript__stream {
+.transcript {
   display: flex;
   flex-direction: column;
+  min-height: 0;
   position: relative;
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  background: var(--bg);
-  overflow: hidden;
 }
 
-/* Distinguish You vs They with a left accent rail + tinted header. */
-.transcript__stream--mic {
-  border-left: 3px solid var(--accent);
-}
-.transcript__stream--system {
-  border-left: 3px solid var(--green);
-}
-
-.transcript__stream-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--panel-border);
-  background: var(--panel);
+.transcript__title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-overline);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-overline);
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 
-.transcript__who {
-  font-size: 13px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-}
-.transcript__who--mic {
-  color: var(--accent);
-}
-.transcript__who--system {
-  color: var(--green);
-}
-
-.transcript__source-tag {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-dim);
-}
-
-.transcript__lines {
+.transcript__flow {
   flex: 1 1 auto;
-  min-height: 160px;
-  max-height: 320px;
+  min-height: 0;
   overflow-y: auto;
-  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-4);
+  padding: var(--space-1) var(--space-1) var(--space-6);
   scroll-behavior: smooth;
 }
 
+/* One transcript line: [stamp] [who] then the text flows on a comfortable
+   measure. The stamp + who sit on a quiet metadata baseline; the text carries
+   the weight. */
 .transcript__line {
   margin: 0;
-  font-size: 14px;
-  line-height: 1.5;
+  display: grid;
+  grid-template-columns: 3.5em max-content 1fr;
+  align-items: baseline;
+  column-gap: var(--space-3);
+  width: 100%;
+  max-width: 68ch;
+  animation: transcript-in var(--duration-base) var(--ease-out) both;
+}
+
+@keyframes transcript-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.transcript__stamp {
+  font-family: var(--mono);
+  font-size: var(--text-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.transcript__who {
+  font-size: var(--text-label);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.004em;
+  white-space: nowrap;
+}
+/* You = the single accent speaker (accent allow-list); They recedes. */
+.transcript__who--mic {
+  color: var(--accent-ink);
+}
+.transcript__who--system {
+  color: var(--text-dim);
+}
+
+.transcript__text {
+  font-size: var(--text-body-lg);
+  line-height: 1.6;
+  color: var(--text);
   word-break: break-word;
 }
 
-/* Final (committed) text is solid; partial (interim) text is dimmed + italic. */
-.transcript__line--final {
-  color: var(--text);
-}
-.transcript__line--partial {
+/* Partial (interim) text is dimmed + italic until committed to final. */
+.transcript__line--partial .transcript__text {
   color: var(--text-dim);
   font-style: italic;
 }
 
+/* Empty / listening state: a quiet line icon + one calm line (no blank well). */
 .transcript__empty {
-  margin: 12px 0 0;
-  color: var(--text-dim);
-  font-size: 13px;
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-4);
+  color: var(--text-faint);
+  font-size: var(--text-caption);
   text-align: center;
 }
+.transcript__empty svg {
+  color: var(--text-muted);
+}
 
+/* "Jump to live" floats over the flow when the user has scrolled up to read back. */
 .transcript__jump {
   position: absolute;
-  bottom: 10px;
-  right: 12px;
+  bottom: var(--space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   appearance: none;
-  border: 1px solid var(--panel-border);
-  background: var(--panel);
+  border: 0;
+  background: var(--raised);
   color: var(--text);
   font-family: inherit;
-  font-size: 12px;
-  font-weight: 550;
-  padding: 5px 10px;
-  border-radius: 999px;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  padding: var(--space-1) var(--space-4);
+  border-radius: var(--radius-pill);
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  box-shadow:
+    inset 0 1px 0 var(--edge-light),
+    var(--shadow-md);
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
 }
 .transcript__jump:hover {
-  filter: brightness(1.1);
+  background: var(--accent-tint);
+}
+.transcript__jump:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transcript__line {
+    animation: none;
+  }
 }

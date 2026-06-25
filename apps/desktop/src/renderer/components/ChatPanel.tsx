@@ -38,6 +38,8 @@ import {
   type ChatTurn,
 } from "../chat/index.js";
 import { ProviderSettings } from "./ProviderSettings.js";
+import { Icon } from "./Icon.js";
+import { Kbd, modKeyLabel, RETURN_GLYPH } from "../shortcuts/index.js";
 import { HfTokenSettings } from "../summary/index.js";
 import "../chat/chat.css";
 
@@ -91,8 +93,10 @@ export function ChatPanel({ meetingId, api }: ChatPanelProps): JSX.Element {
 
   const onKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      // Enter sends; Shift+Enter inserts a newline.
-      if (e.key === "Enter" && !e.shiftKey) {
+      // Enter sends; Shift+Enter inserts a newline. ⌘↩ / Ctrl+↩ also sends (the
+      // macOS composer convention — PRD-16), so the visible ⌘⏎ hint is honoured.
+      const send = (e.key === "Enter" && !e.shiftKey) || (e.key === "Enter" && (e.metaKey || e.ctrlKey));
+      if (send) {
         e.preventDefault();
         onSend();
       }
@@ -142,14 +146,9 @@ export function ChatPanel({ meetingId, api }: ChatPanelProps): JSX.Element {
       data-busy={state.busy ? "true" : "false"}
     >
       <div className="chat__bar">
-        <div>
-          <h2 className="panel__title" id="chat-title">
-            Ask about this meeting
-          </h2>
-          <p className="panel__subtitle">
-            The AI reads the live transcript as context — it can’t change it.
-          </p>
-        </div>
+        <h2 className="panel__title" id="chat-title">
+          Ask about this meeting
+        </h2>
         <button
           type="button"
           className="chat__provider"
@@ -171,10 +170,6 @@ export function ChatPanel({ meetingId, api }: ChatPanelProps): JSX.Element {
           <HfTokenSettings />
         </>
       )}
-
-      <p className="chat__readonly-note" data-testid="chat-readonly-note" role="note">
-        Read-only: answers are grounded in the transcript, but the AI never edits it.
-      </p>
 
       <div
         className="chat__thread"
@@ -221,20 +216,27 @@ export function ChatPanel({ meetingId, api }: ChatPanelProps): JSX.Element {
             hasMeeting ? "Ask about this meeting…" : "Open a meeting to chat"
           }
           value={draft}
-          rows={2}
+          rows={1}
           disabled={!hasMeeting}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
           aria-label="Chat message"
         />
+        {/* ⌘⏎ send hint (PRD-16): a faint tokenized chip in the composer; shown
+            only with a non-empty draft so the resting composer stays calm. */}
+        {hasMeeting && draft.trim().length > 0 && (
+          <Kbd combo={`${modKeyLabel()}${RETURN_GLYPH}`} className="chat__send-kbd" />
+        )}
         <button
           type="button"
-          className="btn chat__send"
+          className="chat__send"
           data-testid="chat-send"
           disabled={disabled || draft.trim().length === 0}
+          aria-label={state.busy ? "Thinking…" : "Send"}
           onClick={onSend}
         >
-          {state.busy ? "Thinking…" : "Send"}
+          <Icon name={state.busy ? "refresh" : "arrow-up"} size={20} aria-hidden="true" />
+          <span className="chat__sr">{state.busy ? "Thinking…" : "Send"}</span>
         </button>
       </div>
     </section>
@@ -255,7 +257,16 @@ function ChatBubble({ turn }: { turn: ChatTurn }): JSX.Element {
       data-pending={turn.pending ? "true" : "false"}
       data-chat-id={turn.id}
     >
-      <span className="chat__who">{isUser ? "You" : "AI"}</span>
+      <span className="chat__who">
+        {isUser ? (
+          "You"
+        ) : (
+          <>
+            <Icon name="sparkle" size={13} aria-hidden="true" />
+            AI
+          </>
+        )}
+      </span>
       {isError ? (
         <p className="chat__bubble chat__bubble--error" data-testid="chat-error" role="alert">
           {turn.error}

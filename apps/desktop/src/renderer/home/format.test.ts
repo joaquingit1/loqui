@@ -14,7 +14,9 @@ import {
   eventStartParams,
   formatLastSync,
   formatRelativeStart,
+  greeting,
   isToday,
+  meetingsAhead,
   summarizeAttendees,
 } from "./format.js";
 
@@ -78,6 +80,46 @@ describe("home/format", () => {
   it("labels last-sync (null → Never synced)", () => {
     expect(formatLastSync(null)).toBe("Never synced");
     expect(formatLastSync("2026-06-24T08:00:00.000Z")).toMatch(/^Synced /);
+  });
+
+  it("greets by local time of day", () => {
+    const at = (h: number): Date => {
+      const d = new Date(NOW);
+      d.setHours(h, 0, 0, 0);
+      return d;
+    };
+    expect(greeting(at(8))).toBe("Good morning");
+    expect(greeting(at(13))).toBe("Good afternoon");
+    expect(greeting(at(20))).toBe("Good evening");
+  });
+
+  it("summarizes meetings ahead (clear / one / many; only future today events)", () => {
+    const at = (h: number, m = 0): string => {
+      const d = new Date(NOW);
+      d.setHours(h, m, 0, 0);
+      return d.toISOString();
+    };
+    const ev = (id: string, h: number, title: string): CalendarEvent => ({
+      id,
+      title,
+      startsAt: at(h),
+      endsAt: at(h + 1),
+      platform: "zoom",
+      joinUrl: null,
+      attendees: [],
+      source: "google",
+      calendarAccount: "me",
+      meetingId: null,
+    });
+
+    expect(meetingsAhead([], NOW)).toMatch(/Nothing left/i);
+    // A past event (08:00) is excluded; only the 10:00 remains → "One meeting".
+    expect(meetingsAhead([ev("a", 8, "Done"), ev("b", 10, "Standup")], NOW)).toMatch(
+      /One meeting ahead — Standup in 1h\./,
+    );
+    expect(
+      meetingsAhead([ev("b", 10, "Standup"), ev("c", 14, "Review")], NOW),
+    ).toMatch(/2 meetings ahead — next: Standup in 1h\./);
   });
 
   it("maps an event to start params (title/platform; null platform omitted)", () => {

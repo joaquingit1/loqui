@@ -14,6 +14,7 @@ import type {
   CalendarProviderId,
   StartMeetingParams,
 } from "@loqui/shared";
+import type { IconName } from "../components/Icon.js";
 
 /** Human label for a calendar conferencing platform (null → friendly fallback). */
 export const CALENDAR_PLATFORM_LABEL: Record<NonNullable<CalendarPlatform>, string> = {
@@ -28,18 +29,19 @@ export function calendarPlatformLabel(platform: CalendarPlatform): string {
 }
 
 /**
- * A short emoji glyph per platform, used as the row's at-a-glance icon. Kept as
- * text (no remote image) so it renders under the strict CSP and in jsdom.
+ * The shared line-icon name (see components/Icon.tsx) per platform, used as the
+ * row's at-a-glance glyph. NO emoji — the renderer is emoji-free; the component
+ * resolves these to inline-SVG line icons (renders under the strict CSP + jsdom).
  */
-export const CALENDAR_PLATFORM_ICON: Record<NonNullable<CalendarPlatform>, string> = {
-  "google-meet": "📹",
-  zoom: "🎥",
-  teams: "👥",
-  other: "🔗",
+export const CALENDAR_PLATFORM_ICON: Record<NonNullable<CalendarPlatform>, IconName> = {
+  "google-meet": "video",
+  zoom: "video",
+  teams: "users",
+  other: "link",
 };
 
-export function calendarPlatformIcon(platform: CalendarPlatform): string {
-  return platform ? CALENDAR_PLATFORM_ICON[platform] : "📅";
+export function calendarPlatformIcon(platform: CalendarPlatform): IconName {
+  return platform ? CALENDAR_PLATFORM_ICON[platform] : "calendar";
 }
 
 /** Human label for a connectable provider. */
@@ -51,6 +53,42 @@ export const CALENDAR_PROVIDER_LABEL: Record<CalendarProviderId, string> = {
 
 export function calendarProviderLabel(provider: CalendarProviderId): string {
   return CALENDAR_PROVIDER_LABEL[provider];
+}
+
+/**
+ * Time-of-day greeting ("Good morning/afternoon/evening") for the Home hero,
+ * derived from the local hour of a reference `now`. Pure + deterministic so the
+ * hero renders the same in tests. Morning < 12, afternoon < 18, else evening.
+ */
+export function greeting(now: Date = new Date()): string {
+  const h = now.getHours();
+  if (h < 12) return "Good morning";
+  if (h < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+/**
+ * One-line "meetings ahead" summary for the hero, from today's remaining events
+ * vs. a reference `now`. Counts only events that have not already started, and
+ * names the soonest with its relative start. Empty today → a calm "clear" line.
+ */
+export function meetingsAhead(today: CalendarEvent[], now: Date = new Date()): string {
+  const upcoming = today
+    .filter((e) => {
+      const t = new Date(e.startsAt).getTime();
+      return !Number.isNaN(t) && t >= now.getTime();
+    })
+    .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  if (upcoming.length === 0) {
+    return "Nothing left on your calendar today.";
+  }
+  const next = upcoming[0]!;
+  const rel = formatRelativeStart(next.startsAt, now);
+  const title = next.title?.trim() || "your next meeting";
+  if (upcoming.length === 1) {
+    return `One meeting ahead — ${title} ${rel}.`;
+  }
+  return `${upcoming.length} meetings ahead — next: ${title} ${rel}.`;
 }
 
 /** Short, locale-formatted clock time of an ISO timestamp (e.g. "2:05 PM"). */

@@ -79,12 +79,14 @@ describe("ChatPanel", () => {
     expect(screen.getByTestId("chat-provider-indicator").textContent).toContain("Anthropic");
   });
 
-  it("makes the read-only guarantee visible", () => {
+  it("does not surface the dev-only read-only invariant as user copy", () => {
+    // The AI-never-edits-the-transcript guarantee is a structural invariant
+    // (enforced by the bridge having no transcript writer — see the last test),
+    // not user-facing chrome. The panel must not nag about it.
     const chat = makeChat();
     render(<ChatPanel meetingId="m1" api={chat.api} />);
-    expect(screen.getByTestId("chat-readonly-note").textContent?.toLowerCase()).toContain(
-      "never edits it",
-    );
+    expect(screen.queryByTestId("chat-readonly-note")).toBeNull();
+    expect(document.body.textContent?.toLowerCase()).not.toContain("never edits it");
   });
 
   it("renders streamed tokens incrementally then finalizes on done", async () => {

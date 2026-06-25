@@ -14,16 +14,17 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Meeting } from "@loqui/shared";
-import type { LoquiExportApi, LoquiLibraryApi } from "../../preload/index.js";
+import type {
+  LoquiChatApi,
+  LoquiExportApi,
+  LoquiLibraryApi,
+} from "../../preload/index.js";
 import { ExportMenu } from "./ExportMenu.js";
-import {
-  displayTitle,
-  formatDuration,
-  platformLabel,
-  statusLabel,
-} from "../library/grouping.js";
+import { Icon } from "./Icon.js";
+import { displayTitle, formatDuration, platformLabel } from "../library/grouping.js";
 import { SummaryView } from "./SummaryView.js";
 import { DiarizedTranscript } from "./DiarizedTranscript.js";
+import { ChatPanel } from "./ChatPanel.js";
 import { ProcessingStatus } from "./ProcessingStatus.js";
 import { useJobProgress, allJobsTerminal } from "../summary/index.js";
 import "../library/library.css";
@@ -35,6 +36,12 @@ export interface MeetingViewProps {
   api?: Pick<LoquiLibraryApi, "getTranscript" | "renameMeeting">;
   /** Export bridge (PRD-13). Injectable for tests; defaults to window.loqui.export. */
   exportApi?: Pick<LoquiExportApi, "exportMeeting">;
+  /**
+   * Chat bridge (PRD-4). Injectable for tests; defaults to window.loqui.chat.
+   * Powers the read-only "Ask about this meeting" panel below the summary —
+   * grounded in this meeting's transcript, the AI never edits it.
+   */
+  chatApi?: LoquiChatApi;
   /** Navigate back to the Library list. */
   onBack?: () => void;
   /** Fired with the updated Meeting after a successful rename. */
@@ -50,6 +57,7 @@ export function MeetingView({
   meeting,
   api,
   exportApi,
+  chatApi,
   onBack,
   onRenamed,
 }: MeetingViewProps): JSX.Element {
@@ -176,7 +184,8 @@ export function MeetingView({
             data-testid="meeting-back"
             onClick={onBack}
           >
-            ← Library
+            <Icon name="chevron-left" size={16} aria-hidden="true" />
+            Library
           </button>
         )}
 
@@ -233,20 +242,20 @@ export function MeetingView({
         </p>
       )}
 
-      <dl className="meeting-view__meta" data-testid="meeting-meta">
-        <div>
-          <dt>Platform</dt>
-          <dd>{platformLabel(meeting.platform)}</dd>
-        </div>
-        <div>
-          <dt>Status</dt>
-          <dd data-status={meeting.status}>{statusLabel(meeting.status)}</dd>
-        </div>
-        <div>
-          <dt>Duration</dt>
-          <dd>{duration ?? "—"}</dd>
-        </div>
-      </dl>
+      {/* One muted line — platform · duration (DESIGN-SYSTEM §12.5: drop the
+          "STATUS Done" stat and collapse the trio; status surfaces by exception
+          via the processing/error indicators below, not a label). */}
+      <p className="meeting-view__meta" data-testid="meeting-meta" data-status={meeting.status}>
+        <span>{platformLabel(meeting.platform)}</span>
+        {duration && (
+          <>
+            <span className="meeting-view__meta-sep" aria-hidden="true">
+              ·
+            </span>
+            <span>{duration}</span>
+          </>
+        )}
+      </p>
 
       {/* PRD-13: export this meeting (Markdown/Obsidian/SRT/VTT/JSON/PDF/DOCX).
           READ-ONLY — building an export never mutates transcript.live.md. */}
@@ -291,6 +300,12 @@ export function MeetingView({
           <DiarizedTranscript meetingId={meeting.id} reloadKey={diarizedReload} />
         </>
       )}
+
+      {/* PRD-4 chat-below: ask the AI about THIS meeting, grounded in its
+          transcript. READ-ONLY — the AI never edits the transcript. */}
+      <div className="meeting-view__chat" data-testid="meeting-chat">
+        <ChatPanel meetingId={meeting.id} api={chatApi} />
+      </div>
     </section>
   );
 }

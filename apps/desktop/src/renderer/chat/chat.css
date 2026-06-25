@@ -12,7 +12,7 @@
 
 .chat__bar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
@@ -21,29 +21,21 @@
 .chat__provider {
   appearance: none;
   flex: 0 0 auto;
-  border: 1px solid var(--panel-border);
-  background: var(--bg);
-  color: var(--text);
+  border: 0;
+  background: var(--surface-sunken);
+  color: var(--text-dim);
   font-family: inherit;
-  font-size: 12px;
-  font-weight: 550;
-  padding: 6px 10px;
-  border-radius: 999px;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
   cursor: pointer;
   white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 .chat__provider:hover {
-  filter: brightness(1.1);
-}
-
-.chat__readonly-note {
-  margin: 0;
-  padding: 6px 10px;
-  border: 1px dashed var(--panel-border);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--text-dim);
-  font-size: 12px;
+  background: var(--accent-tint);
+  color: var(--text);
 }
 
 .chat__thread {
@@ -60,15 +52,15 @@
 .chat__empty {
   margin: auto;
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: var(--text-label);
   text-align: center;
 }
 
 .chat__turn {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  max-width: 88%;
+  gap: var(--space-1);
+  max-width: 66ch;
 }
 .chat__turn--user {
   align-self: flex-end;
@@ -80,31 +72,41 @@
 }
 
 .chat__who {
-  font-size: 11px;
-  font-weight: 650;
-  color: var(--text-dim);
-  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-overline);
+  font-weight: var(--weight-semibold);
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-overline);
+}
+.chat__who svg {
+  color: var(--text-faint);
 }
 
 .chat__bubble {
   margin: 0;
-  padding: 9px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--panel-border);
-  background: var(--bg);
-  font-size: 14px;
-  line-height: 1.5;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  font-size: var(--text-body-lg);
+  line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* You = a soft accent-tint block, right-aligned. AI = plain text, left-aligned. */
 .chat__turn--user .chat__bubble {
-  background: rgba(91, 140, 255, 0.16);
-  border-color: rgba(91, 140, 255, 0.4);
+  background: var(--accent-tint);
+}
+.chat__turn--assistant .chat__bubble {
+  padding-left: 0;
+  padding-right: 0;
 }
 .chat__bubble--error {
-  background: rgba(229, 72, 77, 0.12);
-  border-color: rgba(229, 72, 77, 0.45);
+  background: var(--red-soft);
   color: var(--text);
+  padding: var(--space-3) var(--space-4);
 }
 
 /* Streaming caret appended to a still-pending assistant bubble. */
@@ -178,48 +180,117 @@
 }
 .chat__suggestion {
   appearance: none;
-  border: 1px solid var(--panel-border);
-  background: var(--bg);
-  color: var(--text);
+  border: 0;
+  background: var(--surface-sunken);
+  color: var(--text-dim);
   font-family: inherit;
-  font-size: 12px;
-  padding: 6px 11px;
-  border-radius: 999px;
+  font-size: var(--text-caption);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
   cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
 }
 .chat__suggestion:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--accent-tint);
+  color: var(--text);
 }
 .chat__suggestion:disabled {
   opacity: 0.55;
   cursor: default;
 }
 
+/* ref-1's rounded composer: a soft glass card holding the input + a circular
+   send. The row is centered so the input text and the send button share one
+   optical baseline; vertical padding is symmetric so the placeholder sits dead
+   centre of the card. */
 .chat__composer {
   display: flex;
-  gap: 8px;
-  align-items: flex-end;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border-radius: var(--radius-2xl);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  /* Glass surface: 0.5px ink ring + inner light edge + soft float (PRD-16). */
+  box-shadow:
+    var(--glass-edge),
+    inset 0 1px 0 var(--edge-light),
+    var(--shadow-sm);
+  transition: box-shadow var(--duration-fast) var(--ease-standard);
+}
+.chat__composer:focus-within {
+  box-shadow:
+    var(--glass-edge),
+    inset 0 1px 0 var(--edge-light),
+    var(--shadow-md),
+    var(--shadow-focus);
+}
+/* The faint ⌘⏎ send hint sits between the input and the circular send button. */
+.chat__send-kbd {
+  flex: 0 0 auto;
+  align-self: center;
 }
 .chat__input {
   flex: 1 1 auto;
-  resize: vertical;
-  min-height: 40px;
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  background: var(--bg);
+  resize: none;
+  min-height: 24px;
+  max-height: 132px;
+  border: 0;
+  background: transparent;
   color: var(--text);
   font-family: inherit;
-  font-size: 14px;
-  line-height: 1.4;
-  padding: 9px 12px;
+  font-size: var(--text-body-lg);
+  line-height: 1.5;
+  padding: var(--space-1) 0;
+  /* Centre a single line vertically; multi-line grows downward. */
+  display: block;
+}
+.chat__input::placeholder {
+  color: var(--text-faint);
 }
 .chat__input:focus {
   outline: none;
-  border-color: var(--accent);
 }
+/* §9.5: a circular accent send with an --accent-contrast arrow. */
 .chat__send {
   flex: 0 0 auto;
+  appearance: none;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-pill);
+  background: var(--send);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard),
+    opacity var(--duration-fast) var(--ease-standard);
+}
+.chat__send:hover:not(:disabled) {
+  background: var(--send-strong);
+}
+.chat__send:active:not(:disabled) {
+  transform: scale(0.94);
+}
+.chat__send:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.chat__send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* A firmer arrow so the send reads as a confident, real control. */
+.chat__send svg {
+  stroke-width: 2;
 }
 
 /* --- Provider settings --- */
@@ -229,7 +300,7 @@
   gap: 12px;
   padding: 14px;
   border: 1px solid var(--panel-border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--bg);
 }
 .chat__field {
@@ -238,7 +309,7 @@
   gap: 5px;
 }
 .chat__field-label {
-  font-size: 12px;
+  font-size: var(--text-caption);
   font-weight: 600;
   color: var(--text-dim);
   display: flex;
@@ -248,11 +319,11 @@
 .chat__select,
 .chat__text {
   border: 1px solid var(--panel-border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
   color: var(--text);
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--text-body);
   padding: 8px 10px;
 }
 .chat__select:focus,
@@ -273,20 +344,20 @@
   background: var(--panel);
   color: var(--text);
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--text-label);
   padding: 0 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 .chat__key-status {
-  font-size: 11px;
+  font-size: var(--text-overline);
   font-weight: 550;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 .chat__key-status--set {
   color: var(--green);
-  background: rgba(47, 191, 113, 0.14);
+  background: var(--green-soft);
 }
 .chat__key-status--unset {
   color: var(--text-dim);
@@ -294,7 +365,7 @@
 }
 .chat__hint {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-overline);
   color: var(--text-dim);
 }
 .chat__settings-actions {
@@ -303,6 +374,6 @@
   gap: 12px;
 }
 .chat__settings-status {
-  font-size: 12px;
+  font-size: var(--text-caption);
   color: var(--text-dim);
 }

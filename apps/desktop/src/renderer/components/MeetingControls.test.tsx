@@ -164,7 +164,7 @@ describe("MeetingControls", () => {
     const toggle = screen.getByTestId("meeting-toggle");
     expect(toggle.textContent).toContain("Start meeting");
     expect(toggle).toHaveProperty("disabled", false);
-    expect(screen.getByTestId("recording-status").getAttribute("data-phase")).toBe("idle");
+    expect(screen.getByTestId("meeting-controls").getAttribute("data-phase")).toBe("idle");
   });
 
   it("Start creates+starts a meeting and begins capture for both sources", async () => {
@@ -201,9 +201,10 @@ describe("MeetingControls", () => {
     await waitFor(() => expect(screen.getByTestId("recording-elapsed")).toBeTruthy());
     expect(screen.getByTestId("live-transcript")).toBeTruthy();
 
-    // A segment for the active meeting renders in the live view.
+    // A segment for the active meeting renders in the live view (the line also
+    // carries its timestamp + speaker label in the editorial flow).
     emitSegment({ source: "mic", segId: "a", text: "hello there", status: "partial" });
-    expect(screen.getByTestId("segment-mic-a").textContent).toBe("hello there");
+    expect(screen.getByTestId("segment-mic-a").textContent).toContain("hello there");
   });
 
   it("mounts the in-call ChatPanel scoped to the active meeting while recording", async () => {
@@ -231,7 +232,6 @@ describe("MeetingControls", () => {
     // Composer is scoped to an active meeting (input enabled, not the
     // "open a meeting" placeholder).
     expect(screen.getByTestId("chat-input")).toHaveProperty("disabled", false);
-    expect(screen.getByTestId("chat-readonly-note")).toBeTruthy();
   });
 
   it("Stop tears capture down and stops the meeting (→ processing)", async () => {
@@ -271,12 +271,12 @@ describe("MeetingControls", () => {
 
     emitStatus(meeting({ status: "done", endedAt: "2026-06-23T10:05:00.000Z", title: "Standup" }));
     await waitFor(() =>
-      expect(screen.getByTestId("recording-status").getAttribute("data-phase")).toBe("done"),
+      expect(screen.getByTestId("meeting-controls").getAttribute("data-phase")).toBe("done"),
     );
     expect(screen.getByTestId("meeting-done").textContent).toContain("Standup");
     // dismiss returns to idle.
     fireEvent.click(screen.getByTestId("meeting-dismiss"));
-    expect(screen.getByTestId("recording-status").getAttribute("data-phase")).toBe("idle");
+    expect(screen.getByTestId("meeting-controls").getAttribute("data-phase")).toBe("idle");
   });
 
   it("surfaces a capture/permission error per-source while recording", async () => {

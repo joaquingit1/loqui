@@ -112,6 +112,53 @@ function makeLibrary(
 }
 
 describe("HomeView", () => {
+  it("renders the serif greeting + a meetings-ahead summary over the hero", async () => {
+    const { api } = makeCalendar({ today: [TODAY_LATER, TODAY_SOON] });
+    render(<HomeView calendar={api} library={makeLibrary()} now={NOW} />);
+
+    // NOW is 09:00 → "Good morning"; the greeting is the labelled home title.
+    expect(screen.getByRole("heading", { name: /good morning/i })).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId("home-ahead")).toBeTruthy());
+    // Two today events both start after 09:00 → "2 meetings ahead".
+    expect(screen.getByTestId("home-ahead").textContent).toMatch(/2 meetings ahead/i);
+    expect(screen.getByTestId("home-meetings-ahead")).toBeTruthy();
+  });
+
+  it("renders quick-start action cards; Start a meeting mints + hands up a meeting", async () => {
+    const onMeetingStarted = vi.fn();
+    const library = makeLibrary();
+    const { api } = makeCalendar({ today: [] });
+    render(
+      <HomeView
+        calendar={api}
+        library={library}
+        now={NOW}
+        onMeetingStarted={onMeetingStarted}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("home-quick")).toBeTruthy());
+    expect(screen.getByTestId("home-quick-start")).toBeTruthy();
+    expect(screen.getByTestId("home-quick-library")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("home-quick-start"));
+    await waitFor(() => expect(library.startMeeting).toHaveBeenCalledTimes(1));
+    // No event prefill for a blank "start now".
+    expect(library.startMeeting).toHaveBeenCalledWith();
+    await waitFor(() => expect(onMeetingStarted).toHaveBeenCalledTimes(1));
+  });
+
+  it("the Browse library quick card calls onOpenLibrary", async () => {
+    const onOpenLibrary = vi.fn();
+    const { api } = makeCalendar({ today: [] });
+    render(
+      <HomeView calendar={api} library={makeLibrary()} now={NOW} onOpenLibrary={onOpenLibrary} />,
+    );
+    await waitFor(() => expect(screen.getByTestId("home-quick-library")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("home-quick-library"));
+    expect(onOpenLibrary).toHaveBeenCalledTimes(1);
+  });
+
   it("renders today's meetings soonest-first with time, platform, attendees", async () => {
     const { api } = makeCalendar({ today: [TODAY_LATER, TODAY_SOON] });
     render(<HomeView calendar={api} library={makeLibrary()} now={NOW} />);

@@ -169,6 +169,7 @@ export function SummaryView({
                     <span className="summary__action-text">{a.text}</span>
                     {a.owner && a.owner.trim().length > 0 && (
                       <span className="summary__action-owner" data-testid="summary-action-owner">
+                        {"— "}
                         {a.owner}
                       </span>
                     )}

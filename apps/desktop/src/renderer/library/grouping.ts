@@ -10,6 +10,7 @@
  * are emitted newest-first and empty buckets are omitted.
  */
 import type { Meeting, MeetingKind, MeetingPlatform, MeetingStatus } from "@loqui/shared";
+import type { IconName } from "../components/Icon.js";
 
 /** A stable group key, in display (newest-first) order. */
 export const GROUP_ORDER = ["today", "yesterday", "thisWeek", "earlier"] as const;
@@ -160,11 +161,14 @@ export const KIND_LABEL: Record<MeetingKind, string> = {
   "voice-memo": "Voice memo",
 };
 
-/** A short icon glyph per kind, for the row badge (degrades to text label). */
-export const KIND_ICON: Record<MeetingKind, string> = {
-  meeting: "",
-  import: "📄",
-  "voice-memo": "🎙️",
+/**
+ * The shared line-icon name (components/Icon.tsx) per kind, for the row badge.
+ * NO emoji — `"meeting"` maps to null so a normal meeting shows no extra glyph.
+ */
+export const KIND_ICON: Record<MeetingKind, IconName | null> = {
+  meeting: null,
+  import: "file",
+  "voice-memo": "mic",
 };
 
 /** Library label for a meeting's kind (defaults to "meeting" for old records). */
@@ -172,7 +176,7 @@ export function kindLabel(kind: MeetingKind | undefined): string {
   return KIND_LABEL[kind ?? "meeting"];
 }
 
-/** Library icon glyph for a meeting's kind (empty for a normal meeting). */
-export function kindIcon(kind: MeetingKind | undefined): string {
+/** Library line-icon for a meeting's kind (null for a normal meeting). */
+export function kindIcon(kind: MeetingKind | undefined): IconName | null {
   return KIND_ICON[kind ?? "meeting"];
 }

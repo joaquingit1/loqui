@@ -8,23 +8,22 @@
 .postproc {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  border: 1px solid var(--panel-border);
-  background: var(--bg);
-  border-radius: 10px;
-  padding: 14px 16px;
+  gap: var(--space-3);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
 }
 .postproc__heading {
   display: flex;
   flex-direction: column;
   gap: 2px;
   margin: 0;
-  font-size: 14px;
-  font-weight: 650;
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
 }
 .postproc__sub {
-  font-size: 12px;
-  font-weight: 400;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-regular);
   color: var(--text-dim);
 }
 .postproc__jobs {
@@ -47,11 +46,11 @@
   gap: 12px;
 }
 .postproc__job-name {
-  font-size: 13px;
+  font-size: var(--text-label);
   font-weight: 600;
 }
 .postproc__job-state {
-  font-size: 12px;
+  font-size: var(--text-caption);
   color: var(--text-dim);
   white-space: nowrap;
 }
@@ -66,15 +65,14 @@
 }
 .postproc__bar {
   height: 6px;
-  border-radius: 999px;
-  background: var(--panel);
-  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-pill);
+  background: var(--border-strong);
   overflow: hidden;
 }
 .postproc__bar-fill {
   height: 100%;
   background: var(--accent);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   transition: width 0.3s ease;
 }
 .postproc__job--done .postproc__bar-fill {
@@ -85,7 +83,7 @@
 }
 .postproc__job-error {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-caption);
   color: var(--red);
 }
 
@@ -103,30 +101,31 @@
 }
 .summary__title {
   margin: 0;
-  font-size: 15px;
-  font-weight: 650;
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
 }
 .summary__by {
   margin: 2px 0 0;
-  font-size: 11px;
-  color: var(--text-dim);
+  font-size: var(--text-overline);
+  color: var(--text-faint);
 }
 .summary__regenerate {
   appearance: none;
   flex: 0 0 auto;
-  border: 1px solid var(--panel-border);
-  background: var(--bg);
-  color: var(--text);
+  border: 0;
+  background: var(--surface-sunken);
+  color: var(--text-dim);
   font-family: inherit;
-  font-size: 12px;
-  font-weight: 550;
-  padding: 6px 12px;
-  border-radius: 999px;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
   cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 .summary__regenerate:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--accent-tint);
+  color: var(--text);
 }
 .summary__regenerate:disabled {
   opacity: 0.55;
@@ -135,7 +134,7 @@
 .summary__hint,
 .summary__error {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-dim);
 }
 .summary__error {
@@ -144,32 +143,33 @@
 .summary__body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-5);
 }
 .summary__section {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .summary__section-title {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-overline);
+  font-weight: var(--weight-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-dim);
+  letter-spacing: var(--tracking-overline);
+  color: var(--text-faint);
 }
 .summary__tldr-text {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-body-lg);
   line-height: 1.55;
 }
 .summary__list {
   margin: 0;
-  padding-left: 20px;
+  padding-left: var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  font-size: 14px;
+  gap: var(--space-2);
+  font-size: var(--text-body-lg);
   line-height: 1.5;
 }
 .summary__list--actions {
@@ -184,14 +184,11 @@
 .summary__action-text {
   flex: 1 1 auto;
 }
+/* Owner as muted inline text ("— Devon"), not an accent pill (§12.3/§12.5). */
 .summary__action-owner {
   flex: 0 0 auto;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--accent);
-  background: rgba(91, 140, 255, 0.14);
-  border-radius: 999px;
-  padding: 2px 9px;
+  font-size: var(--text-caption);
+  color: var(--text-faint);
 }
 .summary__chips {
   list-style: none;
@@ -199,15 +196,14 @@
   padding: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .summary__chip {
-  font-size: 12px;
-  color: var(--text);
-  border: 1px solid var(--panel-border);
-  background: var(--bg);
-  border-radius: 999px;
-  padding: 4px 11px;
+  font-size: var(--text-caption);
+  color: var(--text-dim);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-3);
 }
 
 /* ── Diarized transcript ─────────────────────────────────────────────────── */
@@ -224,41 +220,41 @@
 }
 .diarized__title {
   margin: 0;
-  font-size: 15px;
-  font-weight: 650;
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
 }
 .diarized__badge {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 999px;
+  font-size: var(--text-overline);
+  font-weight: var(--weight-semibold);
+  padding: 3px var(--space-3);
+  border-radius: var(--radius-pill);
 }
 .diarized__badge--on {
   color: var(--green);
-  background: rgba(47, 191, 113, 0.14);
+  background: var(--green-soft);
 }
 .diarized__badge--off {
   color: var(--amber);
-  background: rgba(245, 166, 35, 0.14);
+  background: var(--amber-soft);
 }
 .diarized__hint {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--text-dim);
 }
 .diarized__error {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-label);
   color: var(--red);
 }
 .diarized__note {
   margin: 0;
   padding: 8px 11px;
   border: 1px dashed var(--panel-border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--bg);
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: var(--text-caption);
 }
 .diarized__roster {
   display: flex;
@@ -268,45 +264,44 @@
 .diarized__roster-item {
   border: 1px solid var(--panel-border);
   background: var(--bg);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 4px 6px 4px 12px;
 }
 .diarized__roster-item--you {
-  border-color: rgba(91, 140, 255, 0.4);
-  background: rgba(91, 140, 255, 0.1);
+  border-color: var(--accent);
+  background: var(--accent-tint);
 }
 .diarized__lines {
   list-style: none;
   margin: 0;
-  padding: 12px 14px;
-  border: 1px solid var(--panel-border);
-  background: var(--bg);
-  border-radius: 10px;
+  padding: var(--space-4);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-md);
   max-height: 420px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .diarized__line {
   display: grid;
   grid-template-columns: minmax(72px, max-content) max-content 1fr;
-  gap: 10px;
+  gap: var(--space-3);
   align-items: baseline;
-  font-size: 14px;
+  font-size: var(--text-body-lg);
   line-height: 1.5;
 }
 .diarized__line-who {
-  font-weight: 650;
-  color: var(--text);
+  font-weight: var(--weight-semibold);
+  color: var(--text-dim);
 }
 .diarized__line--you .diarized__line-who {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .diarized__line-time {
   font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-dim);
+  font-size: var(--text-mono);
+  color: var(--text-faint);
 }
 .diarized__line-text {
   word-break: break-word;
@@ -319,7 +314,7 @@
   gap: 6px;
 }
 .speaker-rename__name {
-  font-size: 12px;
+  font-size: var(--text-caption);
   font-weight: 650;
 }
 .speaker-rename__trigger {
@@ -328,7 +323,7 @@
   background: none;
   color: var(--accent);
   font-family: inherit;
-  font-size: 11px;
+  font-size: var(--text-overline);
   cursor: pointer;
   padding: 2px 4px;
 }
@@ -345,9 +340,9 @@
   background: var(--panel);
   color: var(--text);
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--text-caption);
   padding: 3px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   width: 120px;
 }
 .speaker-rename__input:focus {
@@ -360,9 +355,9 @@
   background: var(--bg);
   color: var(--text);
   font-family: inherit;
-  font-size: 11px;
+  font-size: var(--text-overline);
   padding: 3px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 .speaker-rename__save {
@@ -370,14 +365,14 @@
   color: var(--accent);
 }
 .speaker-rename__error {
-  font-size: 11px;
+  font-size: var(--text-overline);
   color: var(--red);
 }
 
 /* ── HF token settings extras ────────────────────────────────────────────── */
 .hf-token__url {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-overline);
   color: var(--accent);
   word-break: break-all;
 }

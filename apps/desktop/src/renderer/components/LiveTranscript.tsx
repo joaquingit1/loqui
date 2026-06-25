@@ -1,29 +1,32 @@
 /**
- * Live two-stream transcript view (PRD-2).
+ * Live transcript view (PRD-2) — the editorial flowing stream (DESIGN-SYSTEM
+ * §9.10).
  *
- * Renders the mic ("You") and system ("They") transcripts as two visually
- * distinct, INDEPENDENT columns fed by {@link useLiveTranscript} (which folds
- * `window.loqui.onTranscriptSegment` into the pure transcript model). Within a
- * column, `partial` segments render in place (dimmed, keyed by `segId`) and are
- * replaced by their `final` once committed; finals render solid.
+ * Both audio streams — mic ("You") and system ("They") — are folded by
+ * {@link useLiveTranscript} into the pure transcript model, then merged into ONE
+ * time-ordered flow ({@link mergedSegments}) and rendered as a single calm
+ * column of lines: a faint `--text-mono` timestamp + a speaker label (You in
+ * `--accent-ink`, They in `--text-dim`) + the text in `--text-body-lg`. This is
+ * deliberately NOT two side-by-side chat columns — it reads like a transcript,
+ * not a chat log. Within the flow, `partial` segments render in place (dimmed,
+ * keyed by `segId`) and are replaced by their `final` once committed.
  *
- * Auto-scroll behavior: each column sticks to the bottom as new segments
- * arrive, BUT pauses auto-scroll the moment the user scrolls up to read back,
- * and resumes once they scroll back to (near) the bottom. A "Jump to live"
- * affordance appears while paused.
+ * New lines fade/slide in (`--duration-base`). The view sticks to the bottom as
+ * speech arrives but pauses the moment the user scrolls up to read back, exposing
+ * a "Jump to live" affordance, and resumes once they return to the bottom.
  *
  * All capture/transport state lives elsewhere; this component is presentation +
  * the auto-scroll interaction. It talks ONLY to the typed `window.loqui` bridge
  * (via the hook), never to IPC channels or Node globals.
  */
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type JSX } from "react";
 import type { AudioSource } from "@loqui/shared";
 import type { LoquiApi } from "../../preload/index.js";
+import { Icon } from "./Icon.js";
 import {
+  mergedSegments,
   SOURCE_LABEL,
-  TRANSCRIPT_SOURCES,
   useLiveTranscript,
-  type StreamState,
 } from "../transcript/index.js";
 import "../transcript/transcript.css";
 
@@ -34,47 +37,21 @@ export interface LiveTranscriptProps {
   api?: Pick<LoquiApi, "onTranscriptSegment">;
 }
 
-export function LiveTranscript({ meetingId, api }: LiveTranscriptProps): JSX.Element {
-  const { state } = useLiveTranscript({ api, meetingId });
-  const total = state.mic.length + state.system.length;
-
-  return (
-    <section
-      className="panel transcript"
-      aria-labelledby="transcript-title"
-      data-testid="live-transcript"
-    >
-      <h2 className="panel__title" id="transcript-title">
-        Live transcript
-      </h2>
-      <p className="panel__subtitle">
-        Mic (You) and system (They) are transcribed as two independent streams.
-      </p>
-
-      <div className="transcript__columns">
-        {TRANSCRIPT_SOURCES.map((source) => (
-          <TranscriptColumn key={source} source={source} segments={state[source]} />
-        ))}
-      </div>
-
-      {total === 0 && (
-        <p className="transcript__empty" data-testid="transcript-empty">
-          Waiting for speech…
-        </p>
-      )}
-    </section>
-  );
-}
-
-interface TranscriptColumnProps {
-  source: AudioSource;
-  segments: StreamState;
-}
-
 /** Distance from the bottom (px) still considered "at the bottom". */
 const STICK_THRESHOLD_PX = 24;
 
-function TranscriptColumn({ source, segments }: TranscriptColumnProps): JSX.Element {
+/** Format a media-time offset (seconds) as a faint m:ss timestamp. */
+function formatStamp(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return `${m}:${rem.toString().padStart(2, "0")}`;
+}
+
+export function LiveTranscript({ meetingId, api }: LiveTranscriptProps): JSX.Element {
+  const { state } = useLiveTranscript({ api, meetingId });
+  const lines = mergedSegments(state);
+
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // Whether to keep pinning to the bottom on new content. Flipped off when the
   // user scrolls up, back on when they return to the bottom.
@@ -98,7 +75,7 @@ function TranscriptColumn({ source, segments }: TranscriptColumnProps): JSX.Elem
     if (el && stickToBottom) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [segments, stickToBottom]);
+  }, [lines, stickToBottom]);
 
   const jumpToLive = useCallback(() => {
     const el = scrollRef.current;
@@ -106,53 +83,81 @@ function TranscriptColumn({ source, segments }: TranscriptColumnProps): JSX.Elem
     setStickToBottom(true);
   }, []);
 
-  const label = SOURCE_LABEL[source];
-
   return (
-    <div
-      className={`transcript__stream transcript__stream--${source}`}
-      data-testid={`transcript-stream-${source}`}
-      data-source={source}
+    <section
+      className="transcript"
+      aria-labelledby="transcript-title"
+      data-testid="live-transcript"
     >
-      <div className="transcript__stream-header">
-        <span className={`transcript__who transcript__who--${source}`}>{label}</span>
-        <span className="transcript__source-tag">
-          {source === "mic" ? "mic" : "system"}
-        </span>
-      </div>
+      <h2 className="transcript__title" id="transcript-title">
+        Transcript
+      </h2>
 
       <div
-        className="transcript__lines"
-        data-testid={`transcript-lines-${source}`}
+        className="transcript__flow"
+        data-testid="transcript-flow"
         ref={scrollRef}
         onScroll={onScroll}
         role="log"
         aria-live="polite"
-        aria-label={`${label} transcript`}
+        aria-label="Live transcript"
       >
-        {segments.map((seg) => (
-          <p
-            key={seg.segId}
-            className={`transcript__line transcript__line--${seg.status}`}
-            data-testid={`segment-${source}-${seg.segId}`}
-            data-status={seg.status}
-            data-seg-id={seg.segId}
-          >
-            {seg.text}
+        {lines.length === 0 ? (
+          <p className="transcript__empty" data-testid="transcript-empty">
+            <Icon name="mic" size={20} aria-hidden="true" />
+            <span>Listening — the transcript appears here as people speak.</span>
           </p>
-        ))}
+        ) : (
+          lines.map((seg) => (
+            <TranscriptLine key={`${seg.source}-${seg.segId}`} source={seg.source}>
+              {{ segId: seg.segId, status: seg.status, tStart: seg.tStart, text: seg.text }}
+            </TranscriptLine>
+          ))
+        )}
       </div>
 
-      {!stickToBottom && (
+      {!stickToBottom && lines.length > 0 && (
         <button
           type="button"
           className="transcript__jump"
-          data-testid={`transcript-jump-${source}`}
+          data-testid="transcript-jump"
           onClick={jumpToLive}
         >
-          Jump to live ↓
+          Jump to live
+          <Icon name="arrow-down" size={14} aria-hidden="true" />
         </button>
       )}
-    </div>
+    </section>
+  );
+}
+
+interface TranscriptLineData {
+  segId: string;
+  status: "partial" | "final";
+  tStart: number;
+  text: string;
+}
+
+function TranscriptLine({
+  source,
+  children,
+}: {
+  source: AudioSource;
+  children: TranscriptLineData;
+}): JSX.Element {
+  const { segId, status, tStart, text } = children;
+  const label = SOURCE_LABEL[source];
+  return (
+    <p
+      className={`transcript__line transcript__line--${status} transcript__line--${source}`}
+      data-testid={`segment-${source}-${segId}`}
+      data-status={status}
+      data-source={source}
+      data-seg-id={segId}
+    >
+      <span className="transcript__stamp">{formatStamp(tStart)}</span>
+      <span className={`transcript__who transcript__who--${source}`}>{label}</span>
+      <span className="transcript__text">{text}</span>
+    </p>
   );
 }

@@ -62,7 +62,7 @@ function makeApi(overrides: Partial<LoquiLibraryApi> = {}): LoquiLibraryApi {
 }
 
 describe("Library", () => {
-  it("lists meetings grouped by date with title, duration, platform, status", async () => {
+  it("lists meetings grouped by date with a title and one muted time · platform line", async () => {
     const api = makeApi();
     render(<Library api={api} now={NOW} />);
 
@@ -72,18 +72,79 @@ describe("Library", () => {
     const todayGroup = screen.getByTestId("library-group-today");
     expect(todayGroup.textContent).toContain("Daily standup");
     expect(todayGroup.textContent).toContain("Google Meet");
-    expect(todayGroup.textContent).toContain("Done");
-    // 14:18:30 - 14:00:00 = 18m30s.
-    expect(todayGroup.textContent).toContain("18:30");
+    // Status by exception: a completed meeting shows no "Done" chrome and no
+    // status dot; duration moves to the detail (not the list row).
+    expect(todayGroup.textContent).not.toContain("Done");
+    expect(todayGroup.textContent).not.toContain("18:30");
+    expect(screen.queryByTestId(`library-row-status-${TODAY.id}`)).toBeNull();
 
     expect(api.listMeetings).toHaveBeenCalled();
   });
 
-  it("renders an empty state when there are no meetings", async () => {
+  it("shows a status dot only for a processing meeting (status by exception)", async () => {
+    const PROCESSING = meeting({
+      id: "33333333-3333-4333-8333-333333333333",
+      title: "Investor sync",
+      platform: "zoom",
+      status: "processing",
+      createdAt: "2026-06-24T13:00:00",
+    });
+    const api = makeApi({ listMeetings: vi.fn(async () => [PROCESSING, TODAY]) });
+    render(<Library api={api} now={NOW} />);
+
+    await waitFor(() => expect(screen.getByTestId(`library-row-${PROCESSING.id}`)).toBeTruthy());
+    expect(screen.getByTestId(`library-row-status-${PROCESSING.id}`)).toBeTruthy();
+    // The completed meeting next to it stays calm — no dot.
+    expect(screen.queryByTestId(`library-row-status-${TODAY.id}`)).toBeNull();
+  });
+
+  it("discloses a calm empty state (no search/date controls) when there are no meetings", async () => {
     const api = makeApi({ listMeetings: vi.fn(async () => []) });
     render(<Library api={api} now={NOW} />);
-    await waitFor(() => expect(screen.getByTestId("library-empty")).toBeTruthy());
+
+    // UI disclosure (PRD-16): the centred empty state replaces the list, and the
+    // search + date controls are hidden until meetings exist.
+    await waitFor(() => expect(screen.getByTestId("library-empty-state")).toBeTruthy());
     expect(screen.queryByTestId("library-group-today")).toBeNull();
+    expect(screen.queryByTestId("library-controls")).toBeNull();
+    expect(screen.queryByTestId("library-search")).toBeNull();
+    expect(screen.queryByTestId("library-from")).toBeNull();
+    // The single primary action (import a file) is still offered.
+    expect(screen.getByTestId("library-import")).toBeTruthy();
+  });
+
+  it("re-shows the search + date controls once meetings exist", async () => {
+    const api = makeApi(); // defaults to [TODAY, YESTERDAY]
+    render(<Library api={api} now={NOW} />);
+    await waitFor(() => expect(screen.getByTestId("library-controls")).toBeTruthy());
+    expect(screen.getByTestId("library-search")).toBeTruthy();
+    expect(screen.queryByTestId("library-empty-state")).toBeNull();
+  });
+
+  it("keeps the controls visible when a date filter returns no meetings", async () => {
+    // First load has meetings; a filter then returns none — the controls must
+    // stay so the user can clear the filter (only a truly empty library hides them).
+    const listMeetings = vi
+      .fn<LoquiLibraryApi["listMeetings"]>()
+      .mockResolvedValueOnce([TODAY, YESTERDAY])
+      .mockResolvedValue([]);
+    const api = makeApi({ listMeetings });
+    render(<Library api={api} now={NOW} />);
+    await waitFor(() => expect(screen.getByTestId("library-controls")).toBeTruthy());
+
+    fireEvent.change(screen.getByTestId("library-from"), { target: { value: "2030-01-01" } });
+    await waitFor(() => expect(screen.getByTestId("library-empty")).toBeTruthy());
+    // Controls remain (not the disclosed empty state) so the filter can be cleared.
+    expect(screen.getByTestId("library-controls")).toBeTruthy();
+    expect(screen.queryByTestId("library-empty-state")).toBeNull();
+  });
+
+  it("shows a ⌘/Ctrl F hint chip inside the search field", async () => {
+    const api = makeApi();
+    render(<Library api={api} now={NOW} />);
+    await waitFor(() => expect(screen.getByTestId("library-controls")).toBeTruthy());
+    const hint = screen.getByTestId("kbd-hint");
+    expect(hint.textContent).toMatch(/F$/);
   });
 
   it("searches via searchMeetings and renders hits with snippets", async () => {
