@@ -31,8 +31,8 @@ rules to avoid the recurring failure modes:
 (cd sidecar && uv run pytest -q && uv run ruff check . && uv run black --check .)
 corepack pnpm --filter @loqui/shared build && corepack pnpm -r typecheck && corepack pnpm -r lint && corepack pnpm -r test
 ```
-A pre-existing `mcp-server` `require.resolve("tsx/cli")` vitest failure is a missing
-devDependency (tracked separately), not caused by feature work.
+All workspace tests should pass in a clean install. (`mcp-server` declares `tsx`
+as a devDependency because `cli.test.ts` resolves `tsx/cli` to run a `.ts` fixture.)
 
 ## Invariants (never violate)
 1. The AI never edits the transcript (diarization/summary write only derived files).
