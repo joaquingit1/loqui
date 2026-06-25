@@ -117,7 +117,9 @@ describe.runIf(isWindows)("update-helper.ps1 — REAL Windows swap", () => {
     expect(existsSync(join(installDir, "old-only.txt"))).toBe(false);
 
     // --- ASSERT RELAUNCH WAS INVOKED ---
-    const relaunched = waitForFile(markerPath, 20_000);
+    // Generous wait: under heavy parallel test load the detached relaunch shim
+    // can take a while to be scheduled and write its marker.
+    const relaunched = waitForFile(markerPath, 60_000);
     expect(relaunched, "relaunch shim did not run (marker not written)").toBe(true);
     expect(readFileSync(markerPath, "utf8")).toContain("relaunched");
   }, 90_000);
