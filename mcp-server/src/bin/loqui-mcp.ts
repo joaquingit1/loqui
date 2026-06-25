@@ -18,6 +18,7 @@
  * STRICTLY READ-ONLY: the server registers exactly the 5 read tools and opens
  * SQLite readonly — there is no write code path here.
  */
+import { pathToFileURL } from "node:url";
 import {
   MCP_HTTP_DEFAULT_PORT,
   mcpServerOptionsSchema,
@@ -72,8 +73,11 @@ export async function main(argv = process.argv.slice(2), env = process.env): Pro
   await runCli(argv, env);
 }
 
-// Only run when invoked as the bin, not when imported by a test.
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+// Only run when invoked as the bin, not when imported by a test. Use
+// pathToFileURL so this is correct cross-platform — a naive
+// `file://${process.argv[1]}` never matches on Windows (drive letter +
+// backslashes + the `file:///` form), so the server would never start there.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err: unknown) => {
     process.stderr.write(`loqui-mcp: ${String(err)}\n`);
     process.exit(1);
