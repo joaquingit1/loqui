@@ -65,7 +65,7 @@ A few things make it different:
 | ⏺️ | **Auto-record + tray** — opt-in auto start/stop on meeting detection (native apps + browser meetings via the extension), silence auto-stop, and a menubar/tray app with quick controls | ✅ |
 | 🔄 | **Unsigned self-update** — checks GitHub for releases and updates itself (sha256-verified download → swap → relaunch), no code-signing certificate required | ✅ |
 | 🗣️ | **Pluggable transcription engines** — choose faster-whisper (cross-platform) or, on macOS, on-device Apple Speech / WhisperKit (ANE); falls back to faster-whisper anywhere a native engine is unavailable | ✅ |
-| 🍎 | **On-device & native summaries** — Apple-native / local summary providers (no cloud) | 🗺️ planned |
+| 🍎 | **On-device & native summaries** — zero-key on-device summary/chat providers (Apple Foundation Models / NaturalLanguage / bundled MLX) + custom prompt templates, alongside the BYOK-cloud option | ✅ |
 
 ✅ working · 🚧 in progress · 🗺️ on the [roadmap](docs/prd/ROADMAP.md)
 
@@ -216,11 +216,9 @@ Loqui is built milestone-by-milestone; each is specced in [`docs/prd/`](docs/prd
 
 **Done:** foundation & contracts · dual-stream capture · real-time transcription · transcript store + dated library · in-call AI chat · diarization + summaries · local MCP server · calendar + Home view · Google Meet speaker names.
 
-**Up next:** native on-device transcription engines (Apple Speech / WhisperKit) + summaries.
+**Up next:** a macOS-centric UI/UX rehaul on a shared design system.
 
-**Done (competitive):** no-token local diarization (sherpa-onnx default) · file import + voice memo · export (SRT/VTT/PDF/DOCX) + capture/privacy controls · auto-record + menubar/tray · pluggable transcription engines (Apple Speech / WhisperKit).
-
-**Planned:** on-device & native (Apple) summaries.
+**Done (competitive):** no-token local diarization (sherpa-onnx default) · file import + voice memo · export (SRT/VTT/PDF/DOCX) + capture/privacy controls · auto-record + menubar/tray · pluggable transcription engines (Apple Speech / WhisperKit) · on-device & native (Apple) summaries.
 
 ## Contributing
 
