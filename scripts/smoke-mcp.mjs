@@ -53,9 +53,12 @@ function assert(cond, msg) {
 // --- Build the bin if needed --------------------------------------------------
 if (!existsSync(binPath)) {
   console.error("[smoke-mcp] building @loqui/mcp-server (dist bin missing)…");
+  // shell:true so Windows resolves the `corepack` .cmd shim (spawnSync can't
+  // exec a .cmd directly); harmless on POSIX.
   const r = spawnSync("corepack", ["pnpm", "--filter", "@loqui/mcp-server", "build"], {
     cwd: repoRoot,
     stdio: "inherit",
+    shell: true,
   });
   if (r.status !== 0) fail("could not build @loqui/mcp-server");
   assert(existsSync(binPath), `built bin not found at ${binPath}`);
