@@ -255,6 +255,15 @@ export const postProcessRequestSchema = z.object({
   regenerateSummary: z.boolean().default(false),
   /** Force diarization to re-run even if prior output exists (idempotent). */
   rediarize: z.boolean().default(false),
+  /**
+   * Two-tier transcription (PRD-2): run the HIGH-ACCURACY re-transcription pass
+   * before diarization — re-decode the recorded `mic.wav` + `system.wav` with a
+   * larger Whisper model (beam search, full-file language detection) and write
+   * `transcript.hifi.{jsonl,md}`. main sets this true on the full post-process
+   * after a meeting ends, and false for a summary-only regenerate. The sidecar
+   * skips gracefully when the audio was not persisted (no WAVs on disk).
+   */
+  reTranscribe: z.boolean().default(false),
 });
 export type PostProcessRequest = z.infer<typeof postProcessRequestSchema>;
 

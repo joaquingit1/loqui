@@ -162,6 +162,9 @@ describe("pipeline — stop -> audioFinalized -> postProcess request", () => {
       diarizationBackend: "auto",
       regenerateSummary: false,
       rediarize: false,
+      // PRD-2 two-tier: the full post-process re-transcribes for the accurate
+      // saved transcript.
+      reTranscribe: true,
     });
     expect((data as { providerConfig: { provider: string } }).providerConfig.provider).toBe("anthropic");
 
@@ -430,6 +433,9 @@ describe("pipeline — regenerate summary", () => {
       meetingId: "m1",
       regenerateSummary: true,
       rediarize: false,
+      // A summary-only regenerate must NOT re-transcribe (PRD-2): the transcript
+      // is untouched, only the summary is redone.
+      reTranscribe: false,
     });
     pipeline.dispose();
   });

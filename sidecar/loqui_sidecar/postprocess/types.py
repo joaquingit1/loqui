@@ -33,6 +33,7 @@ POSTPROCESS_DONE_EVENT = "postProcessDone"
 JOB_UPDATE_EVENT = "jobUpdate"
 
 #: JobUpdate ``kind`` values produced by this pipeline (mirror of @loqui/shared jobKind).
+JOB_KIND_TRANSCRIPTION = "transcription"
 JOB_KIND_DIARIZATION = "diarization"
 JOB_KIND_SUMMARY = "summary"
 

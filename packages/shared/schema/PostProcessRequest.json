@@ -72,6 +72,10 @@
         "rediarize": {
           "type": "boolean",
           "default": false
+        },
+        "reTranscribe": {
+          "type": "boolean",
+          "default": false
         }
       },
       "required": [

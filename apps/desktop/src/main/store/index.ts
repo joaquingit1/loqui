@@ -9,7 +9,7 @@
  * zod `meetingSchema`.
  */
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import {
   createMeetingInputSchema,
   diarizedTranscriptSchema,
@@ -39,6 +39,8 @@ import {
   dataRoot,
   meetingsDir,
   meetingDiarizedTranscriptJsonPath,
+  meetingHifiTranscriptJsonlPath,
+  meetingHifiTranscriptMdPath,
   meetingSummaryPath,
   meetingTranscriptPath,
 } from "./paths.js";
@@ -222,8 +224,19 @@ class FsMeetingStore implements MeetingStore {
 
   getTranscript(id: string, variant: TranscriptVariant = "live"): string {
     assertSafeId(id);
+    // Two-tier transcription (PRD-2): once the post-meeting high-accuracy pass
+    // has written transcript.hifi.{md,jsonl}, PREFER it — it is a better
+    // re-transcription of the same audio, in the SAME line/record format as the
+    // live files, so the renderer + chat get the accurate text transparently.
+    // The live files stay byte-identical (the "AI never edits the transcript"
+    // invariant); this is a read-time preference only.
+    const hifi =
+      variant === "structured"
+        ? meetingHifiTranscriptJsonlPath(id)
+        : meetingHifiTranscriptMdPath(id);
+    const path = existsSync(hifi) ? hifi : meetingTranscriptPath(id, variant);
     try {
-      return readFileSync(meetingTranscriptPath(id, variant), "utf8");
+      return readFileSync(path, "utf8");
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return "";
       throw err;

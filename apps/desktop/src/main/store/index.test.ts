@@ -513,3 +513,37 @@ describe("PRD-3 transcript indexing + library queries", () => {
     }
   });
 });
+
+describe("getTranscript — high-accuracy (hifi) precedence (PRD-2 two-tier)", () => {
+  it("returns the live transcript when no hi-fi pass exists", () => {
+    const m = store.createMeeting({ title: "M" });
+    writeFileSync(join(meetingDir(m.id), "transcript.live.md"), "[00:00:00] You said: live\n");
+    expect(store.getTranscript(m.id, "live")).toBe("[00:00:00] You said: live\n");
+  });
+
+  it("PREFERS transcript.hifi.md over transcript.live.md once re-transcription wrote it", () => {
+    const m = store.createMeeting({ title: "M" });
+    const dir = meetingDir(m.id);
+    writeFileSync(join(dir, "transcript.live.md"), "[00:00:00] You said: live\n");
+    writeFileSync(join(dir, "transcript.hifi.md"), "[00:00:00] You said: accurate\n");
+    // The live file stays byte-identical (the AI-never-edits invariant) — the
+    // store just prefers the better re-transcription at read time.
+    expect(readFileSync(join(dir, "transcript.live.md"), "utf8")).toBe(
+      "[00:00:00] You said: live\n",
+    );
+    expect(store.getTranscript(m.id, "live")).toBe("[00:00:00] You said: accurate\n");
+  });
+
+  it("PREFERS transcript.hifi.jsonl for the structured variant", () => {
+    const m = store.createMeeting({ title: "M" });
+    const dir = meetingDir(m.id);
+    writeFileSync(join(dir, "transcript.jsonl"), '{"segId":"s0","text":"live"}\n');
+    writeFileSync(join(dir, "transcript.hifi.jsonl"), '{"segId":"hifi-0","text":"accurate"}\n');
+    expect(store.getTranscript(m.id, "structured")).toBe('{"segId":"hifi-0","text":"accurate"}\n');
+  });
+
+  it("returns '' when neither the hi-fi nor the live transcript exists", () => {
+    const m = store.createMeeting({ title: "M" });
+    expect(store.getTranscript(m.id, "live")).toBe("");
+  });
+});

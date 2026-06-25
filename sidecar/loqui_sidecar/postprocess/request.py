@@ -23,7 +23,9 @@ class PostProcessRequest:
 
     ``regenerate_summary`` runs ONLY the summary step (skipping diarization) for
     an already-diarized meeting; ``rediarize`` forces diarization to re-run even
-    if prior diarized output exists (idempotent replace).
+    if prior diarized output exists (idempotent replace). ``re_transcribe`` runs
+    the HIGH-ACCURACY re-transcription pass (PRD-2 two-tier) before diarization —
+    re-decode the recorded WAVs with a larger model into ``transcript.hifi.*``.
     """
 
     meeting_id: str
@@ -33,6 +35,7 @@ class PostProcessRequest:
     diarization_backend: str = "auto"
     regenerate_summary: bool = False
     rediarize: bool = False
+    re_transcribe: bool = False
 
     @classmethod
     def from_wire(cls, obj: dict) -> "PostProcessRequest":
@@ -47,4 +50,5 @@ class PostProcessRequest:
             diarization_backend=backend,
             regenerate_summary=bool(obj.get("regenerateSummary", False)),
             rediarize=bool(obj.get("rediarize", False)),
+            re_transcribe=bool(obj.get("reTranscribe", False)),
         )

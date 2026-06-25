@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
@@ -50,11 +51,13 @@ from .align import align, distinct_system_speakers
 from .fake import FakeDiarizer, fake_diarizer_enabled
 from .pyannote_backend import PyannoteDiarizer
 from .request import PostProcessRequest
+from .retranscribe import re_transcribe_meeting
 from .sherpa_backend import SherpaOnnxDiarizer
 from .summary import summarize
 from .types import (
     JOB_KIND_DIARIZATION,
     JOB_KIND_SUMMARY,
+    JOB_KIND_TRANSCRIPTION,
     JOB_UPDATE_EVENT,
     POSTPROCESS_DONE_EVENT,
     DiarizationBackend,
@@ -63,6 +66,7 @@ from .types import (
     PostProcessEmit,
     TranscriptRecord,
 )
+from .writers import hifi_jsonl_path
 
 logger = logging.getLogger("loqui_sidecar.postprocess.runner")
 
@@ -105,12 +109,16 @@ def default_diarizer_factory(
 
 
 def _read_structured_transcript(meeting_id: str) -> list[TranscriptRecord]:
-    """Read + parse ``transcript.jsonl`` (READ-ONLY) into ordered records.
+    """Read + parse the structured transcript (READ-ONLY) into ordered records.
 
-    Returns ``[]`` when the file is absent or empty. Skips malformed lines so a
-    single bad line never aborts alignment.
+    PREFERS the high-accuracy ``transcript.hifi.jsonl`` when a re-transcription
+    pass produced one (so diarization aligns to + the index uses the better
+    text); otherwise falls back to the live ``transcript.jsonl``. Returns ``[]``
+    when neither exists or is empty. Skips malformed lines so a single bad line
+    never aborts alignment.
     """
-    path = meeting_transcript_path(meeting_id, "structured")
+    hifi = hifi_jsonl_path(meeting_id)
+    path = hifi if hifi.exists() else meeting_transcript_path(meeting_id, "structured")
     try:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -171,6 +179,42 @@ def run_postprocess(
     summary_model = ""
     index_parts: list[str] = []
     notes: list[str] = []
+
+    # --- 0) HIGH-ACCURACY RE-TRANSCRIPTION (PRD-2 two-tier) --------------------
+    # Runs BEFORE we read the structured transcript so diarization + the summary
+    # + the search index all consume the better text. A larger model re-decodes
+    # the recorded WAVs into transcript.hifi.{jsonl,md}; on skip/failure the live
+    # transcript stands. Skipped for a summary-only regenerate.
+    if request.re_transcribe and not request.regenerate_summary:
+        rt_id = f"{meeting_id}:transcription"
+        emit(
+            JOB_UPDATE_EVENT,
+            {"jobId": rt_id, "kind": JOB_KIND_TRANSCRIPTION, "state": "running", "progress": 0.0},
+        )
+        rt = re_transcribe_meeting(
+            meeting_id,
+            language=os.environ.get("LOQUI_TRANSCRIPTION_LANGUAGE") or None,
+        )
+        if rt.note:
+            notes.append(rt.note)
+        if rt.failed:
+            emit(
+                JOB_UPDATE_EVENT,
+                {
+                    "jobId": rt_id,
+                    "kind": JOB_KIND_TRANSCRIPTION,
+                    "state": "error",
+                    "progress": 1.0,
+                    "error": rt.note or "re-transcription failed",
+                },
+            )
+        else:
+            # produced=True (wrote hi-fi) or a benign skip (no audio / no speech):
+            # the JOB completed either way; the outcome rides on the note.
+            emit(
+                JOB_UPDATE_EVENT,
+                {"jobId": rt_id, "kind": JOB_KIND_TRANSCRIPTION, "state": "done", "progress": 1.0},
+            )
 
     segments = _read_structured_transcript(meeting_id)
 

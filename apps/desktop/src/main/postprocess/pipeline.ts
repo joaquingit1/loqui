@@ -138,7 +138,7 @@ export function createPostProcessPipeline(
   /** Build the `postProcess` request payload, injecting the transient secrets. */
   function buildRequest(
     meetingId: string,
-    opts: { regenerateSummary: boolean; rediarize: boolean },
+    opts: { regenerateSummary: boolean; rediarize: boolean; reTranscribe?: boolean },
   ): PostProcessRequest {
     const config = providerKeys.getProviderSettings();
     // The summary reuses the chat provider; only anthropic needs a BYOK key.
@@ -167,6 +167,10 @@ export function createPostProcessPipeline(
       diarizationBackend,
       regenerateSummary: opts.regenerateSummary,
       rediarize: opts.rediarize,
+      // Two-tier transcription (PRD-2): the full post-process re-transcribes the
+      // recorded audio with a larger model for the accurate SAVED transcript;
+      // a summary-only regenerate leaves the transcript untouched.
+      reTranscribe: opts.reTranscribe ?? false,
     });
   }
 
@@ -175,7 +179,11 @@ export function createPostProcessPipeline(
     if (dispatched.has(meetingId)) return;
     dispatched.add(meetingId);
     awaitingFinalize.delete(meetingId);
-    const req = buildRequest(meetingId, { regenerateSummary: false, rediarize: false });
+    const req = buildRequest(meetingId, {
+      regenerateSummary: false,
+      rediarize: false,
+      reTranscribe: true,
+    });
     supervisor.sendControlNotification(POSTPROCESS_REQUEST_EVENT, req);
   }
 

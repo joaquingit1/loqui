@@ -259,6 +259,47 @@ class FasterWhisperBackend:
                     )
         return tokens
 
+    def transcribe_segments(
+        self,
+        pcm: bytes,
+        *,
+        language: Optional[str] = None,
+        beam_size: Optional[int] = None,
+    ) -> "tuple[list[tuple[float, float, str]], Optional[str]]":
+        """Batch-decode a WHOLE recording to sentence-level ``(start, end, text)``.
+
+        Unlike the streaming :meth:`transcribe` (greedy, word tokens, no prior
+        context — tuned for LocalAgreement-2 repeatability), this is the
+        high-accuracy OFFLINE pass for the saved transcript: it feeds the entire
+        audio at once and lets faster-whisper segment it, with beam search,
+        ``condition_on_previous_text=True`` (cross-segment coherence) and its
+        Silero VAD. ``language=None`` auto-detects ONCE over the full audio (far
+        more reliable than the per-window live detection). Returns the segments
+        plus the language faster-whisper used. Does NOT mutate/retain ``pcm``.
+        """
+        if not self._loaded:
+            self.load()
+        audio = _pcm_to_float32(pcm)
+        if audio.size == 0:
+            return [], language
+        lang = language if language is not None else self._language
+        segments, info = self._model.transcribe(
+            audio,
+            language=lang,
+            beam_size=beam_size if beam_size is not None else max(self._beam_size, 5),
+            temperature=0.0,
+            word_timestamps=False,
+            vad_filter=self._vad_filter,
+            condition_on_previous_text=True,
+        )
+        out: list[tuple[float, float, str]] = []
+        for seg in segments:
+            text = (seg.text or "").strip()
+            if text:
+                out.append((float(seg.start), float(seg.end), text))
+        detected = lang or getattr(info, "language", None)
+        return out, detected
+
     # -- /health surface ------------------------------------------------------
 
     @property

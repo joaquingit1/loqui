@@ -71,6 +71,9 @@ export function MeetingView({
   // state and refetches on completion.
   const [summaryReload, setSummaryReload] = useState(0);
   const [diarizedReload, setDiarizedReload] = useState(0);
+  // PRD-2 two-tier: when the high-accuracy re-transcription job finishes, the
+  // store now serves the accurate transcript.hifi text, so refetch it.
+  const [transcriptReload, setTranscriptReload] = useState(0);
   const [regenerating, setRegenerating] = useState(false);
   const { jobs } = useJobProgress({
     onEvent: (event) => {
@@ -80,6 +83,9 @@ export function MeetingView({
       }
       if (event.kind === "diarization" && (event.state === "done" || event.state === "error")) {
         setDiarizedReload((n) => n + 1);
+      }
+      if (event.kind === "transcription" && event.state === "done") {
+        setTranscriptReload((n) => n + 1);
       }
     },
   });
@@ -113,7 +119,7 @@ export function MeetingView({
     return () => {
       cancelled = true;
     };
-  }, [library, meeting.id]);
+  }, [library, meeting.id, transcriptReload]);
 
   // Keep the rename draft in sync when the underlying meeting changes (and we're not mid-edit).
   useEffect(() => {

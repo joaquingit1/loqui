@@ -94,6 +94,21 @@ export const MEETING_DIARIZED_TRANSCRIPT_JSON_FILE = "transcript.diarized.json" 
 export const MEETING_DIARIZED_TRANSCRIPT_MD_FILE = "transcript.diarized.md" as const;
 
 /**
+ * Per-meeting HIGH-ACCURACY transcript files (PRD-2 two-tier transcription).
+ * After a meeting ends, the sidecar re-transcribes the recorded `mic.wav` +
+ * `system.wav` with a larger Whisper model (beam search, full-file language
+ * detection) and writes these DERIVED files. `transcript.hifi.md` mirrors the
+ * live `.md` line format (`[hh:mm:ss] You/They said: …`) and
+ * `transcript.hifi.jsonl` mirrors {@link MEETING_TRANSCRIPT_FILE}. They are a
+ * BETTER re-transcription of the same audio — NOT an AI edit. The live files
+ * ({@link MEETING_LIVE_TRANSCRIPT_FILE} / {@link MEETING_TRANSCRIPT_FILE}) stay
+ * byte-identical; the store's `getTranscript` PREFERS these when present, and
+ * diarization aligns to `transcript.hifi.jsonl` over the live JSONL.
+ */
+export const MEETING_HIFI_TRANSCRIPT_MD_FILE = "transcript.hifi.md" as const;
+export const MEETING_HIFI_TRANSCRIPT_JSONL_FILE = "transcript.hifi.jsonl" as const;
+
+/**
  * Per-meeting raw audio subdirectory: `<meetingDir>/audio/`.
  */
 export const MEETING_AUDIO_DIR_NAME = "audio" as const;
