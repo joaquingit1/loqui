@@ -59,6 +59,9 @@ import type {
   StopMeetingParams,
   Summary,
   TranscriptSegment,
+  UpdaterSettings,
+  UpdaterState,
+  UpdateUpdaterSettings,
 } from "@loqui/shared";
 import { IPC } from "../shared/ipc.js";
 
@@ -98,6 +101,35 @@ export interface LoquiApi {
   export: LoquiExportApi;
   /** Capture / privacy controls bridge (PRD-13). */
   privacy: LoquiPrivacyApi;
+  /** Packaging + custom GitHub auto-updater bridge (PRD-8). */
+  updater: LoquiUpdaterApi;
+}
+
+/**
+ * Updater surface (PRD-8). Wraps the updater IPC channels so the Settings panel +
+ * the "Update ready — restart to apply" prompt never reference channel names
+ * directly. The updater fetches a public GitHub `version.json`, semver-compares,
+ * and (when newer) downloads + sha256-VERIFIES + stages the new bundle; nothing
+ * here touches the installed app until `quitAndInstall`. Integrity (invariant #2):
+ * downloads only public release assets, verified before any swap — no Loqui
+ * server. `onState` returns an unsubscribe fn.
+ */
+export interface LoquiUpdaterApi {
+  /** The current updater runtime state (version / phase / available / progress). */
+  getState(): Promise<UpdaterState>;
+  /** Read the persisted updater settings (auto-check, interval, auto-download). */
+  getSettings(): Promise<UpdaterSettings>;
+  /** Patch the updater settings; applies live (re-arms the check timer). */
+  setSettings(patch: UpdateUpdaterSettings): Promise<UpdaterSettings>;
+  /** Check GitHub for an update NOW; resolves with the resulting state. */
+  checkNow(): Promise<UpdaterState>;
+  /** Apply a staged, verified update — quit + relaunch into the new version. */
+  quitAndInstall(): Promise<void>;
+  /**
+   * Subscribe to updater state changes (push). Fires on check start/finish,
+   * download progress, ready, and errors. Returns an unsubscribe fn.
+   */
+  onState(cb: (state: UpdaterState) => void): () => void;
 }
 
 /**
@@ -521,6 +553,20 @@ const privacy: LoquiPrivacyApi = {
     ipcRenderer.invoke(IPC.getCaptureCapability),
 };
 
+const updater: LoquiUpdaterApi = {
+  getState: (): Promise<UpdaterState> => ipcRenderer.invoke(IPC.updaterGetState),
+  getSettings: (): Promise<UpdaterSettings> => ipcRenderer.invoke(IPC.updaterGetSettings),
+  setSettings: (patch: UpdateUpdaterSettings): Promise<UpdaterSettings> =>
+    ipcRenderer.invoke(IPC.updaterSetSettings, patch),
+  checkNow: (): Promise<UpdaterState> => ipcRenderer.invoke(IPC.updaterCheckNow),
+  quitAndInstall: (): Promise<void> => ipcRenderer.invoke(IPC.updaterQuitAndInstall),
+  onState: (cb: (state: UpdaterState) => void): (() => void) => {
+    const listener = (_e: unknown, state: UpdaterState): void => cb(state);
+    ipcRenderer.on(IPC.updaterStateChanged, listener);
+    return () => ipcRenderer.removeListener(IPC.updaterStateChanged, listener);
+  },
+};
+
 const api: LoquiApi = {
   ping: () => ipcRenderer.invoke(IPC.ping),
   getSidecarHealth: () => ipcRenderer.invoke(IPC.getSidecarHealth),
@@ -544,6 +590,7 @@ const api: LoquiApi = {
   autoRecord,
   export: exportApi,
   privacy,
+  updater,
 };
 
 contextBridge.exposeInMainWorld("loqui", api);

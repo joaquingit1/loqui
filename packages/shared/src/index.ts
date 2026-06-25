@@ -24,3 +24,4 @@ export * from "./autorecord.js";
 export * from "./importfile.js";
 export * from "./export.js";
 export * from "./privacy.js";
+export * from "./updater.js";

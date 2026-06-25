@@ -72,6 +72,13 @@ import {
   updateCaptureSettingsSchema,
   captureCapabilitySchema,
 } from "../src/privacy.js";
+import {
+  updateAssetSchema,
+  updateManifestSchema,
+  updaterSettingsSchema,
+  updateUpdaterSettingsSchema,
+  updaterStateSchema,
+} from "../src/updater.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, "..", "schema");
@@ -148,6 +155,16 @@ const schemas: Record<string, ZodTypeAny> = {
   CaptureSettings: captureSettingsSchema,
   UpdateCaptureSettings: updateCaptureSettingsSchema,
   CaptureCapability: captureCapabilitySchema,
+  // PRD-8 packaging + self-updater. UpdateManifest is the `version.json` release
+  // feed the app fetches + sha256-verifies; UpdaterSettings is the persisted
+  // policy (auto-check ON by default); UpdaterState is the runtime status pushed
+  // to the renderer + tray. TS-only (no sidecar involvement); emitted for full
+  // cross-process contract visibility.
+  UpdateAsset: updateAssetSchema,
+  UpdateManifest: updateManifestSchema,
+  UpdaterSettings: updaterSettingsSchema,
+  UpdateUpdaterSettings: updateUpdaterSettingsSchema,
+  UpdaterState: updaterStateSchema,
 };
 
 rmSync(outDir, { recursive: true, force: true });

@@ -12,6 +12,8 @@
     "test": "vitest run --passWithNoTests",
     "test:e2e": "playwright test",
     "lint": "eslint . --max-warnings 0",
+    "build:runtime": "node scripts/build-runtime.mjs",
+    "package": "electron-vite build && electron-builder",
     "postinstall": "electron-rebuild -f -w better-sqlite3 || true"
   },
   "dependencies": {
@@ -36,6 +38,7 @@
     "@types/ws": "^8.5.13",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
     "jsdom": "^25.0.1",
     "typescript": "^5.6.0",

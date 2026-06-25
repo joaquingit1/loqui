@@ -1,0 +1,71 @@
+{
+  "$ref": "#/definitions/UpdaterState",
+  "definitions": {
+    "UpdaterState": {
+      "type": "object",
+      "properties": {
+        "currentVersion": {
+          "type": "string",
+          "default": "0.0.0"
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "idle",
+            "checking",
+            "downloading",
+            "ready",
+            "up-to-date",
+            "error"
+          ],
+          "default": "idle"
+        },
+        "availableVersion": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "notes": {
+          "type": "string",
+          "default": ""
+        },
+        "lastCheckedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "downloadProgress": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

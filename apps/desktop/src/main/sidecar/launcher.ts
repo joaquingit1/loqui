@@ -62,10 +62,19 @@ function repoRoot(): string {
 }
 
 /**
- * Resolve the launch spec. In dev, run the sidecar via uv against the
- * sibling `sidecar/` project. Packaged resolution is a TODO (PRD-8).
+ * Resolve the launch spec.
+ *
+ *   - An explicit `command` override (tests) wins.
+ *   - A packaged app passes `bundledBinPath` (resolved by the caller via
+ *     {@link import("../updater/paths.js").AppPaths.bundledSidecarBin} from
+ *     `process.resourcesPath/sidecar/loqui-sidecar`); we run that binary directly
+ *     — no `uv`, no Python toolchain on the user's machine (PRD-8 packaging).
+ *   - Otherwise (dev), run the sidecar via `uv` against the sibling `sidecar/`
+ *     project.
  */
-export function resolveLaunchSpec(override?: Partial<LaunchSpec>): LaunchSpec {
+export function resolveLaunchSpec(
+  override?: Partial<LaunchSpec> & { bundledBinPath?: string | null },
+): LaunchSpec {
   if (override?.command) {
     return {
       command: override.command,
@@ -74,9 +83,16 @@ export function resolveLaunchSpec(override?: Partial<LaunchSpec>): LaunchSpec {
     };
   }
 
-  // TODO(PRD-8, packaging): when running from a packaged app, resolve the
-  // bundled sidecar binary (e.g. process.resourcesPath/sidecar/loqui-sidecar)
-  // instead of invoking uv. Detected via app.isPackaged in the caller.
+  // Packaged: run the bundled sidecar binary directly (no uv/Python on the host).
+  if (override?.bundledBinPath) {
+    return {
+      command: override.bundledBinPath,
+      args: override.args ?? [],
+      cwd: override.cwd ?? dirname(override.bundledBinPath),
+    };
+  }
+
+  // Dev: run the sidecar via uv against the sibling `sidecar/` project.
   const root = repoRoot();
   const sidecarProject = join(root, "sidecar");
   return {

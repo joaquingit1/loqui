@@ -1,0 +1,140 @@
+# PRD-8 — release automation: on a `v*` tag, build per-platform update-channel
+# artifacts (unsigned), compute sha256s, generate `version.json`, and publish a
+# GitHub Release with all assets.
+#
+# The custom self-updater (apps/desktop/src/main/updater) fetches the latest
+# release's `version.json`, semver-compares, downloads the platform asset, and
+# sha256-verifies it before swapping — so integrity rides entirely on the
+# checksums published here (no code-signing cert required; see SIGNING.md to add
+# one later with NO updater changes).
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # create the GitHub Release + upload assets
+
+jobs:
+  build:
+    name: build / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable pnpm
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync sidecar (Python) dependencies
+        working-directory: sidecar
+        run: uv sync
+
+      # @loqui/shared emits the type decls + JSON Schemas every workspace builds
+      # against — build it first.
+      - name: Build shared contract
+        run: pnpm --filter @loqui/shared build
+
+      - name: Build audio package
+        run: pnpm --filter @loqui/audio build
+
+      # Build the standalone MCP server (its dist/bin is staged into the bundle).
+      - name: Build MCP server
+        run: pnpm --filter @loqui/mcp-server build
+
+      # electron-vite -> out/{main,preload,renderer}
+      - name: Build desktop app
+        run: pnpm --filter @loqui/desktop build
+
+      # Stage the bundled Python sidecar + MCP runtime under
+      # apps/desktop/build/runtime/{sidecar,mcp} (PyInstaller onedir for the
+      # sidecar; the built MCP bin for mcp). electron-builder picks these up via
+      # extraResources (see electron-builder.yml).
+      - name: Stage bundled runtime (sidecar + MCP)
+        run: pnpm --filter @loqui/desktop run build:runtime
+
+      # Package the UNSIGNED update-channel artifacts (+ optional DMG/NSIS).
+      # No signing env is set, so electron-builder produces unsigned output.
+      - name: Package (electron-builder, unsigned)
+        working-directory: apps/desktop
+        run: pnpm exec electron-builder --publish never
+        env:
+          # Belt-and-suspenders: ensure no accidental signing/notarization.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Upload platform artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-${{ matrix.os }}
+          path: apps/desktop/dist-app/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Resolve version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Generate the `version.json` manifest (sha256 + size + URL per platform).
+      - name: Generate version.json
+        run: |
+          node scripts/gen-version-json.mjs \
+            --version "${{ steps.ver.outputs.version }}" \
+            --repo "${{ github.repository }}" \
+            --artifacts-dir dist \
+            --out dist/version.json \
+            --notes "Release ${{ github.ref_name }}"
+
+      - name: Verify version.json platform assets
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const manifest = JSON.parse(fs.readFileSync("dist/version.json", "utf8"));
+          const expected = ["darwin-arm64", "darwin-x64", "win32-x64"];
+          const missing = expected.filter((key) => !manifest.platforms?.[key]);
+          if (missing.length > 0) {
+            console.error(`version.json missing platform asset(s): ${missing.join(", ")}`);
+            process.exit(1);
+          }
+          NODE
+
+      - name: Create GitHub Release with all assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/*.zip
+            dist/version.json

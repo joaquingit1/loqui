@@ -136,6 +136,16 @@ function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
         reason: "",
       })),
     },
+    // PRD-8 updater bridge: a no-op fake; the App under test does not exercise it
+    // directly (Settings + the restart prompt arrive with the UI rehaul).
+    updater: {
+      getState: vi.fn(async () => ({}) as never),
+      getSettings: vi.fn(async () => ({}) as never),
+      setSettings: vi.fn(async () => ({}) as never),
+      checkNow: vi.fn(async () => ({}) as never),
+      quitAndInstall: vi.fn(async () => {}),
+      onState: () => () => {},
+    },
     ...overrides,
   };
   return { api, emitStatus: (s) => cb?.(s) };

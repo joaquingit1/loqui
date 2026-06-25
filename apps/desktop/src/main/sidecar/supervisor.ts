@@ -39,6 +39,13 @@ export interface SidecarSupervisorOptions {
   args?: string[];
   cwd?: string;
   /**
+   * Absolute path to the BUNDLED sidecar binary in a packaged app (resolved by
+   * the bootstrap via {@link import("../updater/paths.js").AppPaths.bundledSidecarBin}).
+   * When set and no `command` override is given, the launcher runs this binary
+   * directly instead of `uv run` (PRD-8 packaging). Null/undefined => dev path.
+   */
+  bundledBinPath?: string | null;
+  /**
    * The data root both processes must agree on. Passed to the spawned sidecar
    * as the {@link DATA_DIR_ENV} (LOQUI_DATA_DIR) env var so the sidecar writes
    * its WAVs into the SAME `<dataRoot>/meetings/<id>/` dir the main process owns
@@ -139,6 +146,7 @@ export class SidecarSupervisor {
       command: opts.command,
       args: opts.args,
       cwd: opts.cwd,
+      bundledBinPath: opts.bundledBinPath,
     });
     this.spawnFn = opts.spawn ?? defaultSpawn;
     this.connectFn =

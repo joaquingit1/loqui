@@ -1,0 +1,85 @@
+# PRD-8 — electron-builder packaging config.
+#
+# Produces, per platform:
+#   - the UPDATE-CHANNEL artifact the self-updater consumes:
+#       macOS   -> a zipped `.app` (per-arch: arm64 + x64)
+#       Windows -> a portable zip
+#     (a zip/folder self-replaces far more easily than a DMG/NSIS — see PRD-8).
+#   - an OPTIONAL first-time human-download installer (DMG on macOS, NSIS on
+#     Windows). The updater never touches these; they're for the initial install.
+#
+# The Python sidecar + the MCP server are bundled as `extraResources` (see the
+# build script: scripts/build-runtime.* stages them under build/runtime/ first),
+# so a packaged app needs NO uv/Python/node on the user's machine. The main
+# process resolves these via process.resourcesPath (see src/main/updater/paths.ts).
+#
+# UNSIGNED-FIRST: no `identity` / `certificateFile` here, so the build is unsigned
+# (works today, with a one-time first-launch approval). Adding a Developer ID /
+# Windows cert later requires NO updater code change — see SIGNING.md.
+
+appId: app.loqui.desktop
+productName: Loqui
+copyright: Copyright © 2026 Loqui contributors
+
+# electron-vite emits the app into out/{main,preload,renderer}; package those.
+directories:
+  output: dist-app
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+
+# The bundled runtime (sidecar + MCP) + the update helper scripts. The build
+# script stages the PyInstaller/onedir trees under build/runtime/{sidecar,mcp}
+# before electron-builder runs.
+extraResources:
+  - from: ../../build-helpers
+    to: build-helpers
+    filter:
+      - update-helper.ps1
+      - update-helper.sh
+  - from: build/runtime/sidecar
+    to: sidecar
+    filter:
+      - "**/*"
+  - from: build/runtime/mcp
+    to: mcp
+    filter:
+      - "**/*"
+
+# macOS: per-arch zipped .app (the update channel) + an optional DMG.
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: zip
+      arch:
+        - arm64
+        - x64
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  # Unsigned: do not auto-discover an identity (keep the build cert-free).
+  identity: null
+  # Harden the runtime later when notarizing; harmless unsigned.
+  hardenedRuntime: false
+
+# Windows: a portable zip (the update channel) + an optional NSIS installer.
+win:
+  target:
+    - target: zip
+      arch:
+        - x64
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+
+# Artifact names embed the version + arch so the release `version.json` URLs are
+# stable + predictable (the generator composes them from the tag + these names).
+artifactName: ${productName}-${version}-${arch}-${os}.${ext}

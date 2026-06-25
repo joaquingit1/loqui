@@ -25,10 +25,14 @@ import {
   updateCaptureSettingsSchema,
   autoRecordSettingsSchema,
   updateAutoRecordSettingsSchema,
+  updaterSettingsSchema,
+  updateUpdaterSettingsSchema,
   type CaptureSettings,
   type UpdateCaptureSettings,
   type AutoRecordSettings,
   type UpdateAutoRecordSettings,
+  type UpdaterSettings,
+  type UpdateUpdaterSettings,
 } from "@loqui/shared";
 import { dataRoot } from "../store/paths.js";
 
@@ -39,6 +43,8 @@ interface AppSettingsFile {
   capture?: unknown;
   /** PRD-11 auto-record + tray policy (additive; absent => all-defaults = off). */
   autoRecord?: unknown;
+  /** PRD-8 updater policy (additive; absent => all-defaults = auto-check on). */
+  updater?: unknown;
 }
 
 function appSettingsPath(): string {
@@ -92,6 +98,30 @@ export class SettingsStore {
     const merged = autoRecordSettingsSchema.parse({ ...current, ...clean });
     const file = this.#readFile();
     file.autoRecord = merged;
+    this.#writeFile(file);
+    return merged;
+  }
+
+  /**
+   * Read the persisted updater settings (PRD-8; validated + defaulted). An older
+   * `app-settings.json` (or a missing `updater` key) parses forward to the
+   * all-defaults value (auto-check ON, ~30 min interval, auto-download ON).
+   */
+  getUpdaterSettings(): UpdaterSettings {
+    const file = this.#readFile();
+    return updaterSettingsSchema.parse(file.updater ?? {});
+  }
+
+  /**
+   * Patch the updater settings (any subset). Merges over the current settings,
+   * re-validates, persists, and returns the stored value.
+   */
+  setUpdaterSettings(patch: UpdateUpdaterSettings): UpdaterSettings {
+    const clean = updateUpdaterSettingsSchema.parse(patch ?? {});
+    const current = this.getUpdaterSettings();
+    const merged = updaterSettingsSchema.parse({ ...current, ...clean });
+    const file = this.#readFile();
+    file.updater = merged;
     this.#writeFile(file);
     return merged;
   }

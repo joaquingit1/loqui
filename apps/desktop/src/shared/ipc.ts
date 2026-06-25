@@ -365,6 +365,49 @@ export const IPC = {
    * detection, start/stop, the silence countdown, and settings changes.
    */
   autoRecordStateChanged: "loqui:autorecord:stateChanged",
+
+  // --- Packaging + custom GitHub auto-updater (PRD-8) ---
+  /**
+   * invoke: the current updater runtime state (->
+   * {@link import("@loqui/shared").UpdaterState}): current version, phase, the
+   * available version + notes, last-checked time, download progress, and any
+   * error. READ-ONLY status.
+   */
+  updaterGetState: "loqui:updater:getState",
+  /**
+   * invoke: read the persisted updater settings (->
+   * {@link import("@loqui/shared").UpdaterSettings}): auto-check (default on),
+   * the interval, and auto-download. Defaults load forward.
+   */
+  updaterGetSettings: "loqui:updater:getSettings",
+  /**
+   * invoke: patch the updater settings (payload
+   * {@link import("@loqui/shared").UpdateUpdaterSettings}; ->
+   * {@link import("@loqui/shared").UpdaterSettings}). Applies live: toggling
+   * `autoCheck` starts/stops the interval timer.
+   */
+  updaterSetSettings: "loqui:updater:setSettings",
+  /**
+   * invoke: check GitHub for an update NOW (on demand). Resolves with the
+   * resulting {@link import("@loqui/shared").UpdaterState}. A no-update result is
+   * a no-op; offline / rate-limit / partial-download fail safely (the installed
+   * app is intact) and surface via the `error` field + the state push.
+   */
+  updaterCheckNow: "loqui:updater:checkNow",
+  /**
+   * invoke: apply a staged, verified update — quit the app and hand off to the
+   * detached OS helper that swaps the bundle + relaunches the new version (->
+   * void). No-op unless the phase is `ready`.
+   */
+  updaterQuitAndInstall: "loqui:updater:quitAndInstall",
+  /**
+   * push (main -> renderer): the updater runtime state changed (payload
+   * {@link import("@loqui/shared").UpdaterState}). The Settings panel + the
+   * "Update ready — restart to apply" prompt subscribe via
+   * `window.loqui.updater.onState`. Fires on check start/finish, download
+   * progress, ready, and errors.
+   */
+  updaterStateChanged: "loqui:updater:stateChanged",
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

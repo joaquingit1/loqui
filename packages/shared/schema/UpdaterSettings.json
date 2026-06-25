@@ -1,0 +1,25 @@
+{
+  "$ref": "#/definitions/UpdaterSettings",
+  "definitions": {
+    "UpdaterSettings": {
+      "type": "object",
+      "properties": {
+        "autoCheck": {
+          "type": "boolean",
+          "default": true
+        },
+        "intervalMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "default": 1800000
+        },
+        "autoDownload": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

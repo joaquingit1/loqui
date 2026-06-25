@@ -105,6 +105,22 @@ import {
   type AutoRecordEngine,
   type TrayController,
 } from "./autorecord/index.js";
+// PRD-8 packaging + custom GitHub auto-updater. The AppPaths resolver translates
+// dev vs packaged layout (bundled sidecar/MCP binaries, the OS helper scripts,
+// the install/relaunch/staging paths). The UpdaterManager checks the public
+// GitHub `version.json` on launch + on an interval, semver-compares, and (when
+// newer) downloads + sha256-VERIFIES + stages the new bundle via Node https
+// (NOT a browser — the no-quarantine detail), then on an explicit restart spawns
+// a DETACHED OS helper that swaps the bundle + relaunches. Integrity (invariant
+// #2): only public release assets, verified before any swap — no Loqui server;
+// a mismatch / offline / partial download fails safely with the app intact.
+import {
+  AppPaths,
+  UpdaterManager,
+  makeGithubManifestFetcher,
+  makeUpdaterStatePush,
+  registerUpdaterIpc,
+} from "./updater/index.js";
 
 const __dirname = join(fileURLToPath(import.meta.url), "..");
 
@@ -237,6 +253,11 @@ let autoRecordEngine: AutoRecordEngine | null = null;
 let disposeAutoRecordIpc: (() => void) | null = null;
 let tray: TrayController | null = null;
 let disposeTraySync: (() => void) | null = null;
+// PRD-8 updater seam: the manager (periodic check + download/verify/stage) and
+// the disposer for its IPC bridge. The manager is started after the window so
+// the first-launch check can push state to a live renderer.
+let updaterManager: UpdaterManager | null = null;
+let disposeUpdaterIpc: (() => void) | null = null;
 
 function applyRunInBackground(enabled: boolean): void {
   if (enabled) app.dock?.hide();
@@ -251,8 +272,19 @@ function applyRunInBackground(enabled: boolean): void {
 export async function bootstrap(): Promise<void> {
   await app.whenReady();
 
+  // PRD-8: resolve dev-vs-packaged paths once (bundled sidecar/MCP binaries, the
+  // OS helper scripts, install/relaunch/staging). In dev `isPackaged` is false so
+  // the bundled-bin resolvers return null and the supervisor/MCP fall back to the
+  // uv/source path; in a packaged app they resolve `process.resourcesPath/...`.
+  const appPaths = new AppPaths(app, {
+    platform: process.platform,
+    resourcesPath: process.resourcesPath,
+    execPath: process.execPath,
+  });
+
   store = openStore();
-  supervisor = new SidecarSupervisor();
+  // Packaged: run the bundled sidecar binary directly (no uv/Python on the host).
+  supervisor = new SidecarSupervisor({ bundledBinPath: appPaths.bundledSidecarBin() });
 
   // PRD-13 capture/privacy + export settings (non-secret JSON). Read BEFORE the
   // window is created so the content-protection toggle (ON by default) is applied
@@ -407,6 +439,9 @@ export async function bootstrap(): Promise<void> {
   // status. Status changes are pushed to the renderer for the Settings indicator.
   mcpManager = new McpServerManager({
     onStatusChange: makeMcpStatusPush(() => mainWindow),
+    // Packaged: spawn the bundled native `loqui-mcp` binary; dev => undefined so
+    // the lifecycle resolves the built JS bin / PATH (PRD-8 packaging).
+    binPath: appPaths.bundledMcpBin() ?? undefined,
   });
   disposeMcpIpc = registerMcpIpc({ manager: mcpManager });
 
@@ -603,6 +638,42 @@ export async function bootstrap(): Promise<void> {
   }
   autoRecordEngine.start();
 
+  // PRD-8 custom GitHub auto-updater. Fetches the latest release's public
+  // `version.json`, semver-compares against the running version, and (when newer
+  // + auto-download on) downloads + sha256-VERIFIES + stages the new bundle via
+  // Node https. quitAndInstall spawns the DETACHED OS helper (swap + relaunch)
+  // and quits. Auto-check is ON by default (configurable interval ~30 min). Every
+  // path is best-effort + SAFE: offline / rate-limit / partial download / sha256
+  // mismatch leave the installed app untouched and surface on the state. The
+  // staged update is only applied on an explicit restart.
+  updaterManager = new UpdaterManager({
+    settings: settingsStore!,
+    currentVersion: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    fetchManifest: makeGithubManifestFetcher(),
+    stagingDir: appPaths.stagingDir(),
+    helperInput: () => ({
+      platform: process.platform,
+      helperScript: appPaths.helperScript(),
+      parentPid: process.pid,
+      installPath: appPaths.installPath(),
+      relaunchTarget: appPaths.relaunchTarget(),
+    }),
+    quit: () => app.quit(),
+    onStateChange: makeUpdaterStatePush(() => mainWindow),
+  });
+  disposeUpdaterIpc = registerUpdaterIpc({
+    manager: updaterManager,
+    getWindow: () => mainWindow,
+  });
+  // Start the check loop (initial launch check + interval). Never blocks boot.
+  try {
+    updaterManager.start();
+  } catch (err) {
+    console.error("[loqui] updater failed to start:", err);
+  }
+
   // Start the sidecar in the background; failure surfaces via status push and
   // must not block window creation.
   void supervisor.start().catch((err: unknown) => {
@@ -679,6 +750,13 @@ async function shutdown(): Promise<void> {
   tray = null;
   autoRecordEngine?.dispose();
   autoRecordEngine = null;
+  // PRD-8 updater teardown: dispose the IPC bridge + stop the check timer. A
+  // pending download is abandoned (it only ever wrote to the staging dir; the
+  // installed app is untouched).
+  disposeUpdaterIpc?.();
+  disposeUpdaterIpc = null;
+  updaterManager?.dispose();
+  updaterManager = null;
   // PRD-6 speaker-names teardown (unhooks the correlation pass + IPC/status push
   // and stops the loopback extension WS server once the Build phase wires them).
   disposeSpeakerNamesCorrelation?.();
