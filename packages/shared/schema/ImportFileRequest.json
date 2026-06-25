@@ -20,6 +20,8 @@
                 "anthropic",
                 "ollama",
                 "agent-cli",
+                "native",
+                "mlx",
                 "fake"
               ],
               "default": "fake"
@@ -43,6 +45,14 @@
                 "codex"
               ],
               "default": "claude"
+            },
+            "nativeModel": {
+              "type": "string",
+              "default": ""
+            },
+            "summaryTemplate": {
+              "type": "string",
+              "default": ""
             }
           },
           "additionalProperties": false,

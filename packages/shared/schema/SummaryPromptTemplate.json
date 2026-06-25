@@ -1,34 +1,28 @@
 {
-  "$ref": "#/definitions/ChatDone",
+  "$ref": "#/definitions/SummaryPromptTemplate",
   "definitions": {
-    "ChatDone": {
+    "SummaryPromptTemplate": {
       "type": "object",
       "properties": {
-        "chatId": {
+        "id": {
           "type": "string",
           "minLength": 1
         },
-        "text": {
+        "name": {
           "type": "string",
           "default": ""
         },
-        "provider": {
+        "prompt": {
           "type": "string",
-          "enum": [
-            "anthropic",
-            "ollama",
-            "agent-cli",
-            "native",
-            "mlx",
-            "fake"
-          ]
+          "default": ""
         },
-        "model": {
-          "type": "string"
+        "builtin": {
+          "type": "boolean",
+          "default": false
         }
       },
       "required": [
-        "chatId"
+        "id"
       ],
       "additionalProperties": false
     }

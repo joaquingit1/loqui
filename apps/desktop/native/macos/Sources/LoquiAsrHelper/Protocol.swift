@@ -12,6 +12,10 @@ import Foundation
 // MARK: - Host -> helper requests
 
 /// A request line from the host. Decoded leniently: unknown `type`s are ignored.
+///
+/// PRD-10 adds the SUMMARY fields (`model`, `prompt`) used by the summary
+/// requests (`summaryProbe` / `summaryStart` / `summaryGenerate` / `summaryStop`),
+/// alongside the PRD-9 ASR fields. All optional so one struct decodes every line.
 struct HostRequest: Decodable {
     let type: String
     let engine: String?
@@ -19,6 +23,10 @@ struct HostRequest: Decodable {
     let language: String?
     let sampleRate: Int?
     let pcmBase64: String?
+    /// PRD-10 summary: the on-device model id (e.g. an MLX model id) for `summaryStart`.
+    let model: String?
+    /// PRD-10 summary: the full prompt (incl. the read-only transcript) for `summaryGenerate`.
+    let prompt: String?
 }
 
 // MARK: - Helper -> host replies
@@ -35,6 +43,10 @@ enum HelperReply {
     case capabilities(engines: [String], os: String, arch: String)
     case tokens(tokens: [TokenWire], final: Bool)
     case error(code: String, message: String)
+    // PRD-10 summary replies (mirror of native_provider.py's summary protocol).
+    case summaryCapabilities(engines: [String], os: String, arch: String)
+    case summaryReady(engine: String, model: String?)
+    case summaryResult(text: String)
 
     /// Serialize to a single JSON line (no embedded newline).
     func jsonLine() -> String {
@@ -52,6 +64,12 @@ enum HelperReply {
             ]
         case let .error(code, message):
             obj = ["type": "error", "code": code, "message": message]
+        case let .summaryCapabilities(engines, os, arch):
+            obj = ["type": "summaryCapabilities", "engines": engines, "os": os, "arch": arch]
+        case let .summaryReady(engine, model):
+            obj = ["type": "summaryReady", "engine": engine, "model": (model ?? NSNull()) as Any]
+        case let .summaryResult(text):
+            obj = ["type": "summaryResult", "text": text]
         }
         guard let data = try? JSONSerialization.data(withJSONObject: obj),
               let line = String(data: data, encoding: .utf8)

@@ -26,3 +26,4 @@ export * from "./export.js";
 export * from "./privacy.js";
 export * from "./updater.js";
 export * from "./transcription.js";
+export * from "./summaryprovider.js";

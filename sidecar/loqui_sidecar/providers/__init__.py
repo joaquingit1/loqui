@@ -68,6 +68,13 @@ from .anthropic_provider import (
 )
 from .ollama_provider import OllamaProvider, ollama_factory
 from .agent_cli_provider import AgentCliProvider, agent_cli_factory, render_prompt
+from .native_provider import (
+    BundledMlxProvider,
+    NativeChatProvider,
+    mlx_factory,
+    native_factory,
+    probe_summary_capabilities,
+)
 from .registry import build_selector, default_selector
 
 __all__ = [
@@ -114,6 +121,12 @@ __all__ = [
     "AgentCliProvider",
     "agent_cli_factory",
     "render_prompt",
+    # on-device providers (PRD-10)
+    "NativeChatProvider",
+    "BundledMlxProvider",
+    "native_factory",
+    "mlx_factory",
+    "probe_summary_capabilities",
     "build_selector",
     "default_selector",
 ]

@@ -221,6 +221,15 @@ export const postProcessRequestSchema = z.object({
       baseUrl: z.string().default("http://localhost:11434"),
       ollamaModel: z.string().default("llama3.1"),
       cli: z.string().default("claude"),
+      /** PRD-10 — on-device MLX model id (empty => helper default). */
+      nativeModel: z.string().default(""),
+      /**
+       * PRD-10 — the chosen custom summary prompt-template text (empty => the
+       * built-in structured-summary instruction). Threaded into the summary job
+       * so a user can pick a template / regenerate with a different one. A
+       * READ-ONLY prompt knob — never grants a write path.
+       */
+      summaryTemplate: z.string().default(""),
     })
     .default({}),
   /**

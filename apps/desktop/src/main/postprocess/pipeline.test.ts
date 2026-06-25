@@ -103,6 +103,8 @@ const config: ProviderConfig = {
   baseUrl: "http://localhost:11434",
   ollamaModel: "llama3.1",
   cli: "claude",
+  nativeModel: "",
+  summaryTemplate: "",
 };
 
 function makeProviderKeys(opts: { provider?: ProviderConfig["provider"]; apiKey?: string | null } = {}) {

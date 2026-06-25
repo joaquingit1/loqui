@@ -39,8 +39,15 @@ CHAT_DONE_EVENT = "chatDone"
 #: sidecar -> main: stream failed (actionable error).
 CHAT_ERROR_EVENT = "chatError"
 
-#: Provider identifiers (mirror of @loqui/shared CHAT_PROVIDERS).
-PROVIDERS = ("anthropic", "ollama", "agent-cli", "fake")
+#: Provider identifiers (mirror of @loqui/shared CHAT_PROVIDERS). PRD-10 adds the
+#: two zero-key on-device providers ``native`` (Apple Foundation Models /
+#: NaturalLanguage via the Swift helper) and ``mlx`` (bundled MLX small model).
+PROVIDERS = ("anthropic", "ollama", "agent-cli", "native", "mlx", "fake")
+
+#: On-device (zero-key) providers — the "fully on-device, no key" set (mirror of
+#: @loqui/shared ONDEVICE_SUMMARY_PROVIDERS). They run through the macOS Swift
+#: helper and are gracefully absent on Windows (the selector falls back).
+ONDEVICE_PROVIDERS = ("native", "mlx")
 
 #: Default Anthropic chat model (mirror of @loqui/shared DEFAULT_ANTHROPIC_CHAT_MODEL).
 #: Per the PRD contract: the official ``anthropic`` SDK, streamed via
@@ -91,6 +98,17 @@ class ProviderConfig:
     base_url: str = DEFAULT_OLLAMA_BASE_URL
     ollama_model: str = "llama3.1"
     cli: str = "claude"
+    #: Model id for an on-device provider (PRD-10): the bundled MLX model id for
+    #: ``provider == "mlx"`` (e.g. a Qwen/Gemma-class id), or "" to let the helper
+    #: pick its default. Ignored by the Apple-native provider (no selectable model).
+    native_model: str = ""
+    #: Optional custom summary prompt-template text (PRD-10). When set, the PRD-5
+    #: summary job uses this verbatim (with ``{transcript}`` replaced by the
+    #: read-only transcript) INSTEAD of the built-in SUMMARY_INSTRUCTION, so a user
+    #: can pick a TL;DR / decisions / action-items (or their own) template and
+    #: regenerate with a different one. Empty string -> the default instruction.
+    #: This is a READ-ONLY prompt knob — it never grants any write path.
+    summary_template: str = ""
 
     @classmethod
     def from_wire(cls, obj: Optional[dict]) -> "ProviderConfig":
@@ -101,6 +119,8 @@ class ProviderConfig:
             base_url=str(obj.get("baseUrl", DEFAULT_OLLAMA_BASE_URL)),
             ollama_model=str(obj.get("ollamaModel", "llama3.1")),
             cli=str(obj.get("cli", "claude")),
+            native_model=str(obj.get("nativeModel", "")),
+            summary_template=str(obj.get("summaryTemplate", "")),
         )
 
 

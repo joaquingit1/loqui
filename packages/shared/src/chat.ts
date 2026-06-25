@@ -39,9 +39,24 @@ import { z } from "zod";
  * - `agent-cli` — a locally-installed Claude Code (`claude -p`) or Codex
  *   (`codex exec`) headless CLI invoked via subprocess; availability detected at
  *   runtime.
+ * - `native` — PRD-10 zero-key, on-device Apple provider (Foundation Models /
+ *   NaturalLanguage via the macOS Swift helper). macOS-only; the selector falls
+ *   back to Ollama/BYOK/cloud on Windows / when unavailable.
+ * - `mlx` — PRD-10 bundled MLX small model (Apple Silicon; first-run fetch then
+ *   offline). macOS-only; same fallback as `native`.
  * - `fake` — scripted token stream for tests/smoke.
+ *
+ * See {@link import("./summaryprovider.js").SUMMARY_PROVIDERS} for the same set
+ * plus the on-device/cloud classification + availability the selector UI renders.
  */
-export const CHAT_PROVIDERS = ["anthropic", "ollama", "agent-cli", "fake"] as const;
+export const CHAT_PROVIDERS = [
+  "anthropic",
+  "ollama",
+  "agent-cli",
+  "native",
+  "mlx",
+  "fake",
+] as const;
 export const chatProviderSchema = z.enum(CHAT_PROVIDERS);
 export type ChatProvider = z.infer<typeof chatProviderSchema>;
 
@@ -109,6 +124,24 @@ export const providerConfigSchema = z.object({
   ollamaModel: z.string().default("llama3.1"),
   /** Which local agent CLI to invoke (only meaningful for `provider: "agent-cli"`). */
   cli: agentCliSchema.default("claude"),
+  /**
+   * PRD-10 — on-device model id for `provider: "mlx"` (the bundled MLX model id;
+   * empty => the helper's default). Ignored by the Apple-native provider (no
+   * selectable model) and the other providers. Additive + defaulted "".
+   */
+  nativeModel: z.string().default(""),
+  /**
+   * PRD-10 — the chosen custom summary prompt-template TEXT (with the optional
+   * {@link import("./summaryprovider.js").SUMMARY_TEMPLATE_PLACEHOLDER}). When
+   * non-empty, PRD-5's summary job uses it INSTEAD of the built-in structured-
+   * summary instruction so a user can pick TL;DR / decisions / action-items (or
+   * their own) and regenerate with a different one. Empty => the default summary
+   * behavior (byte-identical to pre-PRD-10). READ-ONLY prompt knob: it never
+   * grants a write path — the AI still never edits the transcript. Carried on
+   * `providerConfig` (not a new top-level field) so it flows through BOTH the chat
+   * and the postProcess paths that already ship a `providerConfig`.
+   */
+  summaryTemplate: z.string().default(""),
 });
 export type ProviderConfig = z.infer<typeof providerConfigSchema>;
 

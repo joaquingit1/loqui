@@ -16,9 +16,11 @@ import {
 
 /** Human label for each provider (Settings dropdown + active-provider badge). */
 export const PROVIDER_LABEL: Record<ChatProvider, string> = {
-  anthropic: "Anthropic (BYOK)",
-  ollama: "Ollama (local)",
+  anthropic: "Anthropic (BYOK, cloud)",
+  ollama: "Ollama (on-device)",
   "agent-cli": "Local agent CLI",
+  native: "Apple on-device (no key)",
+  mlx: "Bundled MLX (on-device)",
   fake: "Test provider",
 };
 
@@ -60,6 +62,10 @@ export function activeModelLabel(config: ProviderConfig): string {
       return config.ollamaModel || "model";
     case "agent-cli":
       return AGENT_CLI_LABEL[config.cli] ?? config.cli;
+    case "native":
+      return "Apple Foundation Models";
+    case "mlx":
+      return config.nativeModel || "bundled model";
     case "fake":
       return "scripted";
     default:

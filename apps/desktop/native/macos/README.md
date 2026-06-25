@@ -1,8 +1,14 @@
-# loqui-asr-helper — macOS-native on-device ASR helper (PRD-9)
+# loqui-asr-helper — macOS-native on-device ASR + summary helper (PRD-9, PRD-10)
 
 A small, notarizable Swift command-line binary the Python sidecar spawns to run
 **macOS-native on-device transcription engines** alongside the cross-platform
-faster-whisper default:
+faster-whisper default — and (PRD-10) **macOS-native on-device summary engines**
+(Apple Foundation Models / NaturalLanguage / bundled MLX) so summaries + chat can
+run with zero API key and zero cloud. The summary protocol is documented below
+under "Summary protocol (PRD-10)"; the Python side is
+`sidecar/loqui_sidecar/providers/native_provider.py`.
+
+The transcription engines, alongside the cross-platform faster-whisper default:
 
 - **Apple Speech** — `SFSpeechRecognizer` with `requiresOnDeviceRecognition =
   true`. Zero model download (after the one-time Speech Recognition permission),
@@ -67,6 +73,42 @@ The host reads lines until it sees the reply matching its request
 (`capabilities` for `probe`, `tokens` for `decode`), tolerating and logging any
 unrecognized line (forward-compatible).
 
+## Summary protocol (PRD-10)
+
+Additive to the ASR protocol on the SAME stdin/stdout channel (parsed by `type`).
+The host (`native_provider.py`) drives it request/response — there is no token
+stream; the helper returns the whole result in one `summaryResult`. The engines:
+
+- **apple-foundation** — Apple Foundation Models (the on-device Apple-Intelligence
+  LLM, macOS 26 + Apple Intelligence enabled; gated behind `-DFOUNDATION_MODELS`).
+  Preferred generative target; degrades to **apple-nl** when unavailable.
+- **apple-nl** — Apple NaturalLanguage extractive highlights (always available on
+  macOS 13+; zero download, zero key, no LLM).
+- **mlx** — a bundled small instruct model (Qwen/Gemma-class) via MLX on Apple
+  Silicon (gated behind `-DMLX_SUMMARY`); fetched on first use, then offline.
+
+### Host → helper
+
+| line | meaning |
+| --- | --- |
+| `{"type":"summaryProbe"}` | ask which summary engines are available; helper replies `summaryCapabilities`. |
+| `{"type":"summaryStart","engine":"apple-foundation"\|"apple-nl"\|"mlx","model":"<id>"\|null}` | begin a summary session (loads/fetches the model for `mlx`). |
+| `{"type":"summaryGenerate","prompt":"<full prompt incl. transcript>"}` | generate; helper replies with one `summaryResult`. |
+| `{"type":"summaryStop"}` | end the session (release the model). |
+
+### Helper → host
+
+| line | meaning |
+| --- | --- |
+| `{"type":"summaryCapabilities","engines":[...],"os":"darwin","arch":"arm64"}` | reply to `summaryProbe`. |
+| `{"type":"summaryReady","engine":"...","model":"..."}` | sent after a successful `summaryStart`. |
+| `{"type":"summaryResult","text":"..."}` | the generated/extracted summary text (one per `summaryGenerate`). |
+| `{"type":"error","code":"...","message":"..."}` | a recoverable error (model unavailable, permission, fetch failed). The host maps it to a stable `ChatProviderError` and falls back to Ollama / BYOK / cloud. |
+
+READ-ONLY: a summary engine receives only the prompt text (the host splices in the
+read-only transcript) and returns text — it never touches any transcript/meta
+file, so "the AI never edits the transcript" holds for the native path too.
+
 ## Engine ↔ pipeline mapping
 
 - **WhisperKit / MLX** decode a window like Whisper, so the host's VAD +
@@ -83,8 +125,12 @@ engine-agnostic and the two-stream (You/They) model is untouched — each
 
 - **Verified hermetically on any host (incl. Windows):** the protocol parsing,
   the token mapping, the selector, and the fallback — via a Python *fake helper*
-  in `sidecar/tests/test_transcription_engines.py` (no Swift, no model).
+  in `sidecar/tests/test_transcription_engines.py` (ASR) and
+  `sidecar/tests/_summary_helpers.py` + `test_native_provider.py` /
+  `test_summary_templates.py` (PRD-10 summary; no Swift, no model).
 - **Mac/CI-only:** the real Swift compile (`./build.sh`) and the real Apple
   Speech / WhisperKit run — exercised by the opt-in
-  `sidecar/tests/test_apple_speech_real.py` (skipped unless macOS +
-  `LOQUI_RUN_APPLE_SPEECH_TESTS=1` + the built helper).
+  `sidecar/tests/test_apple_speech_real.py`; and the real Apple Foundation Models
+  / NaturalLanguage / MLX summary run via the opt-in
+  `sidecar/tests/test_native_summary_real.py` (skipped unless macOS +
+  `LOQUI_RUN_NATIVE_SUMMARY=1` + the built helper).

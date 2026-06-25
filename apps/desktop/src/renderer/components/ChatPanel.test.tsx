@@ -27,6 +27,8 @@ const ANTHROPIC_CONFIG: ProviderConfig = {
   baseUrl: "http://localhost:11434",
   ollamaModel: "llama3.1",
   cli: "claude",
+  nativeModel: "",
+  summaryTemplate: "",
 };
 
 interface FakeChat {

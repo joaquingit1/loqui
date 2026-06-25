@@ -20,6 +20,7 @@ func emit(_ reply: HelperReply) {
 }
 
 var engine: AsrEngine?
+var summaryEngine: SummaryEngine?  // PRD-10: the active on-device summary engine.
 
 while let line = readLine(strippingNewline: true) {
     if line.isEmpty { continue }
@@ -65,6 +66,42 @@ while let line = readLine(strippingNewline: true) {
         engine?.stop()
         engine = nil
 
+    // --- PRD-10 summary protocol -------------------------------------------
+    case "summaryProbe":
+        emit(.summaryCapabilities(engines: probeSummaryEngines(), os: "darwin", arch: currentArch()))
+
+    case "summaryStart":
+        do {
+            summaryEngine?.stop()
+            let e = try makeSummaryEngine(req)
+            summaryEngine = e
+            emit(.summaryReady(engine: req.engine ?? "unknown", model: req.model))
+        } catch let EngineError.permissionDenied(msg) {
+            emit(.error(code: "permission_denied", message: msg))
+        } catch let EngineError.unavailable(msg) {
+            emit(.error(code: "unavailable", message: msg))
+        } catch {
+            emit(.error(code: "summary_start_failed", message: "\(error)"))
+        }
+
+    case "summaryGenerate":
+        guard let e = summaryEngine else {
+            emit(.error(code: "not_started", message: "summaryGenerate before summaryStart"))
+            continue
+        }
+        do {
+            let text = try e.generate(req.prompt ?? "")
+            emit(.summaryResult(text: text))
+        } catch let EngineError.unavailable(msg) {
+            emit(.error(code: "unavailable", message: msg))
+        } catch {
+            emit(.error(code: "summary_failed", message: "\(error)"))
+        }
+
+    case "summaryStop":
+        summaryEngine?.stop()
+        summaryEngine = nil
+
     default:
         // Unknown request type: ignore (forward-compatible).
         continue
@@ -72,3 +109,4 @@ while let line = readLine(strippingNewline: true) {
 }
 
 engine?.stop()
+summaryEngine?.stop()

@@ -49,6 +49,8 @@ const providerKeys = {
     baseUrl: "http://localhost:11434",
     ollamaModel: "llama3.1",
     cli: "claude",
+    nativeModel: "mlx:small",
+    summaryTemplate: "Custom summary:\n{transcript}",
   }),
   getApiKey: (_provider: "anthropic"): string | null => null,
 };
@@ -112,6 +114,10 @@ describe("createImportPipeline", () => {
     expect(req?.data).toMatchObject({
       meetingId: meeting.id,
       filePath: "/clips/standup.m4a",
+      providerConfig: {
+        nativeModel: "mlx:small",
+        summaryTemplate: "Custom summary:\n{transcript}",
+      },
     });
   });
 

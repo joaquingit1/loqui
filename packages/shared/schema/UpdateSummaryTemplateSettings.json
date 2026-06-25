@@ -1,0 +1,67 @@
+{
+  "$ref": "#/definitions/UpdateSummaryTemplateSettings",
+  "definitions": {
+    "UpdateSummaryTemplateSettings": {
+      "type": "object",
+      "properties": {
+        "templates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "default": ""
+              },
+              "prompt": {
+                "type": "string",
+                "default": ""
+              },
+              "builtin": {
+                "type": "boolean",
+                "default": false
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "default": [
+            {
+              "id": "tldr",
+              "name": "TL;DR",
+              "builtin": true,
+              "prompt": "Give a concise 2-3 sentence TL;DR of this meeting. Use ONLY the transcript as ground truth.\n\n{transcript}"
+            },
+            {
+              "id": "decisions",
+              "name": "Key decisions",
+              "builtin": true,
+              "prompt": "List the key decisions made in this meeting as bullet points. Use ONLY the transcript.\n\n{transcript}"
+            },
+            {
+              "id": "action-items",
+              "name": "Action items",
+              "builtin": true,
+              "prompt": "Extract the action items from this meeting, naming the owner when one is clearly stated. Use ONLY the transcript.\n\n{transcript}"
+            }
+          ]
+        },
+        "selectedId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

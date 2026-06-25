@@ -22,6 +22,7 @@ import { useCallback, useEffect, useState, type JSX } from "react";
 import {
   DEFAULT_ANTHROPIC_CHAT_MODEL,
   DEFAULT_OLLAMA_BASE_URL,
+  DEFAULT_SUMMARY_TEMPLATES,
   providerConfigSchema,
   type AgentCli,
   type AnthropicChatModel,
@@ -156,6 +157,38 @@ export function ProviderSettings({ api, onSaved }: ProviderSettingsProps): JSX.E
 
   const needsKey = providerNeedsApiKey(config.provider);
 
+  // PRD-10 summary-template selection. The persisted knob is the template TEXT
+  // (config.summaryTemplate); we resolve which named slot it matches (if any) so
+  // the dropdown reflects it, and offer "Custom…" for free-form text.
+  const matchingTemplate = DEFAULT_SUMMARY_TEMPLATES.find(
+    (t) => t.prompt === config.summaryTemplate,
+  );
+  const isCustomTemplate =
+    config.summaryTemplate.length > 0 && matchingTemplate === undefined;
+  const selectedTemplateId = matchingTemplate
+    ? matchingTemplate.id
+    : isCustomTemplate
+      ? "custom"
+      : "";
+
+  const onSelectTemplate = useCallback((id: string) => {
+    if (id === "") {
+      patch({ summaryTemplate: "" });
+      return;
+    }
+    if (id === "custom") {
+      // Keep any existing text; if empty, seed a starter so the textarea is usable.
+      setConfig((prev) => ({
+        ...prev,
+        summaryTemplate: prev.summaryTemplate || "Summarize this meeting:\n\n{transcript}",
+      }));
+      setStatus(null);
+      return;
+    }
+    const tmpl = DEFAULT_SUMMARY_TEMPLATES.find((t) => t.id === id);
+    if (tmpl) patch({ summaryTemplate: tmpl.prompt });
+  }, [patch]);
+
   return (
     <div className="chat__settings" data-testid="provider-settings">
       <label className="chat__field">
@@ -236,6 +269,57 @@ export function ProviderSettings({ api, onSaved }: ProviderSettingsProps): JSX.E
           </select>
         </label>
       )}
+
+      {(config.provider === "native" || config.provider === "mlx") && (
+        <p className="chat__hint" data-testid="ondevice-hint">
+          Fully on-device — no API key, no cloud. Available on macOS; on other
+          systems this falls back to Ollama or a cloud provider.
+        </p>
+      )}
+
+      {config.provider === "mlx" && (
+        <label className="chat__field">
+          <span className="chat__field-label">On-device model</span>
+          <input
+            type="text"
+            className="chat__text"
+            data-testid="native-model"
+            value={config.nativeModel}
+            placeholder="bundled default"
+            onChange={(e) => patch({ nativeModel: e.target.value })}
+          />
+        </label>
+      )}
+
+      {/* PRD-10 custom summary prompt template — applies to the SUMMARY job for
+          every provider. "Default" => the built-in structured summary. */}
+      <label className="chat__field" data-testid="summary-template-field">
+        <span className="chat__field-label">Summary prompt</span>
+        <select
+          className="chat__select"
+          data-testid="summary-template-select"
+          value={selectedTemplateId}
+          onChange={(e) => onSelectTemplate(e.target.value)}
+        >
+          <option value="">Default (structured summary)</option>
+          {DEFAULT_SUMMARY_TEMPLATES.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+          <option value="custom">Custom…</option>
+        </select>
+        {(selectedTemplateId === "custom" || isCustomTemplate) && (
+          <textarea
+            className="chat__text"
+            data-testid="summary-template-text"
+            value={config.summaryTemplate}
+            placeholder="Your prompt. Use {transcript} where the transcript should go."
+            rows={3}
+            onChange={(e) => patch({ summaryTemplate: e.target.value })}
+          />
+        )}
+      </label>
 
       {needsKey && (
         <div className="chat__field" data-testid="api-key-field">

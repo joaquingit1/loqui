@@ -114,6 +114,8 @@ def make_provider_selector(
     anthropic_factory: Optional[Callable[[], ChatProvider]] = None,
     ollama_factory: Optional[Callable[[ProviderConfig], ChatProvider]] = None,
     agent_cli_factory: Optional[Callable[[ProviderConfig], ChatProvider]] = None,
+    native_factory: Optional[Callable[[ProviderConfig], ChatProvider]] = None,
+    mlx_factory: Optional[Callable[[ProviderConfig], ChatProvider]] = None,
 ) -> ProviderSelector:
     """Build a :data:`ProviderSelector` from the real provider factories.
 
@@ -121,6 +123,12 @@ def make_provider_selector(
     the default (fake-only) selector. ``LOQUI_FAKE_CHAT`` always wins (forces the
     fake) so the gate + smoke stay hermetic even if a config requests a real
     provider.
+
+    PRD-10 adds the two on-device factories (``native_factory`` / ``mlx_factory``).
+    They build a provider regardless of host; the native provider itself raises an
+    actionable :class:`ChatProviderError` at stream time when no Swift helper is
+    available (Windows / unbundled), which is exactly the cross-platform fallback
+    signal — chat surfaces the error and the summary stage degrades, never a crash.
     """
 
     def select(config: ProviderConfig) -> ChatProvider:
@@ -135,6 +143,10 @@ def make_provider_selector(
             return ollama_factory(config)
         if provider == "agent-cli" and agent_cli_factory is not None:
             return agent_cli_factory(config)
+        if provider == "native" and native_factory is not None:
+            return native_factory(config)
+        if provider == "mlx" and mlx_factory is not None:
+            return mlx_factory(config)
         raise ChatProviderError(
             "internal_error",
             f"chat provider {provider!r} is not available",

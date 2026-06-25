@@ -28,12 +28,15 @@ def build_selector() -> ProviderSelector:
     """
     from .agent_cli_provider import agent_cli_factory
     from .anthropic_provider import anthropic_factory
+    from .native_provider import mlx_factory, native_factory
     from .ollama_provider import ollama_factory
 
     return make_provider_selector(
         anthropic_factory=anthropic_factory,
         ollama_factory=ollama_factory,
         agent_cli_factory=agent_cli_factory,
+        native_factory=native_factory,
+        mlx_factory=mlx_factory,
     )
 
 

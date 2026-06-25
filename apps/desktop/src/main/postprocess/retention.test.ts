@@ -82,6 +82,8 @@ const providerConfig: ProviderConfig = {
   baseUrl: "b",
   ollamaModel: "o",
   cli: "claude",
+  nativeModel: "",
+  summaryTemplate: "",
 };
 const keys = {
   getProviderSettings: (): ProviderConfig => providerConfig,

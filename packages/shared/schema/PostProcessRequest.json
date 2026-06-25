@@ -29,6 +29,14 @@
             "cli": {
               "type": "string",
               "default": "claude"
+            },
+            "nativeModel": {
+              "type": "string",
+              "default": ""
+            },
+            "summaryTemplate": {
+              "type": "string",
+              "default": ""
             }
           },
           "additionalProperties": false,

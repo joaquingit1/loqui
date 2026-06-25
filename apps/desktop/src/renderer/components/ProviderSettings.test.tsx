@@ -19,6 +19,8 @@ const ANTHROPIC_CONFIG: ProviderConfig = {
   baseUrl: "http://localhost:11434",
   ollamaModel: "llama3.1",
   cli: "claude",
+  nativeModel: "",
+  summaryTemplate: "",
 };
 
 type SettingsApi = Pick<
@@ -157,6 +159,90 @@ describe("ProviderSettings", () => {
     await waitFor(() => expect(setApiKey).toHaveBeenCalledWith({ provider: "anthropic", apiKey: null }));
     await waitFor(() =>
       expect(screen.getByTestId("api-key-status").getAttribute("data-has-key")).toBe("false"),
+    );
+  });
+
+  // --- PRD-10: on-device providers + custom summary templates ----------------
+
+  it("offers the zero-key on-device providers and shows the no-key hint", async () => {
+    const { api } = makeApi();
+    render(<ProviderSettings api={api} />);
+    await waitFor(() => expect(screen.getByTestId("provider-select")).toBeTruthy());
+
+    const options = Array.from(
+      (screen.getByTestId("provider-select") as HTMLSelectElement).options,
+    ).map((o) => o.value);
+    expect(options).toContain("native");
+    expect(options).toContain("mlx");
+    expect(options).not.toContain("fake"); // test provider stays hidden
+
+    fireEvent.change(screen.getByTestId("provider-select"), { target: { value: "native" } });
+    // No key field for a zero-key on-device provider; the on-device hint shows.
+    expect(screen.queryByTestId("api-key-field")).toBeNull();
+    expect(screen.getByTestId("ondevice-hint")).toBeTruthy();
+  });
+
+  it("reveals the bundled-MLX model field when MLX is selected", async () => {
+    const { api } = makeApi();
+    render(<ProviderSettings api={api} />);
+    await waitFor(() => expect(screen.getByTestId("provider-select")).toBeTruthy());
+
+    fireEvent.change(screen.getByTestId("provider-select"), { target: { value: "mlx" } });
+    expect(screen.getByTestId("native-model")).toBeTruthy();
+  });
+
+  it("selecting a default summary template persists its prompt text", async () => {
+    const setProviderSettings = vi.fn(async (c: ProviderConfig) => c);
+    const { api } = makeApi({ setProviderSettings });
+    render(<ProviderSettings api={api} />);
+    await waitFor(() => expect(screen.getByTestId("summary-template-select")).toBeTruthy());
+
+    // Default selection is "" (the structured summary).
+    expect((screen.getByTestId("summary-template-select") as HTMLSelectElement).value).toBe("");
+
+    fireEvent.change(screen.getByTestId("summary-template-select"), {
+      target: { value: "decisions" },
+    });
+    fireEvent.click(screen.getByTestId("provider-save"));
+
+    await waitFor(() => expect(setProviderSettings).toHaveBeenCalled());
+    const saved = setProviderSettings.mock.calls[0]?.[0] as ProviderConfig;
+    expect(saved.summaryTemplate).toContain("key decisions");
+    expect(saved.summaryTemplate).toContain("{transcript}");
+  });
+
+  it("supports a custom summary template via the textarea", async () => {
+    const setProviderSettings = vi.fn(async (c: ProviderConfig) => c);
+    const { api } = makeApi({ setProviderSettings });
+    render(<ProviderSettings api={api} />);
+    await waitFor(() => expect(screen.getByTestId("summary-template-select")).toBeTruthy());
+
+    fireEvent.change(screen.getByTestId("summary-template-select"), {
+      target: { value: "custom" },
+    });
+    const area = screen.getByTestId("summary-template-text") as HTMLTextAreaElement;
+    fireEvent.change(area, { target: { value: "One line only: {transcript}" } });
+    fireEvent.click(screen.getByTestId("provider-save"));
+
+    await waitFor(() => expect(setProviderSettings).toHaveBeenCalled());
+    expect((setProviderSettings.mock.calls[0]?.[0] as ProviderConfig).summaryTemplate).toBe(
+      "One line only: {transcript}",
+    );
+  });
+
+  it("reflects a persisted custom template (textarea pre-filled)", async () => {
+    const { api } = makeApi({}, {
+      ...ANTHROPIC_CONFIG,
+      summaryTemplate: "My saved prompt {transcript}",
+    });
+    render(<ProviderSettings api={api} />);
+    await waitFor(() =>
+      expect((screen.getByTestId("summary-template-select") as HTMLSelectElement).value).toBe(
+        "custom",
+      ),
+    );
+    expect((screen.getByTestId("summary-template-text") as HTMLTextAreaElement).value).toBe(
+      "My saved prompt {transcript}",
     );
   });
 });

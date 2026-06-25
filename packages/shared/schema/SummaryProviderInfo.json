@@ -1,0 +1,65 @@
+{
+  "$ref": "#/definitions/SummaryProviderInfo",
+  "definitions": {
+    "SummaryProviderInfo": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": [
+            "anthropic",
+            "ollama",
+            "agent-cli",
+            "native",
+            "mlx",
+            "fake"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "default": ""
+        },
+        "providerClass": {
+          "type": "string",
+          "enum": [
+            "on-device",
+            "cloud",
+            "local-cli",
+            "test"
+          ],
+          "default": "on-device"
+        },
+        "macOnly": {
+          "type": "boolean",
+          "default": false
+        },
+        "needsKey": {
+          "type": "boolean",
+          "default": false
+        },
+        "availability": {
+          "type": "string",
+          "enum": [
+            "available",
+            "unsupported-os",
+            "helper-missing",
+            "needs-permission",
+            "needs-download",
+            "needs-key",
+            "needs-install"
+          ],
+          "default": "available"
+        },
+        "note": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "provider"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

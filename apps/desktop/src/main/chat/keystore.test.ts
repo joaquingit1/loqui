@@ -101,6 +101,8 @@ describe("provider settings", () => {
       baseUrl: "http://localhost:11434",
       ollamaModel: "llama3.1",
       cli: "claude",
+      nativeModel: "",
+      summaryTemplate: "",
     });
     expect(saved.provider).toBe("ollama");
 
@@ -205,6 +207,8 @@ describe("API key storage (safeStorage)", () => {
       baseUrl: "http://localhost:11434",
       ollamaModel: "llama3.1",
       cli: "claude",
+      nativeModel: "",
+      summaryTemplate: "",
     });
     ks.setApiKey({ provider: "anthropic", apiKey: SECRET });
     // Settings survive the key write.
@@ -216,6 +220,8 @@ describe("API key storage (safeStorage)", () => {
       baseUrl: "http://localhost:11434",
       ollamaModel: "llama3.1",
       cli: "claude",
+      nativeModel: "",
+      summaryTemplate: "",
     });
     expect(ks.getApiKey("anthropic")).toBe(SECRET);
   });

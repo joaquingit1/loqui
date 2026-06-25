@@ -85,6 +85,13 @@ import {
   transcriptionEngineInfoSchema,
   transcriptionStatusSchema,
 } from "../src/transcription.js";
+import {
+  summaryProviderInfoSchema,
+  summaryProviderStatusSchema,
+  summaryPromptTemplateSchema,
+  summaryTemplateSettingsSchema,
+  updateSummaryTemplateSettingsSchema,
+} from "../src/summaryprovider.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, "..", "schema");
@@ -181,6 +188,17 @@ const schemas: Record<string, ZodTypeAny> = {
   UpdateTranscriptionSettings: updateTranscriptionSettingsSchema,
   TranscriptionEngineInfo: transcriptionEngineInfoSchema,
   TranscriptionStatus: transcriptionStatusSchema,
+  // PRD-10 on-device + native summary providers + custom prompt templates. The
+  // updated ProviderConfig (chat.ts) carries the additive nativeModel +
+  // summaryTemplate the sidecar reads on the inbound chat/postProcess notification;
+  // these are emitted so the provider-availability probe, the resolved status, and
+  // the custom-template settings contract are fully visible to cross-process
+  // consumers (the on-device providers + the template plumbing live in the sidecar).
+  SummaryProviderInfo: summaryProviderInfoSchema,
+  SummaryProviderStatus: summaryProviderStatusSchema,
+  SummaryPromptTemplate: summaryPromptTemplateSchema,
+  SummaryTemplateSettings: summaryTemplateSettingsSchema,
+  UpdateSummaryTemplateSettings: updateSummaryTemplateSettingsSchema,
 };
 
 rmSync(outDir, { recursive: true, force: true });

@@ -1,0 +1,36 @@
+{
+  "$ref": "#/definitions/SummaryProviderStatus",
+  "definitions": {
+    "SummaryProviderStatus": {
+      "type": "object",
+      "properties": {
+        "requestedProvider": {
+          "type": "string",
+          "enum": [
+            "anthropic",
+            "ollama",
+            "agent-cli",
+            "native",
+            "mlx",
+            "fake"
+          ],
+          "default": "fake"
+        },
+        "activeProvider": {
+          "$ref": "#/definitions/SummaryProviderStatus/properties/requestedProvider",
+          "default": "fake"
+        },
+        "fellBack": {
+          "type": "boolean",
+          "default": false
+        },
+        "reason": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

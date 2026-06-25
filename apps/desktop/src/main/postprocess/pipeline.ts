@@ -156,6 +156,11 @@ export function createPostProcessPipeline(
         baseUrl: config.baseUrl,
         ollamaModel: config.ollamaModel,
         cli: config.cli,
+        // PRD-10: thread the on-device model id + the chosen custom summary
+        // prompt-template through to the sidecar's summary job (additive;
+        // empty => the default structured-summary behavior).
+        nativeModel: config.nativeModel,
+        summaryTemplate: config.summaryTemplate,
       },
       apiKey,
       hfToken,

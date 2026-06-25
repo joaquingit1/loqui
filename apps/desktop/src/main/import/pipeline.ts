@@ -122,6 +122,8 @@ export function createImportPipeline(deps: ImportPipelineDeps): ImportPipeline {
         baseUrl: config.baseUrl,
         ollamaModel: config.ollamaModel,
         cli: config.cli,
+        nativeModel: config.nativeModel,
+        summaryTemplate: config.summaryTemplate,
       },
       apiKey,
       hfToken,

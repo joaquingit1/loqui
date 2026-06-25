@@ -22,7 +22,7 @@ import logging
 import re
 from typing import Optional
 
-from ..providers.handler import build_context_message
+from ..providers.handler import CONTEXT_CHAR_BUDGET, build_context_message
 from ..providers.types import (
     ChatMessage,
     ChatProvider,
@@ -51,6 +51,14 @@ SUMMARY_INSTRUCTION = (
     '  "topics": an array of strings, each a topic discussed.\n'
     "Use empty arrays when a section has no content."
 )
+
+#: The placeholder a custom summary prompt template (PRD-10) uses to mark where
+#: the read-only transcript text is spliced in. Mirror of @loqui/shared
+#: SUMMARY_TEMPLATE_PLACEHOLDER. A template MAY omit it — in which case the
+#: handler-built ``<transcript>`` context system message is prepended exactly like
+#: the default flow, so a template that just says "Give me action items" still
+#: sees the transcript.
+TEMPLATE_PLACEHOLDER = "{transcript}"
 
 
 def _coerce_str_list(value: object) -> list[str]:
@@ -148,6 +156,59 @@ def _parse_summary(text: str, meeting_id: str, provider: str, model: str) -> Sum
     )
 
 
+def build_summary_messages(
+    meeting_id: str,
+    config: ProviderConfig,
+    reader: TranscriptReader,
+) -> list[ChatMessage]:
+    """Build the provider ``messages`` for a summary request (READ-ONLY).
+
+    Default flow (no custom template): prepend the handler-built ``<transcript>``
+    context system message + the built-in :data:`SUMMARY_INSTRUCTION` as the user
+    turn — byte-identical to the pre-PRD-10 behavior.
+
+    Custom-template flow (PRD-10, ``config.summary_template`` non-empty): the
+    chosen named template drives the prompt instead of the default instruction so
+    a user can pick TL;DR / decisions / action-items (or their own) and regenerate
+    with a different one.
+
+    * If the template contains the :data:`TEMPLATE_PLACEHOLDER` (``{transcript}``)
+      it OWNS the framing: the read-only transcript is spliced in at the
+      placeholder and the whole thing is the single user turn (no separate context
+      message — the template already carries the transcript).
+    * Otherwise the template is the user instruction and the standard read-only
+      ``<transcript>`` context system message is still prepended, so a template
+      that just says "Give me action items" still sees the transcript.
+
+    Either way the transcript is obtained ONLY through the read-only ``reader``;
+    nothing here can write a transcript/meta file.
+    """
+    template = (config.summary_template or "").strip()
+    if not template:
+        messages: list[ChatMessage] = []
+        context = build_context_message(reader, meeting_id)
+        if context is not None:
+            messages.append(context)
+        messages.append(ChatMessage(role="user", content=SUMMARY_INSTRUCTION))
+        return messages
+
+    if TEMPLATE_PLACEHOLDER in template:
+        transcript = reader.read(meeting_id, "live")
+        if len(transcript) > CONTEXT_CHAR_BUDGET:
+            transcript = transcript[-CONTEXT_CHAR_BUDGET:]
+        prompt = template.replace(TEMPLATE_PLACEHOLDER, transcript)
+        return [ChatMessage(role="user", content=prompt)]
+
+    # Template without a placeholder: keep the read-only transcript context, use
+    # the template as the instruction.
+    messages = []
+    context = build_context_message(reader, meeting_id)
+    if context is not None:
+        messages.append(context)
+    messages.append(ChatMessage(role="user", content=template))
+    return messages
+
+
 def summarize(
     meeting_id: str,
     provider: ChatProvider,
@@ -171,11 +232,7 @@ def summarize(
     and degrades to a raw-text TL;DR when the output is not parseable JSON.
     """
     reader = reader or default_transcript_reader()
-    messages: list[ChatMessage] = []
-    context = build_context_message(reader, meeting_id)
-    if context is not None:
-        messages.append(context)
-    messages.append(ChatMessage(role="user", content=SUMMARY_INSTRUCTION))
+    messages = build_summary_messages(meeting_id, config, reader)
 
     assembled: list[str] = []
     try:
