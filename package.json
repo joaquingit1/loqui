@@ -22,7 +22,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
+    "test": "pnpm -r --workspace-concurrency=1 test",
     "sidecar:dev": "uv run --project sidecar loqui-sidecar",
     "sidecar:test": "uv run --project sidecar pytest",
     "smoke:foundation": "node scripts/smoke-foundation.mjs",

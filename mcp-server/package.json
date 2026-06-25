@@ -13,6 +13,7 @@
     "start": "node ./dist/bin/loqui-mcp.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
+    "pretest": "pnpm rebuild better-sqlite3",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
