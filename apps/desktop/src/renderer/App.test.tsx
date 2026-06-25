@@ -215,24 +215,28 @@ describe("App", () => {
     expect(screen.getByTestId("home-view")).toBeTruthy();
   });
 
-  it("starts in the connecting state and updates when a status push arrives", async () => {
+  it("subscribes to sidecar status pushes but no longer shows a status badge in the shell", () => {
     const { api, emitStatus } = makeFakeApi();
     render(<App api={api} />);
 
-    const badge = () => screen.getByTestId("sidecar-status");
-    expect(badge().getAttribute("data-status")).toBe("connecting");
+    // The sidecar status indicator was intentionally removed from the sidebar.
+    expect(screen.queryByTestId("sidecar-status")).toBeNull();
 
+    // App still subscribes to status pushes (consumed by the Meeting view) —
+    // emitting must not throw and must not resurrect a shell badge.
     act(() => emitStatus("connected"));
-    await waitFor(() => expect(badge().getAttribute("data-status")).toBe("connected"));
-
     act(() => emitStatus("error"));
-    await waitFor(() => expect(badge().getAttribute("data-status")).toBe("error"));
+    expect(screen.getByTestId("home-view")).toBeTruthy();
+    expect(screen.queryByTestId("sidecar-status")).toBeNull();
   });
 
-  it("respects an explicit initialStatus", () => {
+  it("the workspace switcher shows a 'coming soon' hint on click (not a dead control)", () => {
     const { api } = makeFakeApi();
-    render(<App api={api} initialStatus="connected" />);
-    expect(screen.getByTestId("sidecar-status").getAttribute("data-status")).toBe("connected");
+    render(<App api={api} />);
+    const ws = screen.getByTestId("sidebar-workspace");
+    expect(ws.textContent).toContain("Local workspace");
+    fireEvent.click(ws);
+    expect(screen.getByTestId("sidebar-workspace").textContent).toContain("Coming soon");
   });
 
   it("navigates Home ↔ Library ↔ Meeting and keeps the existing views reachable", async () => {

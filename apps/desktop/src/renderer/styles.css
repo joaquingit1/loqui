@@ -276,13 +276,30 @@ body {
 }
 
 .sidebar__user {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  color: var(--text);
+  width: 100%;
+  text-align: left;
   display: flex;
   align-items: center;
   gap: var(--space-3);
   margin-top: var(--space-1);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
-  cursor: default;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.sidebar__user:hover {
+  background: var(--accent-tint);
+}
+
+.sidebar__user:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 
 .avatar {

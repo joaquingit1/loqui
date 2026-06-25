@@ -204,6 +204,13 @@ export class FakeCalendarProvider implements CalendarProvider {
 // Shared OAuth driver for the real providers.
 // ----------------------------------------------------------------------------
 
+/** The env var that supplies each provider's OAuth client id (set per build). */
+const CLIENT_ID_ENV: Record<CalendarSource, string> = {
+  google: "LOQUI_GOOGLE_CLIENT_ID",
+  microsoft: "LOQUI_MS_CLIENT_ID",
+  zoom: "LOQUI_ZOOM_CLIENT_ID",
+};
+
 abstract class OAuthCalendarProvider implements CalendarProvider {
   abstract readonly id: CalendarSource;
   protected abstract config(): OAuthClientConfig;
@@ -224,8 +231,19 @@ abstract class OAuthCalendarProvider implements CalendarProvider {
   }
 
   async connect(): Promise<CalendarConnectOutcome> {
+    const config = this.config();
+    // Guard: without an OAuth client id, opening the consent page just lands the
+    // user on a broken provider error ("Missing required parameter: client_id").
+    // Fail fast with an actionable message the settings UI can show instead.
+    if (!config.clientId) {
+      throw new Error(
+        `${this.id} calendar isn't configured in this build. Set ${CLIENT_ID_ENV[this.id]} ` +
+          `(an OAuth client id for ${this.id}) and restart Loqui to connect — see ` +
+          `docs/prd/PRD-15-calendar-home.md for the app-registration steps.`,
+      );
+    }
     const tokens = await runPkceFlow({
-      config: this.config(),
+      config,
       http: this.deps.oauthHttp,
       openExternal: this.deps.openExternal,
       now: this.now,

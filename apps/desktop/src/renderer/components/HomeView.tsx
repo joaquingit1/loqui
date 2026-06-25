@@ -27,7 +27,7 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
 import type { CalendarConnection, CalendarEvent, Meeting } from "@loqui/shared";
 import type { LoquiCalendarApi, LoquiLibraryApi } from "../../preload/index.js";
-import { Icon, type IconName } from "./Icon.js";
+import { Icon } from "./Icon.js";
 import {
   calendarPlatformIcon,
   calendarPlatformLabel,
@@ -286,32 +286,28 @@ export function HomeView({
       <div className="home__section" data-testid="home-quick">
         <p className="home__overline">Quick start</p>
         <div className="home__quick">
-          <QuickCard
-            icon="mic"
+          <QuickAction
             title={startingNow ? "Starting…" : "Start a meeting"}
             desc="Record + transcribe a live meeting now."
             testid="home-quick-start"
             disabled={startingNow || !lib?.startMeeting}
             onClick={onStartNow}
           />
-          <QuickCard
-            icon="library"
+          <QuickAction
             title="Browse library"
             desc="Search and reopen your past meetings."
             testid="home-quick-library"
             disabled={!onOpenLibrary}
             onClick={() => onOpenLibrary?.()}
           />
-          <QuickCard
-            icon="calendar"
+          <QuickAction
             title="Calendar settings"
             desc="Connect or manage your calendars."
             testid="home-quick-calendar"
             disabled={!onOpenSettings}
             onClick={() => onOpenSettings?.()}
           />
-          <QuickCard
-            icon="refresh"
+          <QuickAction
             title="Refresh schedule"
             desc="Re-sync today's events from your calendar."
             testid="home-quick-refresh"
@@ -324,8 +320,7 @@ export function HomeView({
   );
 }
 
-interface QuickCardProps {
-  icon: IconName;
+interface QuickActionProps {
   title: string;
   desc: string;
   testid: string;
@@ -333,20 +328,17 @@ interface QuickCardProps {
   onClick: () => void;
 }
 
-function QuickCard({ icon, title, desc, testid, disabled, onClick }: QuickCardProps): JSX.Element {
+function QuickAction({ title, desc, testid, disabled, onClick }: QuickActionProps): JSX.Element {
   return (
     <button
       type="button"
-      className="home__quick-card"
+      className="home__quick-action"
       data-testid={testid}
       disabled={disabled}
       onClick={onClick}
     >
-      <span className="home__quick-icon" aria-hidden="true">
-        <Icon name={icon} size={20} />
-      </span>
-      <span className="home__quick-title">{title}</span>
-      <span className="home__quick-desc">{desc}</span>
+      <span className="home__quick-action-title">{title}</span>
+      <span className="home__quick-action-desc">{desc}</span>
     </button>
   );
 }

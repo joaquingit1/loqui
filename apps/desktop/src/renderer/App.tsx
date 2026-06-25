@@ -27,7 +27,6 @@ import type { Meeting } from "@loqui/shared";
 import type { LoquiApi, SidecarStatus } from "../preload/index.js";
 import { Icon, type IconName } from "./components/Icon.js";
 import { useKeyboardShortcuts, type Shortcut } from "./shortcuts/index.js";
-import { SidecarStatusBadge } from "./components/SidecarStatusBadge.js";
 import { DebugPanel } from "./components/DebugPanel.js";
 import { MeetingControls } from "./components/MeetingControls.js";
 import { Library } from "./components/Library.js";
@@ -134,6 +133,14 @@ export function App({
   // ⌘N → switch to Meeting + auto-start; ⌘F → focus the Library search field.
   const [meetingStartSignal, setMeetingStartSignal] = useState(0);
   const [librarySearchSignal, setLibrarySearchSignal] = useState(0);
+  // The workspace switcher is not built yet — clicking it briefly shows a
+  // "Coming soon" hint instead of leaving a dead control.
+  const [workspaceSoon, setWorkspaceSoon] = useState(false);
+  useEffect(() => {
+    if (!workspaceSoon) return;
+    const t = setTimeout(() => setWorkspaceSoon(false), 2400);
+    return () => clearTimeout(t);
+  }, [workspaceSoon]);
 
   useEffect(() => {
     const loqui = api ?? (typeof window !== "undefined" ? window.loqui : undefined);
@@ -342,7 +349,6 @@ export function App({
         <div className="sidebar__spacer" />
 
         <div className="sidebar__foot">
-          <SidecarStatusBadge status={status} />
           <NavItem
             view="settings"
             label="Settings"
@@ -350,15 +356,24 @@ export function App({
             active={view === "settings"}
             onClick={() => goTo("settings")}
           />
-          <div className="sidebar__user">
+          <button
+            type="button"
+            className="sidebar__user"
+            data-testid="sidebar-workspace"
+            title="Workspaces — coming soon"
+            aria-label="Workspace switcher (coming soon)"
+            onClick={() => setWorkspaceSoon(true)}
+          >
             <span className="avatar" aria-hidden="true">
               L
             </span>
-            <span className="sidebar__user-name">Local workspace</span>
+            <span className="sidebar__user-name">
+              {workspaceSoon ? "Coming soon" : "Local workspace"}
+            </span>
             <span className="sidebar__user-chevron">
               <Icon name="chevron-down" size={16} />
             </span>
-          </div>
+          </button>
         </div>
       </aside>
 

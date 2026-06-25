@@ -13,7 +13,7 @@
 .home {
   display: flex;
   flex-direction: column;
-  gap: var(--space-10);
+  gap: var(--space-6);
 }
 
 /* --- Hero greeting (ref-1) — a borderless wash that BLEEDS seamlessly into
@@ -22,7 +22,7 @@
   position: relative;
   /* Pull the wash out to the window edges (cancels .app__content padding). */
   margin: calc(var(--space-2) * -1) calc(var(--content-pad) * -1) 0;
-  padding: var(--space-12) var(--content-pad) var(--space-10);
+  padding: var(--space-10) var(--content-pad) var(--space-4);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -175,71 +175,52 @@
   color: var(--text-dim);
 }
 
-/* --- Quick-start action cards (ref-1 2x2 grid) ---------------------------- */
+/* --- Quick-start actions — a light, borderless list (NOT cards): no chrome,
+   no icon chips, just text with a subtle hover. ---------------------------- */
 .home__quick {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 calc(var(--space-3) * -1);
 }
 
-.home__quick-card {
+.home__quick-action {
   appearance: none;
+  border: 0;
+  background: transparent;
   text-align: left;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-5) var(--space-5) var(--space-5);
-  background: var(--panel-glass);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  border-radius: var(--radius-lg);
-  box-shadow:
-    inset 0 1px 0 var(--edge-light),
-    var(--shadow-sm);
+  gap: 2px;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
   cursor: pointer;
   font-family: inherit;
   color: var(--text);
-  transition:
-    transform var(--duration-fast) var(--ease-standard),
-    box-shadow var(--duration-fast) var(--ease-standard);
+  transition: background var(--duration-fast) var(--ease-standard);
 }
 
-.home__quick-card:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow:
-    inset 0 1px 0 var(--edge-light),
-    var(--shadow-md);
+.home__quick-action:hover:not(:disabled) {
+  background: var(--accent-tint);
 }
 
-.home__quick-card:focus-visible {
+.home__quick-action:focus-visible {
   outline: none;
-  box-shadow: var(--shadow-focus), var(--shadow-sm);
+  box-shadow: var(--shadow-focus);
 }
 
-.home__quick-card:disabled {
-  opacity: 0.55;
+.home__quick-action:disabled {
+  opacity: 0.5;
   cursor: default;
 }
 
-.home__quick-icon {
-  width: 34px;
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-md);
-  background: var(--accent-tint);
-  color: var(--accent-ink);
-  margin-bottom: var(--space-1);
-}
-
-.home__quick-title {
-  font-size: var(--text-subhead);
-  font-weight: var(--weight-semibold);
+.home__quick-action-title {
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
   color: var(--text);
 }
 
-.home__quick-desc {
+.home__quick-action-desc {
   font-size: var(--text-caption);
   line-height: 1.45;
   color: var(--text-dim);

@@ -37,6 +37,14 @@ Loqui/
 *.sqlite
 *.sqlite3
 *.db
+*.db-shm
+*.db-wal
+# Non-secret settings the app writes to its data dir (can land in the repo root
+# in dev when the data dir resolves to cwd).
+chat-settings.json
+
+# Swift native helper build output (apps/desktop/native/macos)
+.build/
 
 # Secrets / config
 .env

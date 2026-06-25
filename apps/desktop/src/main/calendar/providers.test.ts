@@ -8,7 +8,7 @@
  * Microsoft Graph onlineMeeting.joinUrl, Zoom join_url) and the platform/link
  * extraction is asserted.
  */
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CalendarOAuthTokens } from "./types.js";
 import {
   FakeCalendarProvider,
@@ -290,7 +290,11 @@ describe("Zoom normalization", () => {
 });
 
 describe("real provider connect (OAuth via injected http, no network)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   it("Google connect exchanges the code + resolves the account email", async () => {
+    // A client id must be configured (env) for the OAuth flow to start.
+    vi.stubEnv("LOQUI_GOOGLE_CLIENT_ID", "test-google-client");
     // openExternal triggers the (already-bound) redirect; we simulate by hitting
     // the loopback URL the flow opens.
     const oauthHttp: OAuthHttp = () =>
@@ -314,5 +318,19 @@ describe("real provider connect (OAuth via injected http, no network)", () => {
     const out = await p.connect();
     expect(out.tokens.accessToken).toBe("AT");
     expect(out.account).toBe("me@gmail.com");
+  });
+
+  it("connect fails fast with an actionable message when no client id is configured", async () => {
+    vi.stubEnv("LOQUI_GOOGLE_CLIENT_ID", "");
+    let opened = false;
+    const openExternal = (): Promise<void> => {
+      opened = true;
+      return Promise.resolve();
+    };
+    const oauthHttp: OAuthHttp = () => Promise.reject(new Error("should not be called"));
+    const p = new GoogleProvider({ http: jsonHttp({}), oauthHttp, openExternal });
+    await expect(p.connect()).rejects.toThrow(/isn't configured|LOQUI_GOOGLE_CLIENT_ID/);
+    // It must NOT open a broken consent page.
+    expect(opened).toBe(false);
   });
 });

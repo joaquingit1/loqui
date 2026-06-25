@@ -10,6 +10,7 @@
 import {
   app,
   BrowserWindow,
+  desktopCapturer,
   Menu,
   nativeImage,
   safeStorage,
@@ -21,7 +22,7 @@ import {
 import { join } from "node:path";
 import { release as osRelease } from "node:os";
 import { fileURLToPath } from "node:url";
-import { rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import {
   AUDIO_WAV_FILENAME,
   transcriptionSettingsToEnv,
@@ -226,9 +227,28 @@ function deleteMeetingAudioFiles(meetingId: string): void {
 function registerDisplayMediaLoopback(): void {
   session.defaultSession.setDisplayMediaRequestHandler(
     (_request, callback) => {
-      // Build unit "renderer-capture" selects the screen/window source for the
-      // video track; Foundation guarantees the loopback audio path is enabled.
-      callback({ audio: "loopback" });
+      // The renderer requests a (1×1) VIDEO track alongside loopback audio
+      // because Electron's system-audio loopback rides a display-media VIDEO
+      // request. If we hand back audio ONLY, Chromium rejects the whole request
+      // with "Video was requested, but no video stream was provided" and capture
+      // fails (the user sees "user aborted the request"). So we provide a real
+      // screen source for the video track — the renderer immediately stops and
+      // drops it, keeping ONLY the loopback audio track (see the renderer capture
+      // controller). desktopCapturer is async, so we resolve a source then call
+      // back; on macOS this routes through the Screen-Recording permission.
+      desktopCapturer
+        .getSources({ types: ["screen"] })
+        .then((sources) => {
+          const screen = sources[0];
+          if (screen) {
+            callback({ video: screen, audio: "loopback" });
+          } else {
+            // No screen source available (permission not yet granted) — fall
+            // back to audio-only; the renderer surfaces a clear per-source error.
+            callback({ audio: "loopback" });
+          }
+        })
+        .catch(() => callback({ audio: "loopback" }));
     },
     { useSystemPicker: false },
   );
@@ -305,6 +325,25 @@ export async function bootstrap(): Promise<void> {
 
   store = openStore();
 
+  // Reconcile stale lifecycle state on startup: a meeting persisted as
+  // "recording" or "processing" can only be a leftover from a previous run that
+  // was killed before it could stop/finish — the app cannot actually be
+  // capturing or post-processing after a restart. Finalize them to "done" so
+  // they don't linger in the library as "recording" forever (and so nothing is
+  // wrongly presented as live). Best-effort; a failure here must not block boot.
+  try {
+    for (const m of store.listMeetings()) {
+      if (m.status === "recording" || m.status === "processing") {
+        store.updateMeeting(m.id, {
+          status: "done",
+          endedAt: m.endedAt ?? m.updatedAt ?? new Date().toISOString(),
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[loqui] stale-meeting reconcile failed:", err);
+  }
+
   // PRD-13 capture/privacy + export settings (non-secret JSON). Read BEFORE the
   // window is created so the content-protection toggle (ON by default) is applied
   // at creation. Shared with the audio retention path + the export service.
@@ -318,7 +357,33 @@ export async function bootstrap(): Promise<void> {
   // change takes effect for the next sidecar launch (= the next meeting).
   supervisor = new SidecarSupervisor({
     bundledBinPath: appPaths.bundledSidecarBin(),
-    extraEnv: () => transcriptionSettingsToEnv(settingsStore!.getTranscriptionSettings()),
+    extraEnv: () => {
+      const env: Record<string, string> = transcriptionSettingsToEnv(
+        settingsStore!.getTranscriptionSettings(),
+      );
+      // PRD-9/10: point the sidecar at the macOS on-device helper (Apple Speech
+      // transcription + Apple-native summaries) when it's present, so the native
+      // engines are AVAILABLE instead of reporting "no native helper". Dev: the
+      // swift-built binary under apps/desktop/native/macos; packaged: the copy
+      // bundled under resources. (resolveHelper checks both; absent => unset, and
+      // the sidecar cleanly falls back to faster-whisper / a cloud provider.)
+      if (process.platform === "darwin") {
+        const helper = appPaths.isPackaged
+          ? join(appPaths.resourcesDir(), "native", "loqui-asr-helper")
+          : join(
+              appPaths.resourcesDir(),
+              "apps",
+              "desktop",
+              "native",
+              "macos",
+              ".build",
+              "release",
+              "loqui-asr-helper",
+            );
+        if (existsSync(helper)) env["LOQUI_ASR_HELPER_BIN"] = helper;
+      }
+      return env;
+    },
   });
 
   applyRunInBackground(settingsStore.getAutoRecordSettings().runInBackground);
