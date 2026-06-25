@@ -50,6 +50,16 @@ function makeFakeController(): {
     stop,
     stopAll: vi.fn(async () => {}),
     getStatus: (s) => statuses[s],
+    setMuted: (s, muted) => {
+      statuses[s] = { ...statuses[s], muted };
+      listener?.(s, statuses[s]);
+    },
+    toggleMute: (s) => {
+      const next = !statuses[s].muted;
+      statuses[s] = { ...statuses[s], muted: next };
+      listener?.(s, statuses[s]);
+      return next;
+    },
     subscribe: (l) => {
       listener = l;
       return () => {

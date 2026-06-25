@@ -29,11 +29,13 @@ export interface UseCaptureResult {
   screenPermission: ScreenPermissionStatus | null;
   start(source: AudioSource): Promise<void>;
   stop(source: AudioSource): Promise<void>;
+  /** Toggle mute for one source (PRD-13); returns the new muted state. */
+  toggleMute(source: AudioSource): boolean;
   /** True while either source is starting/capturing. */
   anyActive: boolean;
 }
 
-const IDLE: CaptureStatus = { state: "idle", level: 0 };
+const IDLE: CaptureStatus = { state: "idle", level: 0, muted: false };
 
 export function useCapture(opts: UseCaptureOptions): UseCaptureResult {
   const { audio, meetingId, micDeviceId } = opts;
@@ -91,6 +93,10 @@ export function useCapture(opts: UseCaptureOptions): UseCaptureResult {
   const stop = useCallback(async (source: AudioSource) => {
     await controllerRef.current?.stop(source);
   }, []);
+  const toggleMute = useCallback(
+    (source: AudioSource): boolean => controllerRef.current?.toggleMute(source) ?? false,
+    [],
+  );
 
   const anyActive = useMemo(
     () =>
@@ -100,5 +106,5 @@ export function useCapture(opts: UseCaptureOptions): UseCaptureResult {
     [statuses],
   );
 
-  return { statuses, screenPermission, start, stop, anyActive };
+  return { statuses, screenPermission, start, stop, toggleMute, anyActive };
 }

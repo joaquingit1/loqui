@@ -266,6 +266,44 @@ export const IPC = {
    */
   calendarUpdated: "loqui:calendar:updated",
 
+  // --- Export & interop (PRD-13) ---
+  /**
+   * invoke: export ONE meeting in ONE format (payload
+   * {@link import("@loqui/shared").ExportMeetingParams}; ->
+   * {@link import("@loqui/shared").ExportResult}). READ-ONLY over the canonical
+   * transcript: builds a model from the diarized transcript (else the live
+   * transcript) + summary and writes a NEW file under the export dir; it NEVER
+   * mutates transcript.live.md.
+   */
+  exportMeeting: "loqui:export:meeting",
+  /**
+   * invoke: open a native directory-picker to choose the export/storage dir and,
+   * if chosen, persist it as the `exportDir` setting (-> string | null; null
+   * when cancelled). The picker lives in main (renderer cannot read abs paths).
+   */
+  exportPickDir: "loqui:export:pickDir",
+
+  // --- Capture / privacy controls (PRD-13) ---
+  /**
+   * invoke: read the persisted capture/privacy settings (->
+   * {@link import("@loqui/shared").CaptureSettings}): content-protection toggle,
+   * audio-retention policy, per-app audio filter, export dir.
+   */
+  getCaptureSettings: "loqui:privacy:getCaptureSettings",
+  /**
+   * invoke: patch the capture/privacy settings (payload
+   * {@link import("@loqui/shared").UpdateCaptureSettings}; ->
+   * {@link import("@loqui/shared").CaptureSettings}). Applies content-protection
+   * to the live window(s) immediately when the toggle changes.
+   */
+  setCaptureSettings: "loqui:privacy:setCaptureSettings",
+  /**
+   * invoke: the per-app/per-process system-audio capability PROBE + decision (->
+   * {@link import("@loqui/shared").CaptureCapability}): whether the OS supports a
+   * per-process tap and the resolved mode (per-app vs full-loopback fallback).
+   */
+  getCaptureCapability: "loqui:privacy:getCaptureCapability",
+
   // --- Google Meet speaker-name attribution (PRD-6) ---
   /**
    * invoke: current extension-connection / name-capture status

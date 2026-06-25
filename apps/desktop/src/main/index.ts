@@ -9,10 +9,12 @@
  */
 import { app, BrowserWindow, safeStorage, session, shell, systemPreferences } from "electron";
 import { join } from "node:path";
+import { release as osRelease } from "node:os";
 import { fileURLToPath } from "node:url";
-import type { Meeting, ScreenPermissionStatus } from "@loqui/shared";
+import { rmSync } from "node:fs";
+import { AUDIO_WAV_FILENAME, type Meeting, type ScreenPermissionStatus } from "@loqui/shared";
 import { SidecarSupervisor } from "./sidecar/supervisor.js";
-import { openStore, type MeetingStore } from "./store/index.js";
+import { openStore, meetingAudioDir, type MeetingStore } from "./store/index.js";
 import { IPC } from "../shared/ipc.js";
 import {
   pushMeetingStatus,
@@ -35,6 +37,10 @@ import {
   createTranscriptWriter,
 } from "./transcript/index.js";
 import { createImportPipeline } from "./import/pipeline.js";
+import { ExportService } from "./export/index.js";
+import { registerExportIpc } from "./export/register.js";
+import { SettingsStore } from "./settings/store.js";
+import { defaultCaptureCapabilityProbe } from "./capture/perapp.js";
 import { McpServerManager, makeMcpStatusPush, registerMcpIpc } from "./mcp/index.js";
 import {
   CalendarKeystore,
@@ -78,7 +84,7 @@ export const SECURE_WEB_PREFERENCES = {
   sandbox: true,
 } as const;
 
-export function createWindow(): BrowserWindow {
+export function createWindow(opts?: { contentProtection?: boolean }): BrowserWindow {
   const win = new BrowserWindow({
     width: 1100,
     height: 740,
@@ -90,6 +96,11 @@ export function createWindow(): BrowserWindow {
       preload: join(__dirname, "../preload/index.cjs"),
     },
   });
+  // PRD-13: hide the window from screen capture/recording when enabled (ON by
+  // default). Cross-platform in Electron (macOS NSWindow sharingType; Windows
+  // SetWindowDisplayAffinity). Applied at creation; the privacy toggle re-applies
+  // it live via setContentProtection.
+  win.setContentProtection(opts?.contentProtection ?? true);
   win.once("ready-to-show", () => win.show());
   loadRenderer(win);
   return win;
@@ -129,6 +140,18 @@ export function getScreenPermissionStatus(): ScreenPermissionStatus {
 }
 
 /**
+ * Remove a meeting's per-source WAVs (mic.wav/system.wav) — the
+ * `delete-after-processing` audio-retention cleanup (PRD-13). Best-effort:
+ * `force: true` makes a missing file a no-op so it never throws.
+ */
+function deleteMeetingAudioFiles(meetingId: string): void {
+  const dir = meetingAudioDir(meetingId);
+  for (const file of Object.values(AUDIO_WAV_FILENAME)) {
+    rmSync(join(dir, file), { force: true });
+  }
+}
+
+/**
  * Register the loopback display-media handler so the renderer's
  * `getDisplayMedia({ audio: true })` yields system/loopback audio. On macOS
  * this routes through the Screen-Recording permission. Build units refine the
@@ -163,6 +186,10 @@ let disposePostProcessPipeline: (() => void) | null = null;
 let disposeImportPipeline: (() => void) | null = null;
 let mcpManager: McpServerManager | null = null;
 let disposeMcpIpc: (() => void) | null = null;
+// PRD-13 export + capture/privacy seam: the disposer for the export/privacy IPC
+// bridge and the settings store it (plus the audio + postprocess paths) read.
+let disposeExportIpc: (() => void) | null = null;
+let settingsStore: SettingsStore | null = null;
 // PRD-15 calendar seam: the disposer for the calendar IPC bridge + push, and
 // the service (fan-out/normalize/dedup/poll) it's bound to.
 let disposeCalendarIpc: (() => void) | null = null;
@@ -185,7 +212,14 @@ export async function bootstrap(): Promise<void> {
   store = openStore();
   supervisor = new SidecarSupervisor();
 
-  mainWindow = createWindow();
+  // PRD-13 capture/privacy + export settings (non-secret JSON). Read BEFORE the
+  // window is created so the content-protection toggle (ON by default) is applied
+  // at creation. Shared with the audio retention path + the export service.
+  settingsStore = new SettingsStore();
+
+  mainWindow = createWindow({
+    contentProtection: settingsStore.getCaptureSettings().contentProtection,
+  });
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
@@ -229,6 +263,10 @@ export async function bootstrap(): Promise<void> {
     providerKeys: chatKeystore,
     hfKeystore,
     emitStatus: pushMeetingStatusToRenderer,
+    // PRD-13 audio-retention: after diarization consumes the WAVs, the
+    // `delete-after-processing` policy removes mic.wav/system.wav.
+    getAudioRetention: () => settingsStore!.getCaptureSettings().audioRetention,
+    deleteAudioFiles: deleteMeetingAudioFiles,
   });
   disposePostProcessPipeline = () => postProcessPipeline.dispose();
   disposeJobUpdatePush = forwardJobUpdates(supervisor, () => mainWindow);
@@ -278,6 +316,31 @@ export async function bootstrap(): Promise<void> {
   disposeAudioIpc = registerAudioIpc({
     supervisor,
     getScreenPermission: getScreenPermissionStatus,
+    // PRD-13 audio-retention: `never-save` => the orchestrator tells the sidecar
+    // not to persist the WAVs (stream-only).
+    getAudioRetention: () => settingsStore!.getCaptureSettings().audioRetention,
+  });
+
+  // Export & interop + capture/privacy controls (PRD-13). The ExportService is
+  // READ-ONLY over the canonical transcript (it builds a model from the diarized
+  // transcript — else the live transcript — + summary and writes a NEW file).
+  // The privacy bridge persists the non-secret capture settings and re-applies
+  // the content-protection toggle to the live window(s) live; the per-app
+  // capability probe degrades to full loopback until the native macOS/Windows
+  // process-tap path is verified (see ./capture/perapp.ts).
+  const exportService = new ExportService({
+    store,
+    getExportDir: () => settingsStore!.getExportDir(),
+  });
+  disposeExportIpc = registerExportIpc({
+    exportService,
+    settings: settingsStore,
+    captureProbe: defaultCaptureCapabilityProbe(process.platform, osRelease()),
+    applyContentProtection: (enabled: boolean) => {
+      const win = mainWindow;
+      if (win && !win.isDestroyed()) win.setContentProtection(enabled);
+    },
+    getWindow: () => mainWindow,
   });
 
   // In-call AI chat + provider abstraction (PRD-4). The keystore stores the BYOK
@@ -393,7 +456,9 @@ export async function bootstrap(): Promise<void> {
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      mainWindow = createWindow();
+      mainWindow = createWindow({
+        contentProtection: settingsStore?.getCaptureSettings().contentProtection ?? true,
+      });
       mainWindow.on("closed", () => {
         mainWindow = null;
       });
@@ -437,6 +502,10 @@ async function shutdown(): Promise<void> {
   disposeMcpIpc = null;
   mcpManager?.dispose();
   mcpManager = null;
+  // PRD-13 export/privacy teardown.
+  disposeExportIpc?.();
+  disposeExportIpc = null;
+  settingsStore = null;
   // PRD-15 calendar teardown (disposes the IPC bridge + push + service polling
   // once Build unit A wires it above).
   disposeCalendarIpc?.();

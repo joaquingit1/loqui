@@ -14,6 +14,11 @@ import type {
   AudioCaptureStartParams,
   AudioCaptureStopParams,
   AudioFrameMessage,
+  CaptureCapability,
+  CaptureSettings,
+  ExportMeetingParams,
+  ExportResult,
+  UpdateCaptureSettings,
   CalendarConnection,
   CalendarConnectResult,
   CalendarEvent,
@@ -84,6 +89,42 @@ export interface LoquiApi {
   calendar: LoquiCalendarApi;
   /** Google Meet speaker-name attribution status bridge (PRD-6). */
   speakerNames: LoquiSpeakerNamesApi;
+  /** Export & interop bridge (PRD-13). */
+  export: LoquiExportApi;
+  /** Capture / privacy controls bridge (PRD-13). */
+  privacy: LoquiPrivacyApi;
+}
+
+/**
+ * Export & interop surface (PRD-13). Wraps the export IPC channels so the
+ * renderer never references channel names directly. READ-ONLY over the canonical
+ * transcript: `exportMeeting` builds a model from the diarized (else live)
+ * transcript + summary and writes a NEW file under the export dir — it never
+ * mutates transcript.live.md.
+ */
+export interface LoquiExportApi {
+  /** Export one meeting in one format; resolves with the written path + size. */
+  exportMeeting(params: ExportMeetingParams): Promise<ExportResult>;
+  /**
+   * Open the native folder-picker to choose + persist the export dir. Resolves
+   * to the chosen absolute path, or null when cancelled.
+   */
+  pickExportDir(): Promise<string | null>;
+}
+
+/**
+ * Capture / privacy controls surface (PRD-13). Reads + patches the non-secret
+ * capture settings (content-protection toggle, audio-retention policy, per-app
+ * audio filter, export dir) and reports the per-app system-audio capability +
+ * decision. No secrets here.
+ */
+export interface LoquiPrivacyApi {
+  /** Read the persisted capture/privacy settings. */
+  getCaptureSettings(): Promise<CaptureSettings>;
+  /** Patch the capture/privacy settings; applies content-protection immediately. */
+  setCaptureSettings(patch: UpdateCaptureSettings): Promise<CaptureSettings>;
+  /** The per-app system-audio capability probe + resolved capture mode. */
+  getCaptureCapability(): Promise<CaptureCapability>;
 }
 
 /**
@@ -418,6 +459,21 @@ const speakerNames: LoquiSpeakerNamesApi = {
   },
 };
 
+const exportApi: LoquiExportApi = {
+  exportMeeting: (params: ExportMeetingParams): Promise<ExportResult> =>
+    ipcRenderer.invoke(IPC.exportMeeting, params),
+  pickExportDir: (): Promise<string | null> => ipcRenderer.invoke(IPC.exportPickDir),
+};
+
+const privacy: LoquiPrivacyApi = {
+  getCaptureSettings: (): Promise<CaptureSettings> =>
+    ipcRenderer.invoke(IPC.getCaptureSettings),
+  setCaptureSettings: (patch: UpdateCaptureSettings): Promise<CaptureSettings> =>
+    ipcRenderer.invoke(IPC.setCaptureSettings, patch),
+  getCaptureCapability: (): Promise<CaptureCapability> =>
+    ipcRenderer.invoke(IPC.getCaptureCapability),
+};
+
 const api: LoquiApi = {
   ping: () => ipcRenderer.invoke(IPC.ping),
   getSidecarHealth: () => ipcRenderer.invoke(IPC.getSidecarHealth),
@@ -438,6 +494,8 @@ const api: LoquiApi = {
   mcp,
   calendar,
   speakerNames,
+  export: exportApi,
+  privacy,
 };
 
 contextBridge.exposeInMainWorld("loqui", api);

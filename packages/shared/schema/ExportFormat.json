@@ -1,0 +1,18 @@
+{
+  "$ref": "#/definitions/ExportFormat",
+  "definitions": {
+    "ExportFormat": {
+      "type": "string",
+      "enum": [
+        "md",
+        "obsidian",
+        "srt",
+        "vtt",
+        "json",
+        "pdf",
+        "docx"
+      ]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

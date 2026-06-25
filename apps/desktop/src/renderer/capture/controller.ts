@@ -40,6 +40,16 @@ export interface CaptureStatus {
   state: CaptureSourceState;
   /** Linear peak level in [0, 1] for the meter (0 when not capturing). */
   level: number;
+  /**
+   * Whether this source is MUTED (PRD-13). While muted, the controller stops
+   * forwarding that source's PCM frames to main (so the muted side is NOT
+   * transcribed/recorded) and reports level 0. mic and system mute
+   * INDEPENDENTLY — muting one never touches the other (the two-streams-separate
+   * invariant). Optional + defaults false (additive — older status snapshots
+   * without the field read as unmuted); toggling does not stop/restart the
+   * stream.
+   */
+  muted?: boolean;
   /** Populated when `state === "error"`. */
   error?: string;
 }
@@ -141,6 +151,14 @@ export interface CaptureController {
   stopAll(): Promise<void>;
   /** Current status snapshot for a source. */
   getStatus(source: AudioSource): CaptureStatus;
+  /**
+   * Mute/unmute ONE source (PRD-13). While muted the controller stops forwarding
+   * that source's frames to main and reports level 0; the other source is
+   * untouched. Idempotent.
+   */
+  setMuted(source: AudioSource, muted: boolean): void;
+  /** Toggle mute for one source; returns the new muted state. */
+  toggleMute(source: AudioSource): boolean;
   /** Subscribe to status changes; returns an unsubscribe fn. */
   subscribe(listener: CaptureStatusListener): () => void;
 }
@@ -150,8 +168,8 @@ export function createCaptureController(deps: CaptureControllerDeps): CaptureCon
   const { audio, meetingId } = deps;
 
   const statuses: Record<AudioSource, CaptureStatus> = {
-    mic: { state: "idle", level: 0 },
-    system: { state: "idle", level: 0 },
+    mic: { state: "idle", level: 0, muted: false },
+    system: { state: "idle", level: 0, muted: false },
   };
   const resources: Partial<Record<AudioSource, SourceResources>> = {};
   const listeners = new Set<CaptureStatusListener>();
@@ -208,7 +226,10 @@ export function createCaptureController(deps: CaptureControllerDeps): CaptureCon
       analyser.fftSize = 1024;
 
       // Route the encoded binary frames straight to main (fire-and-forget).
+      // PRD-13: while this source is muted, DROP its frames (so the muted side is
+      // not transcribed/recorded). The other source is unaffected.
       workletNode.port.onmessage = (event: MessageEvent): void => {
+        if (statuses[source].muted) return;
         const frame = event.data as ArrayBuffer;
         if (frame instanceof ArrayBuffer && frame.byteLength > 0) {
           audio.sendFrame({ meetingId, source, frame });
@@ -265,9 +286,12 @@ export function createCaptureController(deps: CaptureControllerDeps): CaptureCon
       if (!cur || cur !== res) return; // stopped/replaced
       res.analyser.getFloatTimeDomainData(res.meterBuf);
       let peak = 0;
-      for (let i = 0; i < res.meterBuf.length; i += 1) {
-        const a = Math.abs(res.meterBuf[i]!);
-        if (a > peak) peak = a;
+      // A muted source reads 0 on the meter (it isn't being captured/forwarded).
+      if (!statuses[source].muted) {
+        for (let i = 0; i < res.meterBuf.length; i += 1) {
+          const a = Math.abs(res.meterBuf[i]!);
+          if (a > peak) peak = a;
+        }
       }
       if (statuses[source].state === "capturing" && statuses[source].level !== peak) {
         setStatus(source, { level: peak });
@@ -328,11 +352,23 @@ export function createCaptureController(deps: CaptureControllerDeps): CaptureCon
     } catch {
       /* best-effort; main also tolerates duplicate stops */
     }
-    setStatus(source, { state: "idle", level: 0, error: undefined });
+    setStatus(source, { state: "idle", level: 0, muted: false, error: undefined });
   }
 
   async function stopAll(): Promise<void> {
     await Promise.all([stop("mic"), stop("system")]);
+  }
+
+  function setMuted(source: AudioSource, muted: boolean): void {
+    if (statuses[source].muted === muted) return;
+    // Mute drops frames immediately and zeroes the meter; unmute resumes both.
+    setStatus(source, { muted, level: muted ? 0 : statuses[source].level });
+  }
+
+  function toggleMute(source: AudioSource): boolean {
+    const next = !statuses[source].muted;
+    setMuted(source, next);
+    return next;
   }
 
   return {
@@ -340,6 +376,8 @@ export function createCaptureController(deps: CaptureControllerDeps): CaptureCon
     stop,
     stopAll,
     getStatus: (source) => statuses[source],
+    setMuted,
+    toggleMute,
     subscribe: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);

@@ -1,0 +1,26 @@
+{
+  "$ref": "#/definitions/AudioFinalized",
+  "definitions": {
+    "AudioFinalized": {
+      "type": "object",
+      "properties": {
+        "meetingId": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "mic",
+            "system"
+          ]
+        }
+      },
+      "required": [
+        "meetingId",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

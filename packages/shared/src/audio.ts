@@ -37,6 +37,15 @@ export const audioStartSchema = z.object({
   sampleRate: z.literal(AUDIO_SAMPLE_RATE).default(AUDIO_SAMPLE_RATE),
   channels: z.literal(AUDIO_CHANNELS).default(AUDIO_CHANNELS),
   encoding: audioEncodingSchema,
+  /**
+   * Whether the sidecar should PERSIST this source's WAV to disk (PRD-13
+   * audio-retention). Defaulted `true` so an older main (or any caller that
+   * omits it) keeps the existing keep-the-audio behavior. The `never-save`
+   * retention policy sets this `false`: the sidecar still streams the PCM to
+   * transcription but writes NO mic.wav/system.wav (disabling post-hoc
+   * re-diarization). Honored by the sidecar's WAV-writer consumer.
+   */
+  persistAudio: z.boolean().default(true),
 });
 export type AudioStart = z.infer<typeof audioStartSchema>;
 
@@ -50,11 +59,30 @@ export type AudioStop = z.infer<typeof audioStopSchema>;
 /**
  * Notification `event` names used to carry the audio control frames on the WS
  * control channel. Binary PCM rides as raw binary frames, not these.
+ *
+ * `finalized` is the sidecar -> main signal emitted AFTER a source's `audioStop`
+ * has flushed + closed its WAV (PRD-5 waits on it before diarizing, PRD-13
+ * `delete-after-processing` deletes the WAVs only after diarization consumes
+ * them — both downstream of this signal).
  */
 export const AUDIO_EVENT = {
   start: "audioStart",
   stop: "audioStop",
+  finalized: "audioFinalized",
 } as const;
+
+/** The `audioFinalized` notification name (sidecar -> main). */
+export const AUDIO_FINALIZED_EVENT = AUDIO_EVENT.finalized;
+
+/**
+ * Payload of the `audioFinalized` notification (sidecar -> main): the meeting +
+ * source whose WAV was just finalized + closed.
+ */
+export const audioFinalizedSchema = z.object({
+  meetingId: z.string(),
+  source: audioSourceSchema,
+});
+export type AudioFinalized = z.infer<typeof audioFinalizedSchema>;
 
 /** Fixed-byte sizes for the binary PCM frame header (see file header). */
 export const AUDIO_FRAME_HEADER_BYTES = 16 as const;

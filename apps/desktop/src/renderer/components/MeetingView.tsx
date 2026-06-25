@@ -14,7 +14,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Meeting } from "@loqui/shared";
-import type { LoquiLibraryApi } from "../../preload/index.js";
+import type { LoquiExportApi, LoquiLibraryApi } from "../../preload/index.js";
+import { ExportMenu } from "./ExportMenu.js";
 import {
   displayTitle,
   formatDuration,
@@ -32,6 +33,8 @@ export interface MeetingViewProps {
   meeting: Meeting;
   /** Library bridge (subset). Injectable for tests; defaults to window.loqui.library. */
   api?: Pick<LoquiLibraryApi, "getTranscript" | "renameMeeting">;
+  /** Export bridge (PRD-13). Injectable for tests; defaults to window.loqui.export. */
+  exportApi?: Pick<LoquiExportApi, "exportMeeting">;
   /** Navigate back to the Library list. */
   onBack?: () => void;
   /** Fired with the updated Meeting after a successful rename. */
@@ -43,7 +46,13 @@ type LoadState =
   | { kind: "loaded"; text: string }
   | { kind: "error"; message: string };
 
-export function MeetingView({ meeting, api, onBack, onRenamed }: MeetingViewProps): JSX.Element {
+export function MeetingView({
+  meeting,
+  api,
+  exportApi,
+  onBack,
+  onRenamed,
+}: MeetingViewProps): JSX.Element {
   const library = (api ?? window.loqui?.library) as MeetingViewProps["api"] | undefined;
   const [load, setLoad] = useState<LoadState>({ kind: "loading" });
 
@@ -238,6 +247,10 @@ export function MeetingView({ meeting, api, onBack, onRenamed }: MeetingViewProp
           <dd>{duration ?? "—"}</dd>
         </div>
       </dl>
+
+      {/* PRD-13: export this meeting (Markdown/Obsidian/SRT/VTT/JSON/PDF/DOCX).
+          READ-ONLY — building an export never mutates transcript.live.md. */}
+      <ExportMenu meetingId={meeting.id} api={exportApi} />
 
       <div className="meeting-view__transcript" data-testid="meeting-transcript">
         {load.kind === "loading" && (

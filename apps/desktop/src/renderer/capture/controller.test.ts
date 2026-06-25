@@ -224,6 +224,37 @@ describe("createCaptureController", () => {
     expect(h.audio.sendFrame).toHaveBeenCalledTimes(1);
   });
 
+  it("mute drops a source's frames + zeroes its meter; the other source is untouched (PRD-13)", async () => {
+    const c = createCaptureController({ audio: h.audio, meetingId: MEETING, env: h.env });
+    await c.start("mic");
+    await c.start("system");
+    const frame = new Uint8Array([0xa0, 0, 0, 0]).buffer;
+
+    // Unmuted: frames flow.
+    h.workletNodes[0]!.port.emit(frame);
+    expect(h.audio.sendFrame).toHaveBeenCalledTimes(1);
+
+    // Mute the mic: its frames are dropped; system still flows.
+    const muted = c.toggleMute("mic");
+    expect(muted).toBe(true);
+    expect(c.getStatus("mic").muted).toBe(true);
+    expect(c.getStatus("system").muted).toBe(false);
+    h.workletNodes[0]!.port.emit(frame); // mic frame dropped
+    h.workletNodes[1]!.port.emit(frame); // system frame forwarded
+    expect(h.audio.sendFrame).toHaveBeenCalledTimes(2);
+    expect(h.audio.sendFrame).toHaveBeenLastCalledWith({
+      meetingId: MEETING,
+      source: "system",
+      frame,
+    });
+
+    // Unmute the mic: frames flow again.
+    c.setMuted("mic", false);
+    expect(c.getStatus("mic").muted).toBe(false);
+    h.workletNodes[0]!.port.emit(frame);
+    expect(h.audio.sendFrame).toHaveBeenCalledTimes(3);
+  });
+
   it("runs the two sources independently (separate contexts + nodes)", async () => {
     const c = createCaptureController({ audio: h.audio, meetingId: MEETING, env: h.env });
     await c.start("mic");

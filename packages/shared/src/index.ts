@@ -21,3 +21,5 @@ export * from "./mcp.js";
 export * from "./calendar.js";
 export * from "./speakernames.js";
 export * from "./importfile.js";
+export * from "./export.js";
+export * from "./privacy.js";

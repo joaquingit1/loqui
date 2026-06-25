@@ -27,6 +27,7 @@ import { DebugPanel } from "./components/DebugPanel.js";
 import { MeetingControls } from "./components/MeetingControls.js";
 import { Library } from "./components/Library.js";
 import { McpSettings } from "./components/McpSettings.js";
+import { PrivacyExportSettings } from "./components/PrivacyExportSettings.js";
 import { HomeView } from "./components/HomeView.js";
 import { CalendarSettings } from "./components/CalendarSettings.js";
 import { SpeakerNamesStatus } from "./components/SpeakerNamesStatus.js";
@@ -124,6 +125,7 @@ export function App({
         <>
           <CalendarSettings api={api?.calendar} />
           <SpeakerNamesStatus api={api?.speakerNames} />
+          <PrivacyExportSettings privacy={api?.privacy} exportApi={api?.export} />
           <McpSettings api={api?.mcp} />
           <DebugPanel api={api} />
         </>

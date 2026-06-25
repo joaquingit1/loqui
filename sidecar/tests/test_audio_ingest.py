@@ -154,6 +154,31 @@ def test_single_source_writes_valid_16k_mono_wav(ingest, tmp_path):
         w.close()
 
 
+def test_never_save_writes_no_wav_but_does_not_raise(ingest, tmp_path):
+    """PRD-13 ``never-save``: persist=False streams frames but writes no WAV."""
+    meeting_id = str(uuid.uuid4())
+    pcm = ramp_pcm(320)
+
+    ingest.handle_audio_start(meeting_id, "mic", persist=False)
+    for seq in range(3):
+        ingest.handle_binary_frame(encode_frame("mic", seq, seq * 20.0, pcm))
+    # audioStop must be a clean no-op (no open stream) — never an error.
+    ingest.handle_audio_stop(meeting_id, "mic")
+
+    wav_path = audio_dir(tmp_path, meeting_id) / "mic.wav"
+    assert not wav_path.exists()
+
+
+def test_persist_true_still_writes_wav(ingest, tmp_path):
+    """The default ``keep`` policy (persist=True) writes the WAV as before."""
+    meeting_id = str(uuid.uuid4())
+    pcm = ramp_pcm(320)
+    ingest.handle_audio_start(meeting_id, "system", persist=True)
+    ingest.handle_binary_frame(encode_frame("system", 0, 0.0, pcm))
+    ingest.handle_audio_stop(meeting_id, "system")
+    assert (audio_dir(tmp_path, meeting_id) / "system.wav").exists()
+
+
 def test_riff_sizes_are_finalized_on_stop(ingest, tmp_path):
     """A correctly finalized WAV has RIFF/data chunk sizes matching the bytes."""
     meeting_id = str(uuid.uuid4())

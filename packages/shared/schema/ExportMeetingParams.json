@@ -1,0 +1,39 @@
+{
+  "$ref": "#/definitions/ExportMeetingParams",
+  "definitions": {
+    "ExportMeetingParams": {
+      "type": "object",
+      "properties": {
+        "meetingId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "md",
+            "obsidian",
+            "srt",
+            "vtt",
+            "json",
+            "pdf",
+            "docx"
+          ]
+        },
+        "outDir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "meetingId",
+        "format"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

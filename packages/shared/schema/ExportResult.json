@@ -1,0 +1,44 @@
+{
+  "$ref": "#/definitions/ExportResult",
+  "definitions": {
+    "ExportResult": {
+      "type": "object",
+      "properties": {
+        "meetingId": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "md",
+            "obsidian",
+            "srt",
+            "vtt",
+            "json",
+            "pdf",
+            "docx"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "usedDiarized": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "meetingId",
+        "format",
+        "path"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

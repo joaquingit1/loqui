@@ -34,6 +34,7 @@ import {
   type AudioCaptureStartParams,
   type AudioCaptureStopParams,
   type AudioFrameMessage,
+  type AudioRetentionPolicy,
   type ScreenPermissionStatus,
 } from "@loqui/shared";
 import { IPC } from "../../shared/ipc.js";
@@ -65,6 +66,13 @@ export interface AudioIpcDeps {
    * {@link CaptureOrchestrator} over the given supervisor.
    */
   orchestrator?: CaptureOrchestrator;
+  /**
+   * Read the current audio-retention policy (PRD-13). When it is `never-save`
+   * the orchestrator sends `audioStart` with `persistAudio: false` so the
+   * sidecar streams to transcription without writing the WAVs. Optional —
+   * absent => the default `keep` behavior (WAVs are persisted).
+   */
+  getAudioRetention?: () => AudioRetentionPolicy;
 }
 
 /**
@@ -74,8 +82,15 @@ export interface AudioIpcDeps {
  * documented backpressure/drop policy is on the path that actually runs.
  */
 export function registerAudioIpc(deps: AudioIpcDeps): () => void {
-  const { supervisor, getScreenPermission } = deps;
-  const orchestrator = deps.orchestrator ?? new CaptureOrchestrator({ supervisor });
+  const { supervisor, getScreenPermission, getAudioRetention } = deps;
+  const orchestrator =
+    deps.orchestrator ??
+    new CaptureOrchestrator({
+      supervisor,
+      // never-save => don't persist the WAVs; keep/delete-after-processing both
+      // persist (delete-after-processing removes them later, post-diarization).
+      getPersistAudio: () => (getAudioRetention?.() ?? "keep") !== "never-save",
+    });
 
   ipcMain.handle(
     IPC.audioStartCapture,

@@ -26,7 +26,7 @@ import {
   createMeetingInputSchema,
   updateMeetingInputSchema,
 } from "../src/meeting.js";
-import { audioStartSchema, audioStopSchema } from "../src/audio.js";
+import { audioStartSchema, audioStopSchema, audioFinalizedSchema } from "../src/audio.js";
 import { transcriptSegmentSchema, jobUpdateSchema } from "../src/events.js";
 import {
   chatMessageSchema,
@@ -54,6 +54,16 @@ import {
   speakerNamesStatusSchema,
 } from "../src/speakernames.js";
 import { importFileRequestSchema, importFileDoneSchema } from "../src/importfile.js";
+import {
+  exportFormatSchema,
+  exportMeetingParamsSchema,
+  exportResultSchema,
+} from "../src/export.js";
+import {
+  captureSettingsSchema,
+  updateCaptureSettingsSchema,
+  captureCapabilitySchema,
+} from "../src/privacy.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, "..", "schema");
@@ -74,6 +84,7 @@ const schemas: Record<string, ZodTypeAny> = {
   UpdateMeetingInput: updateMeetingInputSchema,
   AudioStart: audioStartSchema,
   AudioStop: audioStopSchema,
+  AudioFinalized: audioFinalizedSchema,
   TranscriptSegment: transcriptSegmentSchema,
   JobUpdate: jobUpdateSchema,
   // PRD-4 chat contract (sidecar validates the inbound `chatRequest` notification
@@ -109,6 +120,16 @@ const schemas: Record<string, ZodTypeAny> = {
   // terminal import contract is fully visible to Python.
   ImportFileRequest: importFileRequestSchema,
   ImportFileDone: importFileDoneSchema,
+  // PRD-13 export & interop. Emitted so the export request/result contract is
+  // fully visible to cross-process consumers (the transforms run in TS main).
+  ExportFormat: exportFormatSchema,
+  ExportMeetingParams: exportMeetingParamsSchema,
+  ExportResult: exportResultSchema,
+  // PRD-13 capture/privacy settings. CaptureSettings is the persisted shape;
+  // CaptureCapability is the per-app-filter probe + decision surfaced to the UI.
+  CaptureSettings: captureSettingsSchema,
+  UpdateCaptureSettings: updateCaptureSettingsSchema,
+  CaptureCapability: captureCapabilitySchema,
 };
 
 rmSync(outDir, { recursive: true, force: true });

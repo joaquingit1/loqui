@@ -681,10 +681,17 @@ async def _handle_notification(
     # (``pipeline.finish``) runs AFTER every already-queued frame for that source
     # has been processed — never racing ahead of in-flight decodes. Keeping the
     # FIFO single-thread executor is what makes this ordering hold.
+    # PRD-13 audio-retention: `never-save` sends persistAudio=false so the WAV
+    # writer skips disk persistence (transcription still streams). Defaulted true
+    # so an older main that omits the field keeps writing the WAVs.
+    persist_audio = data.get("persistAudio", True)
+    if not isinstance(persist_audio, bool):
+        persist_audio = True
+
     def _lifecycle() -> None:
         try:
             if event == "audioStart":
-                state.audio.handle_audio_start(meeting_id, source)
+                state.audio.handle_audio_start(meeting_id, source, persist=persist_audio)
             else:  # audioStop
                 # Runs on the per-source FIFO executor, so by the time this
                 # returns every queued frame for the source has been written and

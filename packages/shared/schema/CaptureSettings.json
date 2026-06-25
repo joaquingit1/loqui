@@ -1,0 +1,36 @@
+{
+  "$ref": "#/definitions/CaptureSettings",
+  "definitions": {
+    "CaptureSettings": {
+      "type": "object",
+      "properties": {
+        "contentProtection": {
+          "type": "boolean",
+          "default": true
+        },
+        "audioRetention": {
+          "type": "string",
+          "enum": [
+            "keep",
+            "delete-after-processing",
+            "never-save"
+          ],
+          "default": "keep"
+        },
+        "perAppAudioFilter": {
+          "type": "boolean",
+          "default": false
+        },
+        "exportDir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

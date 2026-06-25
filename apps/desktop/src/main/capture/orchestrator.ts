@@ -69,6 +69,14 @@ export interface CaptureOrchestratorOptions {
    * Injectable so tests can assert the drop path without hand-rolling headers.
    */
   validateFrame?: (bytes: Uint8Array) => void;
+  /**
+   * Whether the sidecar should PERSIST this capture's WAVs (PRD-13 audio
+   * retention). Resolved per `audioStart` so a setting change between meetings
+   * is honored. Defaults to `() => true` (keep the existing behavior); the
+   * `never-save` policy returns false so the sidecar streams to transcription
+   * without writing mic.wav/system.wav.
+   */
+  getPersistAudio?: () => boolean;
 }
 
 /** Per-source state for one active meeting. */
@@ -90,6 +98,7 @@ export class CaptureOrchestrator {
   private readonly supervisor: AudioSupervisor;
   private readonly queueCapacity: number;
   private readonly validateFrame: (bytes: Uint8Array) => void;
+  private readonly getPersistAudio: () => boolean;
 
   /** meetingId -> (source -> state). A meeting appears only while a source is started. */
   private readonly meetings = new Map<string, Map<AudioSource, SourceState>>();
@@ -98,6 +107,7 @@ export class CaptureOrchestrator {
     this.supervisor = opts.supervisor;
     this.queueCapacity = opts.queueCapacity ?? DEFAULT_FRAME_QUEUE_CAPACITY;
     this.validateFrame = opts.validateFrame ?? ((bytes) => void decodeAudioFrame(bytes));
+    this.getPersistAudio = opts.getPersistAudio ?? (() => true);
   }
 
   /**
@@ -110,6 +120,9 @@ export class CaptureOrchestrator {
     const parsed = audioStartSchema.safeParse({
       meetingId: params.meetingId,
       source: params.source,
+      // PRD-13: honor the audio-retention policy. `never-save` => persistAudio
+      // false, so the sidecar streams to transcription without writing the WAV.
+      persistAudio: this.getPersistAudio(),
     });
     if (!parsed.success) {
       return { ok: false, code: "invalid_params", message: parsed.error.message };

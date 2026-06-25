@@ -100,6 +100,31 @@ function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
       })),
       onStatus: () => () => {},
     },
+    // PRD-13 export + privacy bridges: no-op fakes; the App under test does not
+    // exercise them directly (they are reached from the settings/library panels).
+    export: {
+      exportMeeting: vi.fn(async () => ({}) as never),
+      pickExportDir: vi.fn(async () => null),
+    },
+    privacy: {
+      getCaptureSettings: vi.fn(async () => ({
+        contentProtection: true,
+        audioRetention: "keep" as const,
+        perAppAudioFilter: false,
+        exportDir: null,
+      })),
+      setCaptureSettings: vi.fn(async () => ({
+        contentProtection: true,
+        audioRetention: "keep" as const,
+        perAppAudioFilter: false,
+        exportDir: null,
+      })),
+      getCaptureCapability: vi.fn(async () => ({
+        supported: false,
+        mode: "full-loopback" as const,
+        reason: "",
+      })),
+    },
     ...overrides,
   };
   return { api, emitStatus: (s) => cb?.(s) };

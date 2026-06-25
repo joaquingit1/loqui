@@ -253,11 +253,14 @@ class WavWriterConsumer:
         #: Pinned data root if provided; otherwise resolved per stream from env.
         self._data_root = data_root
         self._streams: dict[tuple[str, str], _WavStream] = {}
+        #: (meeting_id, source) pairs the current run is NOT persisting to disk
+        #: (PRD-13 `never-save`): on_frame/on_stop become no-ops for these.
+        self._skip: set[tuple[str, str]] = set()
 
     def _path_for(self, meeting_id: str, source: str) -> Path:
         return meeting_audio_dir(meeting_id, self._data_root) / AUDIO_WAV_FILENAME[source]
 
-    def on_start(self, meeting_id: str, source: str) -> None:
+    def on_start(self, meeting_id: str, source: str, persist: bool = True) -> None:
         key = (meeting_id, source)
         existing = self._streams.pop(key, None)
         if existing is not None:
@@ -269,6 +272,14 @@ class WavWriterConsumer:
                 source,
             )
             existing.close()
+        # PRD-13 `never-save`: stream to transcription WITHOUT writing the WAV.
+        # We open no _WavStream and mark the pair skipped so on_frame/on_stop are
+        # no-ops — no mic.wav/system.wav ever lands on disk.
+        if not persist:
+            self._skip.add(key)
+            logger.info("audio %s/%s: persistAudio=false; not writing WAV", meeting_id, source)
+            return
+        self._skip.discard(key)
         path = self._path_for(meeting_id, source)
         self._streams[key] = _WavStream(meeting_id, source, path)
 
@@ -279,8 +290,13 @@ class WavWriterConsumer:
         stream.append(frame)
 
     def on_stop(self, meeting_id: str, source: str) -> None:
-        stream = self._streams.pop((meeting_id, source), None)
+        key = (meeting_id, source)
+        stream = self._streams.pop(key, None)
         if stream is None:
+            if key in self._skip:
+                # `never-save` run: no WAV was opened — a clean no-op, not an error.
+                self._skip.discard(key)
+                return
             logger.warning(
                 "audio %s/%s: audioStop with no open stream (ignored)",
                 meeting_id,
@@ -351,11 +367,13 @@ class AudioIngest:
 
     # -- lifecycle hooks (called from loqui_sidecar.app) ----------------------
 
-    def handle_audio_start(self, meeting_id: str, source: str) -> None:
+    def handle_audio_start(self, meeting_id: str, source: str, persist: bool = True) -> None:
         """Open the per-source WAV writer for ``(meeting_id, source)``.
 
         Called when a validated ``audioStart`` notification arrives. ``source``
-        is one of ``"mic"`` / ``"system"``. Never raises.
+        is one of ``"mic"`` / ``"system"``. ``persist`` is the PRD-13
+        audio-retention flag: ``False`` (the ``never-save`` policy) streams to any
+        transcription consumer but writes NO WAV. Never raises.
         """
         try:
             if source not in AUDIO_FRAME_SOURCE_BYTE:
@@ -365,7 +383,13 @@ class AudioIngest:
                 self._active[source] = meeting_id
                 consumers = list(self._consumers)
             for consumer in consumers:
-                self._safe(consumer.on_start, meeting_id, source)
+                # The built-in WAV writer honors `persist` (never-save => no WAV);
+                # any extra consumer (e.g. PRD-2 transcription) always receives the
+                # stream regardless of disk-retention policy.
+                if consumer is self._wav:
+                    self._safe(self._wav.on_start, meeting_id, source, persist)
+                else:
+                    self._safe(consumer.on_start, meeting_id, source)
         except Exception:  # noqa: BLE001 - ingest must never raise.
             logger.exception("audioStart failed for %s/%s", meeting_id, source)
 

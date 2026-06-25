@@ -79,6 +79,8 @@ function makeFakeCaptureFactory(): {
     stop: vi.fn(async () => {}),
     stopAll,
     getStatus: (s) => statuses[s],
+    setMuted: vi.fn(),
+    toggleMute: vi.fn(() => false),
     subscribe: (l) => {
       listener = l;
       return () => {

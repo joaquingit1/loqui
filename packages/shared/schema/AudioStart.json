@@ -29,6 +29,10 @@
           "type": "string",
           "const": "pcm_s16le",
           "default": "pcm_s16le"
+        },
+        "persistAudio": {
+          "type": "boolean",
+          "default": true
         }
       },
       "required": [

@@ -1,0 +1,28 @@
+{
+  "$ref": "#/definitions/CaptureCapability",
+  "definitions": {
+    "CaptureCapability": {
+      "type": "object",
+      "properties": {
+        "supported": {
+          "type": "boolean",
+          "default": false
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "per-app",
+            "full-loopback"
+          ],
+          "default": "full-loopback"
+        },
+        "reason": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

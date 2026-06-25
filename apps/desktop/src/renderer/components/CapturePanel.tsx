@@ -70,7 +70,7 @@ export function CapturePanel({
     createController,
   });
 
-  const { statuses, screenPermission, start, stop } = capture;
+  const { statuses, screenPermission, start, stop, toggleMute } = capture;
 
   const toggle = useCallback(
     (source: AudioSource) => {
@@ -145,6 +145,17 @@ export function CapturePanel({
                       : `Start ${SOURCE_BUTTON_LABEL[source]}`}
               </button>
               <CaptureLevelMeter source={source} level={st.level} active={isOn} />
+              {isOn && (
+                <button
+                  type="button"
+                  className={`btn btn--mute ${st.muted ? "btn--muted" : ""}`}
+                  data-testid={`capture-mute-${source}`}
+                  aria-pressed={st.muted ?? false}
+                  onClick={() => toggleMute(source)}
+                >
+                  {st.muted ? `Unmute ${SOURCE_BUTTON_LABEL[source]}` : `Mute ${SOURCE_BUTTON_LABEL[source]}`}
+                </button>
+              )}
               {st.state === "error" && (
                 <p
                   className="capture__error"

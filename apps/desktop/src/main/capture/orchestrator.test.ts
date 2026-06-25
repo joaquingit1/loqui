@@ -73,6 +73,23 @@ describe("CaptureOrchestrator start/stop sequencing", () => {
     expect(orch.isStarted(MEETING, "system")).toBe(false);
   });
 
+  it("threads persistAudio into the audioStart payload (PRD-13 retention)", () => {
+    // Default: persistAudio true (keep the existing behavior).
+    const supKeep = new FakeSupervisor();
+    const orchKeep = new CaptureOrchestrator({ supervisor: supKeep });
+    orchKeep.start({ meetingId: MEETING, source: "mic" });
+    expect((supKeep.notifications[0]!.data as { persistAudio: boolean }).persistAudio).toBe(true);
+
+    // never-save: persistAudio false so the sidecar writes no WAV.
+    const supNever = new FakeSupervisor();
+    const orchNever = new CaptureOrchestrator({
+      supervisor: supNever,
+      getPersistAudio: () => false,
+    });
+    orchNever.start({ meetingId: MEETING, source: "system" });
+    expect((supNever.notifications[0]!.data as { persistAudio: boolean }).persistAudio).toBe(false);
+  });
+
   it("rejects start when the sidecar is not connected", () => {
     const sup = new FakeSupervisor();
     sup.connected = false;
