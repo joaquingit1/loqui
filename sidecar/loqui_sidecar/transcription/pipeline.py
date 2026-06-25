@@ -264,6 +264,13 @@ def _seg_id(meeting_id: str, source: str, index: int) -> str:
     return f"{meeting_id}:{source}:{index}"
 
 
+#: Submits a no-arg finalize task to run OFF the per-source ingest thread (so a
+#: slow accurate decode never blocks the fast partials / frame ingestion). The
+#: manager backs this with a per-source single-thread executor; tests may leave
+#: it None to run the accurate decode inline (deterministic).
+FinalizeScheduler = Callable[[Callable[[], None]], None]
+
+
 class StreamingTranscriptionPipeline:
     """The real per-``(meeting, source)`` :class:`TranscriptionPipeline`.
 
@@ -285,11 +292,21 @@ class StreamingTranscriptionPipeline:
         *,
         config: Optional[PipelineConfig] = None,
         language: Optional[str] = None,
+        accurate_backend: Optional[AsrBackend] = None,
+        schedule_finalize: Optional[FinalizeScheduler] = None,
     ) -> None:
         self.meeting_id = meeting_id
         self.source = source
         self._emit = emit
         self._backend = backend
+        # Two-tier real-time (PRD-2): the fast ``backend`` drives streaming
+        # PARTIALS; when set, ``_accurate_backend`` re-decodes each completed
+        # utterance (larger model, beam search, full-utterance context) to produce
+        # the accurate FINAL. ``_schedule_finalize`` runs that decode off the
+        # ingest thread (None => inline). Both default off => greedy finals (the
+        # pre-two-tier behavior), so existing callers + tests are unchanged.
+        self._accurate_backend = accurate_backend
+        self._schedule_finalize = schedule_finalize
         self._config = config or PipelineConfig()
         # Per-pipeline language: explicit arg > config.language.
         self._language = language if language is not None else self._config.language
@@ -492,7 +509,7 @@ class StreamingTranscriptionPipeline:
                 self._track_committed(self._policy.update(tokens).committed)
         if force_flush and self._decoded_once:
             self._track_committed(self._policy.flush().committed)
-            self._emit_final()
+            self._finalize_utterance()
         self._reset_utterance()
 
     def _track_committed(self, committed: list[AsrToken]) -> None:
@@ -508,6 +525,20 @@ class StreamingTranscriptionPipeline:
         self._emit(self._make_segment(tokens, status="partial"))
         self._emitted_current = True
 
+    def set_finalizer(
+        self,
+        accurate_backend: Optional[AsrBackend],
+        schedule_finalize: Optional[FinalizeScheduler],
+    ) -> None:
+        """Inject the accurate FINAL backend + off-thread scheduler post-construction.
+
+        The manager calls this on ``on_start`` so the shared accurate backend +
+        the per-source finalizer executor reach the pipeline without changing the
+        :data:`PipelineFactory` call shape.
+        """
+        self._accurate_backend = accurate_backend
+        self._schedule_finalize = schedule_finalize
+
     def _emit_final(self) -> None:
         """Emit ONE ``final`` for the utterance (its committed text), same seg id."""
         tokens = self._committed_tokens
@@ -515,6 +546,91 @@ class StreamingTranscriptionPipeline:
             return
         self._emit(self._make_segment(tokens, status="final"))
         self._emitted_current = True
+
+    def _finalize_utterance(self) -> None:
+        """Produce the utterance's ONE ``final``.
+
+        With no accurate backend this is the unchanged greedy commit (inline). With
+        one, snapshot the utterance audio + the greedy fallback BEFORE the reset
+        clears them, then re-decode the whole utterance with the accurate backend
+        (larger model + beam) — off the ingest thread when a scheduler is wired —
+        and emit THAT (aggregated to one segment under the same seg id). The greedy
+        text is the fallback if the accurate decode yields nothing, so an utterance
+        is never dropped.
+        """
+        if not self._committed_tokens:
+            return
+        if self._accurate_backend is None:
+            self._emit_final()
+            return
+        # We WILL emit (greedy fallback guarantees text) -> advance the seg id and
+        # capture everything the async task needs, since reset() runs right after.
+        self._emitted_current = True
+        task = self._make_finalize_task(
+            pcm=bytes(self._buf),
+            base=self._buf_start_seconds or 0.0,
+            seg_id=_seg_id(self.meeting_id, self.source, self._utterance_index),
+            language=self._locked_language,
+            greedy=list(self._committed_tokens),
+        )
+        if self._schedule_finalize is not None:
+            self._schedule_finalize(task)
+        else:
+            task()
+
+    def _make_finalize_task(
+        self,
+        *,
+        pcm: bytes,
+        base: float,
+        seg_id: str,
+        language: Optional[str],
+        greedy: list[AsrToken],
+    ) -> Callable[[], None]:
+        """Build the closure that re-decodes ``pcm`` accurately + emits the final.
+
+        Self-contained (captures its inputs) so it can run later on the finalizer
+        thread, after the pipeline has reset + moved on to the next utterance.
+        """
+        backend = self._accurate_backend
+
+        def task() -> None:
+            text = ""
+            t_start = base
+            t_end = base
+            segments: Optional[list[tuple[float, float, str]]] = None
+            try:
+                if backend is not None:
+                    segments, _lang = backend.transcribe_segments(pcm, language=language)
+            except Exception:  # noqa: BLE001 - accurate decode failure -> greedy fallback.
+                logger.exception(
+                    "accurate final decode failed for %s/%s", self.meeting_id, self.source
+                )
+                segments = None
+            if segments:
+                text = " ".join(s[2] for s in segments).strip()
+                t_start = base + float(segments[0][0])
+                t_end = base + float(segments[-1][1])
+            if not text and greedy:
+                # Fallback: the fast greedy hypothesis (never drop an utterance).
+                text = " ".join(t.text for t in greedy).strip()
+                t_start = base + greedy[0].t_start
+                t_end = base + greedy[-1].t_end
+            if not text:
+                return
+            self._emit(
+                TranscriptSegment(
+                    meeting_id=self.meeting_id,
+                    source=self.source,
+                    text=text,
+                    t_start=t_start,
+                    t_end=t_end,
+                    status="final",
+                    seg_id=seg_id,
+                )
+            )
+
+        return task
 
     def _make_segment(self, tokens: list[AsrToken], *, status: str) -> TranscriptSegment:
         text = " ".join(t.text for t in tokens).strip()

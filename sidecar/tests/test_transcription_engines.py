@@ -239,6 +239,68 @@ def test_select_backend_fake_env_overrides_engine(monkeypatch):
     assert backend.name.startswith("fake")
 
 
+# --- accurate live-FINAL backend selection (PRD-2 two-tier) -------------------
+
+
+def test_select_accurate_backend_default_medium_on_faster_whisper(monkeypatch):
+    monkeypatch.delenv("LOQUI_FAKE_ASR", raising=False)
+    monkeypatch.delenv("LOQUI_TRANSCRIPTION_ENGINE", raising=False)
+    monkeypatch.delenv("LOQUI_LIVE_ACCURATE_MODEL_SIZE", raising=False)
+    monkeypatch.delenv("LOQUI_LIVE_ACCURATE_BEAM_SIZE", raising=False)
+    from loqui_sidecar.transcription.asr_backend import FasterWhisperBackend
+    from loqui_sidecar.transcription.engine_select import select_accurate_backend
+
+    factory = select_accurate_backend()
+    assert factory is not None
+    backend = factory()
+    assert isinstance(backend, FasterWhisperBackend)
+    assert backend.is_loaded is False  # lazy: the medium model is not downloaded here.
+    assert "medium" in backend.name  # default accurate model size.
+
+
+def test_select_accurate_backend_disabled_in_fake_mode(monkeypatch):
+    monkeypatch.setenv("LOQUI_FAKE_ASR", "1")
+    from loqui_sidecar.transcription.engine_select import select_accurate_backend
+
+    # Hermetic gate / E2E must never load a real accurate model -> greedy finals.
+    assert select_accurate_backend() is None
+
+
+def test_select_accurate_backend_off_value_disables(monkeypatch):
+    monkeypatch.delenv("LOQUI_FAKE_ASR", raising=False)
+    monkeypatch.delenv("LOQUI_TRANSCRIPTION_ENGINE", raising=False)
+    monkeypatch.setenv("LOQUI_LIVE_ACCURATE_MODEL_SIZE", "off")
+    from loqui_sidecar.transcription.engine_select import select_accurate_backend
+
+    assert select_accurate_backend() is None
+
+
+def test_select_accurate_backend_respects_custom_model_size(monkeypatch):
+    monkeypatch.delenv("LOQUI_FAKE_ASR", raising=False)
+    monkeypatch.delenv("LOQUI_TRANSCRIPTION_ENGINE", raising=False)
+    monkeypatch.setenv("LOQUI_LIVE_ACCURATE_MODEL_SIZE", "small")
+    from loqui_sidecar.transcription.engine_select import select_accurate_backend
+
+    factory = select_accurate_backend()
+    assert factory is not None
+    assert "small" in factory().name
+
+
+def test_select_accurate_backend_none_when_a_native_engine_is_active(monkeypatch):
+    # When a NATIVE engine actually resolves active, it owns its own finals — the
+    # faster-whisper accurate pass does not layer on it.
+    monkeypatch.delenv("LOQUI_FAKE_ASR", raising=False)
+    monkeypatch.setenv("LOQUI_TRANSCRIPTION_ENGINE", "apple-speech")
+    monkeypatch.setattr("loqui_sidecar.transcription.engine_select._is_darwin", lambda: True)
+    monkeypatch.setattr(
+        "loqui_sidecar.transcription.native_backend.probe_capabilities",
+        lambda _factory=None: ("apple-speech",),
+    )
+    from loqui_sidecar.transcription.engine_select import select_accurate_backend
+
+    assert select_accurate_backend() is None
+
+
 def test_select_backend_macos_engine_falls_back_off_darwin(monkeypatch):
     monkeypatch.delenv("LOQUI_FAKE_ASR", raising=False)
     monkeypatch.setenv("LOQUI_TRANSCRIPTION_ENGINE", "apple-speech")

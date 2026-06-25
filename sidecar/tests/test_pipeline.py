@@ -623,3 +623,145 @@ def test_policy_result_used_by_pipeline_defaults():
     # Guard the contract the pipeline relies on (empty defaults).
     r = PolicyResult()
     assert r.committed == [] and r.partial == [] and r.committed_seconds == 0.0
+
+
+# --- two-tier real-time: accurate per-utterance FINALS ------------------------
+
+
+class _RecordingAccurate:
+    """Accurate backend stub: scripted segments + records each decode call."""
+
+    def __init__(self, segments: list[tuple[float, float, str]], lang: str = "en") -> None:
+        self._segments = segments
+        self._lang = lang
+        self.calls: list[tuple[int, object]] = []  # (pcm_len, language)
+
+    def transcribe_segments(self, pcm, *, language=None, beam_size=None):
+        self.calls.append((len(pcm), language))
+        return list(self._segments), self._lang
+
+
+def test_accurate_backend_drives_the_final_text_while_partials_flow():
+    fast = FakeAsrBackend(
+        script=growing_script([["fast"], ["fast", "approx"], ["fast", "approx"]])
+    )
+    accurate = _RecordingAccurate([(0.0, 1.2, "the accurate sentence")])
+    emitted: list[TranscriptSegment] = []
+    pipe = StreamingTranscriptionPipeline(
+        "m1", "mic", emitted.append, fast,
+        config=fast_decode_config(), accurate_backend=accurate,  # no scheduler -> inline
+    )
+    feed_utterance(pipe, "mic")
+    pipe.finish()
+
+    partials = [s for s in emitted if s.status == "partial"]
+    finals = [s for s in emitted if s.status == "final"]
+    assert partials, "fast partials still flow (the live preview)"
+    assert len(finals) == 1, "exactly one final per utterance"
+    # The FINAL is the accurate decode's text, NOT the fast greedy hypothesis.
+    assert finals[0].text == "the accurate sentence"
+    assert len(accurate.calls) == 1, "the utterance is re-decoded once, accurately"
+    # The final supersedes the live preview under the SAME seg id.
+    assert finals[0].seg_id in {p.seg_id for p in partials}
+    # First utterance starts at meeting origin 0 -> accurate ts offset by base 0.
+    assert finals[0].t_start == 0.0
+    assert finals[0].t_end == 1.2
+
+
+def test_accurate_decode_receives_the_locked_language():
+    fast = FakeAsrBackend(script=growing_script([["x"], ["x", "y"], ["x", "y"]]))
+    accurate = _RecordingAccurate([(0.0, 1.0, "hola mundo")], lang="es")
+    emitted: list[TranscriptSegment] = []
+    pipe = StreamingTranscriptionPipeline(
+        "m1", "mic", emitted.append, fast,
+        config=fast_decode_config(language="es"), accurate_backend=accurate,
+    )
+    feed_utterance(pipe, "mic")
+    pipe.finish()
+    assert accurate.calls and accurate.calls[0][1] == "es"
+
+
+def test_empty_accurate_result_falls_back_to_greedy_final():
+    fast = FakeAsrBackend(
+        script=growing_script([["hello"], ["hello", "world"], ["hello", "world"]])
+    )
+    accurate = _RecordingAccurate([])  # recognizes nothing this utterance
+    emitted: list[TranscriptSegment] = []
+    pipe = StreamingTranscriptionPipeline(
+        "m1", "mic", emitted.append, fast,
+        config=fast_decode_config(), accurate_backend=accurate,
+    )
+    feed_utterance(pipe, "mic")
+    pipe.finish()
+    finals = [s for s in emitted if s.status == "final"]
+    assert len(finals) == 1
+    # Never drop the utterance: fall back to the fast greedy committed text.
+    assert finals[0].text == "hello world"
+
+
+def test_no_accurate_backend_keeps_the_greedy_final_unchanged():
+    fast = FakeAsrBackend(script=growing_script([["hi"], ["hi", "there"], ["hi", "there"]]))
+    emitted: list[TranscriptSegment] = []
+    pipe = StreamingTranscriptionPipeline(
+        "m1", "mic", emitted.append, fast, config=fast_decode_config()
+    )  # no accurate backend
+    feed_utterance(pipe, "mic")
+    pipe.finish()
+    finals = [s for s in emitted if s.status == "final"]
+    assert len(finals) == 1 and finals[0].text == "hi there"
+
+
+def test_finalize_runs_via_scheduler_when_provided():
+    fast = FakeAsrBackend(script=growing_script([["a"], ["a", "b"], ["a", "b"]]))
+    accurate = _RecordingAccurate([(0.0, 1.0, "accurate")])
+    scheduled: list = []
+
+    def schedule(task) -> None:
+        scheduled.append(task)
+        task()  # run inline but prove the pipeline routed it through the scheduler
+
+    emitted: list[TranscriptSegment] = []
+    pipe = StreamingTranscriptionPipeline(
+        "m1", "mic", emitted.append, fast,
+        config=fast_decode_config(), accurate_backend=accurate, schedule_finalize=schedule,
+    )
+    feed_utterance(pipe, "mic")
+    pipe.finish()
+    assert len(scheduled) == 1, "the accurate final was scheduled off the ingest thread"
+    finals = [s for s in emitted if s.status == "final"]
+    assert finals and finals[0].text == "accurate"
+
+
+def test_manager_emits_accurate_final_and_drains_finalizer_on_stop():
+    # End-to-end through the manager: a shared accurate backend + the per-source
+    # finalizer executor. on_stop must DRAIN the executor so the last utterance's
+    # accurate final is emitted before the meeting tears down.
+    fast = FakeAsrBackend(
+        script=growing_script([["fast"], ["fast", "approx"], ["fast", "approx"]])
+    )
+    accurate = _RecordingAccurate([(0.0, 1.0, "accurate final")])
+    lock = threading.Lock()
+    emitted: list[TranscriptSegment] = []
+
+    def safe_emit(seg: TranscriptSegment) -> None:
+        with lock:
+            emitted.append(seg)
+
+    mgr = TranscriptionManager(
+        emit=safe_emit,
+        backend=fast,
+        accurate_backend=accurate,
+        pipeline_factory=make_pipeline_factory(fast_decode_config()),
+    )
+    mgr.on_start("m1", "mic")
+    seq = 0
+    for _ in range(4):
+        mgr.on_frame("m1", "mic", frame("mic", seq, speech_pcm()))
+        seq += 1
+    for _ in range(4):
+        mgr.on_frame("m1", "mic", frame("mic", seq, silence_pcm()))
+        seq += 1
+    mgr.on_stop("m1", "mic")  # drains the finalizer (wait=True) before returning
+
+    finals = [s for s in emitted if s.status == "final"]
+    assert any(f.text == "accurate final" for f in finals), "drained accurate final present"

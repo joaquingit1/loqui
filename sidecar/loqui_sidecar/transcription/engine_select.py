@@ -39,6 +39,18 @@ ENGINE_ENV = "LOQUI_TRANSCRIPTION_ENGINE"
 MODEL_SIZE_ENV = "LOQUI_TRANSCRIPTION_MODEL_SIZE"
 LANGUAGE_ENV = "LOQUI_TRANSCRIPTION_LANGUAGE"
 
+#: Two-tier real-time (PRD-2): the accurate FINAL backend re-decodes each
+#: completed utterance with a LARGER model + beam search. Defaults to ``medium``
+#: beam 5 — the same accuracy tier as the saved transcript, kept up by running
+#: off the ingest thread. Set the model size to ``""``/``off``/``none`` to disable
+#: (live finals fall back to the fast greedy hypothesis).
+LIVE_ACCURATE_MODEL_SIZE_ENV = "LOQUI_LIVE_ACCURATE_MODEL_SIZE"
+LIVE_ACCURATE_BEAM_SIZE_ENV = "LOQUI_LIVE_ACCURATE_BEAM_SIZE"
+DEFAULT_LIVE_ACCURATE_MODEL_SIZE = "medium"
+DEFAULT_LIVE_ACCURATE_BEAM_SIZE = 5
+#: Values that explicitly DISABLE the accurate live final.
+_ACCURATE_OFF_VALUES = ("off", "none", "disabled")
+
 #: The cross-platform default + the only engine guaranteed available everywhere.
 DEFAULT_ENGINE = "faster-whisper"
 
@@ -209,3 +221,61 @@ def select_backend(*, helper_factory=None) -> BackendSelection:
             return _build_faster_whisper(model_size, language)
 
     return BackendSelection(factory, False, selection, selection.reason)
+
+
+def _build_accurate_faster_whisper(model_size: str, beam_size: int) -> AsrBackend:
+    from .asr_backend import FasterWhisperBackend
+    from .manager import TranscriptionConfig
+
+    cfg = TranscriptionConfig()
+    # No fixed language at construction: the pipeline passes the per-stream locked
+    # language (or None to auto-detect) per utterance.
+    return FasterWhisperBackend(
+        model_size=model_size,
+        device=cfg.device,
+        compute_type=cfg.compute_type,
+        beam_size=beam_size,
+        vad_filter=True,
+    )
+
+
+def select_accurate_backend() -> Optional[Callable[[], AsrBackend]]:
+    """Factory for the accurate live-FINAL backend, or None to disable it.
+
+    Returns None (so live finals stay the fast greedy hypothesis) when:
+
+    * the hermetic FAKE backend is active (``LOQUI_FAKE_ASR``) — the gate + E2E
+      must never load a real model;
+    * a NATIVE engine is the active live engine — native helpers own their own
+      decoding; the faster-whisper accurate pass only layers on the faster-whisper
+      live path;
+    * the model-size env is explicitly empty / ``off`` / ``none`` / ``disabled``.
+
+    Otherwise returns a factory building a shared ``FasterWhisperBackend``
+    (``LOQUI_LIVE_ACCURATE_MODEL_SIZE`` default ``medium``,
+    ``LOQUI_LIVE_ACCURATE_BEAM_SIZE`` default 5).
+    """
+    from .manager import _fake_asr_enabled
+
+    if _fake_asr_enabled():
+        return None
+
+    raw_model = os.environ.get(LIVE_ACCURATE_MODEL_SIZE_ENV)
+    if raw_model is not None and raw_model.strip().lower() in ("", *_ACCURATE_OFF_VALUES):
+        return None
+    model_size = (raw_model or "").strip() or DEFAULT_LIVE_ACCURATE_MODEL_SIZE
+
+    # Only layer the accurate pass on the faster-whisper live path (native engines
+    # produce their own finals).
+    selection = resolve_engine_selection()
+    if selection.active_engine != DEFAULT_ENGINE:
+        return None
+
+    raw_beam = os.environ.get(LIVE_ACCURATE_BEAM_SIZE_ENV)
+    try:
+        beam_size = int(raw_beam) if raw_beam else DEFAULT_LIVE_ACCURATE_BEAM_SIZE
+    except ValueError:
+        beam_size = DEFAULT_LIVE_ACCURATE_BEAM_SIZE
+    beam_size = max(1, beam_size)
+
+    return lambda: _build_accurate_faster_whisper(model_size, beam_size)

@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Callable, Optional, Protocol
 
@@ -163,6 +164,8 @@ class TranscriptionManager:
         backend: Optional[AsrBackend] = None,
         backend_factory: Optional[Callable[[], AsrBackend]] = None,
         backend_shareable: bool = True,
+        accurate_backend: Optional[AsrBackend] = None,
+        accurate_backend_factory: Optional[Callable[[], AsrBackend]] = None,
         config: Optional[TranscriptionConfig] = None,
         pipeline_factory: Optional[PipelineFactory] = None,
     ) -> None:
@@ -176,6 +179,18 @@ class TranscriptionManager:
         else:
             self._backend = backend or FakeAsrBackend()
         self._backend_factory = backend_factory
+        # Two-tier real-time (PRD-2): an OPTIONAL shared accurate backend (larger
+        # model + beam) used ONLY to re-decode each completed utterance into the
+        # accurate FINAL. None => greedy finals (unchanged). Shared like the fast
+        # backend (one model load for mic + system); each source gets its own
+        # single-thread "finalizer" executor so a slow accurate decode never stalls
+        # frame ingestion or the other source.
+        if accurate_backend_factory is not None:
+            self._accurate_backend: Optional[AsrBackend] = accurate_backend_factory()
+        else:
+            self._accurate_backend = accurate_backend
+        self._finalizers: dict[tuple[str, str], ThreadPoolExecutor] = {}
+        self._accurate_prewarmed = False
         self._config = config or TranscriptionConfig()
         self._make_pipeline: PipelineFactory = pipeline_factory or _default_pipeline_factory
         self._pipelines: dict[tuple[str, str], TranscriptionPipeline] = {}
@@ -214,13 +229,16 @@ class TranscriptionManager:
                 backend = self._backend_for_pipeline()
                 if not self._backend_shareable:
                     self._pipeline_backends[key] = backend
-                self._pipelines[key] = self._make_pipeline(
+                pipeline = self._make_pipeline(
                     meeting_id,
                     source,
                     self._guarded_emit,
                     backend,
                     self._config,
                 )
+                self._pipelines[key] = pipeline
+                self._attach_finalizer(key, pipeline)
+            self._prewarm_accurate()
         except Exception:  # noqa: BLE001 - transcription must never raise.
             logger.exception("transcription on_start failed for %s/%s", meeting_id, source)
 
@@ -243,8 +261,13 @@ class TranscriptionManager:
                 key = (meeting_id, source)
                 pipeline = self._pipelines.pop(key, None)
                 backend = self._pipeline_backends.pop(key, None)
+                finalizer = self._finalizers.pop(key, None)
             if pipeline is not None:
+                # finish() schedules the LAST utterance's accurate final on the
+                # finalizer; draining (wait=True) AFTER ensures it is emitted +
+                # persisted before the meeting tears down / post-process runs.
                 self._safe_finish(pipeline, backend)
+            self._drain_finalizer(finalizer)
         except Exception:  # noqa: BLE001 - transcription must never raise.
             logger.exception("transcription on_stop failed for %s/%s", meeting_id, source)
 
@@ -252,13 +275,15 @@ class TranscriptionManager:
         """Flush all pipelines (process-shutdown safety net)."""
         with self._lock:
             items = [
-                (key, pipeline, self._pipeline_backends.get(key))
+                (key, pipeline, self._pipeline_backends.get(key), self._finalizers.get(key))
                 for key, pipeline in self._pipelines.items()
             ]
             self._pipelines.clear()
             self._pipeline_backends.clear()
-        for _key, pipeline, backend in items:
+            self._finalizers.clear()
+        for _key, pipeline, backend, finalizer in items:
             self._safe_finish(pipeline, backend)
+            self._drain_finalizer(finalizer)
 
     # -- internals ------------------------------------------------------------
 
@@ -276,6 +301,57 @@ class TranscriptionManager:
         if self._backend_shareable or self._backend_factory is None:
             return self._backend
         return self._backend_factory()
+
+    def _attach_finalizer(self, key: tuple[str, str], pipeline: TranscriptionPipeline) -> None:
+        """Give ``pipeline`` the shared accurate backend + a per-source finalizer
+        executor (so accurate finals run off the ingest thread). No-op when no
+        accurate backend is configured or the pipeline doesn't support it."""
+        if self._accurate_backend is None:
+            return
+        set_finalizer = getattr(pipeline, "set_finalizer", None)
+        if not callable(set_finalizer):
+            return
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"finalize-{key[1]}")
+        self._finalizers[key] = executor
+
+        def schedule(task: Callable[[], None]) -> None:
+            try:
+                executor.submit(task)
+            except RuntimeError:
+                # Executor already shut down (teardown race): run inline so the
+                # final is never lost.
+                task()
+
+        set_finalizer(self._accurate_backend, schedule)
+
+    def _prewarm_accurate(self) -> None:
+        """Kick the shared accurate backend's model load on a daemon thread ONCE,
+        so the larger model is ready by the first utterance endpoint (mirrors the
+        fast backend's off-hot-path cold-start load)."""
+        if self._accurate_backend is None or self._accurate_prewarmed:
+            return
+        self._accurate_prewarmed = True
+        load = getattr(self._accurate_backend, "load", None)
+        if not callable(load):
+            return
+
+        def _load() -> None:
+            try:
+                load()
+            except Exception:  # noqa: BLE001 - a failed pre-warm degrades to greedy finals.
+                logger.warning("accurate backend pre-warm load failed", exc_info=True)
+
+        threading.Thread(target=_load, name="accurate-prewarm", daemon=True).start()
+
+    @staticmethod
+    def _drain_finalizer(finalizer: Optional[ThreadPoolExecutor]) -> None:
+        """Wait for pending accurate finals to emit, then release the executor."""
+        if finalizer is None:
+            return
+        try:
+            finalizer.shutdown(wait=True)
+        except Exception:  # noqa: BLE001 - shutdown must never propagate.
+            logger.exception("finalizer executor shutdown raised")
 
     @staticmethod
     def _safe_finish(pipeline: TranscriptionPipeline, backend: Optional[AsrBackend] = None) -> None:
@@ -353,11 +429,14 @@ def default_transcription_manager() -> TranscriptionManager:
     until a renderer connects no ``transcriptSegment`` notification is sent — but
     the moment a socket is up, real partial/final segments flow.
     """
+    from .engine_select import select_accurate_backend
     from .pipeline import make_pipeline_factory
 
     backend_selection = _select_backend()
+    accurate_factory = select_accurate_backend()
     return TranscriptionManager(
         backend_factory=backend_selection.factory,
         backend_shareable=backend_selection.shareable,
+        accurate_backend_factory=accurate_factory,
         pipeline_factory=make_pipeline_factory(),
     )
