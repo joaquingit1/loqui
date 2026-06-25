@@ -89,7 +89,11 @@ export function CalendarSettings({
         .connect(provider)
         .then((result) => {
           if (!result.connected) {
-            setError(`Could not connect ${calendarProviderLabel(provider)}.`);
+            // Prefer the specific reason from main (e.g. "not configured — set
+            // LOQUI_GOOGLE_CLIENT_ID") over a generic message.
+            setError(
+              result.reason ?? `Could not connect ${calendarProviderLabel(provider)}.`,
+            );
           }
           reload();
         })

@@ -266,7 +266,24 @@ export function createCaptureController(deps: CaptureControllerDeps): CaptureCon
 
       setStatus(source, { state: "capturing", level: 0, error: undefined });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const raw = err instanceof Error ? err.message : String(err);
+      const name = err instanceof Error ? err.name : "";
+      // System (loopback) audio on macOS rides a getDisplayMedia request that
+      // REQUIRES Screen Recording permission. Without it, Chromium rejects with a
+      // cryptic AbortError ("The user aborted a request." / "Error starting
+      // capture"). Translate that into an actionable message instead — the mic
+      // ("You") stream is unaffected and keeps recording.
+      const needsScreenPermission =
+        source === "system" &&
+        (name === "AbortError" ||
+          name === "NotAllowedError" ||
+          name === "SecurityError" ||
+          /abort|starting capture|not allowed|permission|denied/i.test(raw));
+      const message = needsScreenPermission
+        ? "Can’t capture system audio yet — macOS needs Screen Recording permission. " +
+          "Open System Settings → Privacy & Security → Screen Recording, enable Loqui (or Electron in dev), then restart. " +
+          "Your microphone is still being recorded."
+        : raw;
       // Best-effort: if we already told main to start, tell it to stop.
       if (begun) {
         try {

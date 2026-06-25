@@ -98,6 +98,12 @@ export type CalendarConnectParams = z.infer<typeof calendarConnectParamsSchema>;
 export const calendarConnectResultSchema = z.object({
   connected: z.boolean().default(false),
   account: z.string().optional(),
+  /**
+   * When `connected` is false, a human-readable reason the connect did not
+   * succeed (e.g. "Google calendar isn't configured — set LOQUI_GOOGLE_CLIENT_ID")
+   * so the UI can explain WHY instead of a generic "could not connect".
+   */
+  reason: z.string().optional(),
 });
 export type CalendarConnectResult = z.infer<typeof calendarConnectResultSchema>;
 

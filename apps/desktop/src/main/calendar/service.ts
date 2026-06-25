@@ -235,9 +235,14 @@ export function createCalendarService(deps: CreateCalendarServiceDeps): Calendar
         // Eagerly sync so the Home view sees this account's events immediately.
         await syncAndEmit();
         return { connected: true, account };
-      } catch {
-        // A cancelled / failed connect leaves nothing persisted.
-        return { connected: false };
+      } catch (err) {
+        // A cancelled / failed connect leaves nothing persisted. Surface the
+        // REASON (e.g. "not configured — set LOQUI_GOOGLE_CLIENT_ID") so the UI
+        // can tell the user WHY instead of a generic "could not connect".
+        return {
+          connected: false,
+          reason: err instanceof Error ? err.message : String(err),
+        };
       }
     },
 
