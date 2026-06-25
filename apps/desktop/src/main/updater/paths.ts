@@ -25,7 +25,7 @@
  * sidecar.
  */
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** The minimal slice of Electron `app` the resolver needs (injectable for tests). */
@@ -112,7 +112,11 @@ export class AppPaths {
       const app = findAppBundle(exe);
       if (app) return app;
     }
-    return dirname(exe);
+    // Resolve with the TARGET platform's path semantics, so a Windows exe path
+    // (backslash-separated) resolves correctly even when this runs on a POSIX
+    // host (e.g. the macOS/Linux CI runners) where the default dirname would
+    // treat the whole path as one segment and return ".".
+    return this.env.platform === "win32" ? win32.dirname(exe) : dirname(exe);
   }
 
   /**
