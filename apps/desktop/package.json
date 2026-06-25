@@ -8,7 +8,6 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit",
-    "pretest": "pnpm rebuild better-sqlite3",
     "test": "vitest run --passWithNoTests",
     "test:e2e": "playwright test",
     "lint": "eslint . --max-warnings 0",
