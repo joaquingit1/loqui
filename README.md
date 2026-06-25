@@ -61,6 +61,7 @@ A few things make it different:
 | 👥 | **Google Meet speaker names** — a browser extension maps diarized speakers to real participant names | ✅ |
 | 🔓 | **No-token diarization** — sherpa-onnx (Apache-2.0) is the default diarizer; works with no Hugging Face token or account. pyannote stays an opt-in HF-token accuracy upgrade | ✅ |
 | 📥 | **File import + Voice Memo** — transcribe an existing audio/video file (decoded via PyAV), or capture a mic-only voice memo; both flow through the same pipeline + library | ✅ |
+| 📤 | **Export & privacy controls** — export any meeting to Markdown (Obsidian) / SRT / VTT / JSON / PDF / DOCX; hide the window from screen-share; audio-retention policy (keep / delete-after-processing / never-save) | ✅ |
 | 🔄 | **Unsigned self-update** — checks GitHub for releases and updates itself, no code-signing certificate required | 🗺️ planned |
 | 🍎 | **Native on-device engines** — Apple Speech / on-device summaries, file import, export (SRT/VTT/PDF/DOCX), no-token diarization | 🗺️ planned |
 
@@ -215,9 +216,9 @@ Loqui is built milestone-by-milestone; each is specced in [`docs/prd/`](docs/prd
 
 **Up next:** packaging + unsigned GitHub auto-updater.
 
-**Done (competitive):** no-token local diarization (sherpa-onnx default) · file import + voice memo.
+**Done (competitive):** no-token local diarization (sherpa-onnx default) · file import + voice memo · export (SRT/VTT/PDF/DOCX) + capture/privacy controls.
 
-**Planned:** pluggable transcription engines (Apple Speech / WhisperKit) · on-device & native summaries · auto-record + menubar/tray · export (SRT/VTT/PDF/DOCX) + capture/privacy controls.
+**Planned:** pluggable transcription engines (Apple Speech / WhisperKit) · on-device & native summaries · auto-record + menubar/tray.
 
 ## Contributing
 
