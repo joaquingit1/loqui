@@ -140,3 +140,36 @@ describe("SettingsStore — updater (PRD-8)", () => {
     expect(new SettingsStore().getUpdaterSettings().autoCheck).toBe(true);
   });
 });
+
+describe("SettingsStore — transcription engine (PRD-9)", () => {
+  it("defaults to faster-whisper / small / auto-detect when no file exists", () => {
+    const t = new SettingsStore().getTranscriptionSettings();
+    expect(t.engine).toBe("faster-whisper");
+    expect(t.modelSize).toBe("small");
+    expect(t.language).toBeNull();
+  });
+
+  it("persists + merges transcription patches independently of other groups", () => {
+    const s = new SettingsStore();
+    s.setUpdaterSettings({ autoCheck: false });
+    const a = s.setTranscriptionSettings({ engine: "whisperkit" });
+    expect(a.engine).toBe("whisperkit");
+    expect(a.modelSize).toBe("small"); // untouched
+    const b = s.setTranscriptionSettings({ modelSize: "large", language: "es" });
+    expect(b.engine).toBe("whisperkit"); // first patch preserved
+    expect(b.modelSize).toBe("large");
+    expect(b.language).toBe("es");
+    // Other settings groups are unaffected.
+    expect(new SettingsStore().getUpdaterSettings().autoCheck).toBe(false);
+    expect(new SettingsStore().getTranscriptionSettings()).toEqual(b);
+  });
+
+  it("loads an older config (no transcription key) forward as faster-whisper", () => {
+    writeFileSync(
+      join(tmp, "app-settings.json"),
+      JSON.stringify({ capture: { audioRetention: "keep" } }),
+      "utf8",
+    );
+    expect(new SettingsStore().getTranscriptionSettings().engine).toBe("faster-whisper");
+  });
+});

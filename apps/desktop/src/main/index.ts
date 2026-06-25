@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import { rmSync } from "node:fs";
 import {
   AUDIO_WAV_FILENAME,
+  transcriptionSettingsToEnv,
   type Meeting,
   type ScreenPermissionStatus,
   type UpdateAutoRecordSettings,
@@ -54,6 +55,7 @@ import {
 import { createImportPipeline } from "./import/pipeline.js";
 import { ExportService } from "./export/index.js";
 import { registerExportIpc } from "./export/register.js";
+import { registerTranscriptionIpc } from "./transcription/register.js";
 import { SettingsStore } from "./settings/store.js";
 import { defaultCaptureCapabilityProbe } from "./capture/perapp.js";
 import { McpServerManager, makeMcpStatusPush, registerMcpIpc } from "./mcp/index.js";
@@ -236,6 +238,8 @@ let disposeMcpIpc: (() => void) | null = null;
 // PRD-13 export + capture/privacy seam: the disposer for the export/privacy IPC
 // bridge and the settings store it (plus the audio + postprocess paths) read.
 let disposeExportIpc: (() => void) | null = null;
+// PRD-9 pluggable-transcription-engine IPC bridge disposer.
+let disposeTranscriptionIpc: (() => void) | null = null;
 let settingsStore: SettingsStore | null = null;
 // PRD-15 calendar seam: the disposer for the calendar IPC bridge + push, and
 // the service (fan-out/normalize/dedup/poll) it's bound to.
@@ -283,13 +287,23 @@ export async function bootstrap(): Promise<void> {
   });
 
   store = openStore();
-  // Packaged: run the bundled sidecar binary directly (no uv/Python on the host).
-  supervisor = new SidecarSupervisor({ bundledBinPath: appPaths.bundledSidecarBin() });
 
   // PRD-13 capture/privacy + export settings (non-secret JSON). Read BEFORE the
   // window is created so the content-protection toggle (ON by default) is applied
   // at creation. Shared with the audio retention path + the export service.
+  // Created before the supervisor so the PRD-9 transcription-engine env can be
+  // read from it on each (re)spawn.
   settingsStore = new SettingsStore();
+
+  // Packaged: run the bundled sidecar binary directly (no uv/Python on the host).
+  // PRD-9: hand the sidecar the selected transcription engine via the
+  // LOQUI_TRANSCRIPTION_* env contract, read FRESH on each spawn so a settings
+  // change takes effect for the next sidecar launch (= the next meeting).
+  supervisor = new SidecarSupervisor({
+    bundledBinPath: appPaths.bundledSidecarBin(),
+    extraEnv: () => transcriptionSettingsToEnv(settingsStore!.getTranscriptionSettings()),
+  });
+
   applyRunInBackground(settingsStore.getAutoRecordSettings().runInBackground);
 
   mainWindow = createWindow({
@@ -417,6 +431,11 @@ export async function bootstrap(): Promise<void> {
     },
     getWindow: () => mainWindow,
   });
+
+  // PRD-9 pluggable transcription engines: read/patch the engine/model/language
+  // settings + list the selectable engines for the Settings UI. The chosen engine
+  // is handed to the sidecar via the supervisor's extraEnv on the next spawn.
+  disposeTranscriptionIpc = registerTranscriptionIpc({ settings: settingsStore });
 
   // In-call AI chat + provider abstraction (PRD-4). The keystore stores the BYOK
   // key encrypted via the OS keychain (safeStorage) and the non-secret provider
@@ -731,6 +750,9 @@ async function shutdown(): Promise<void> {
   // PRD-13 export/privacy teardown.
   disposeExportIpc?.();
   disposeExportIpc = null;
+  // PRD-9 transcription-engine IPC teardown.
+  disposeTranscriptionIpc?.();
+  disposeTranscriptionIpc = null;
   settingsStore = null;
   // PRD-15 calendar teardown (disposes the IPC bridge + push + service polling
   // once Build unit A wires it above).

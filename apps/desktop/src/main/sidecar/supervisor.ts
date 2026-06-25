@@ -54,6 +54,16 @@ export interface SidecarSupervisorOptions {
    * own resolution so the two never diverge.
    */
   dataRoot?: string;
+  /**
+   * Extra env vars to hand the spawned sidecar (merged AFTER `process.env` +
+   * `LOQUI_DATA_DIR`). PRD-9 uses this to pass the selected transcription engine
+   * via the `LOQUI_TRANSCRIPTION_*` contract (see
+   * {@link import("@loqui/shared").transcriptionSettingsToEnv}) so the sidecar
+   * selects the user's engine at launch. A function so the value is read fresh on
+   * each (re)spawn — a settings change takes effect on the next sidecar launch.
+   * Defaults to no extra env (unchanged PRD-2 behavior: faster-whisper).
+   */
+  extraEnv?: () => Record<string, string>;
 
   // --- Injectable seams (tests provide fakes; prod uses the defaults) ---
   /** Spawns the child process. Defaults to a real `child_process.spawn`. */
@@ -108,6 +118,8 @@ export class SidecarSupervisor {
   private readonly sleep: (ms: number) => Promise<void>;
   /** Resolved data root shared with the spawned sidecar via LOQUI_DATA_DIR. */
   private readonly dataRoot: string;
+  /** Extra env (PRD-9 transcription engine), read fresh on each spawn. */
+  private readonly extraEnv: () => Record<string, string>;
 
   private child: ChildProcess | null = null;
   private client: SidecarClient | null = null;
@@ -158,6 +170,7 @@ export class SidecarSupervisor {
     this.handshakeTimeoutMs = opts.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
     this.sleep = opts.sleep ?? realSleep;
     this.dataRoot = opts.dataRoot ?? defaultDataRoot();
+    this.extraEnv = opts.extraEnv ?? (() => ({}));
   }
 
   /** Current connection status. */
@@ -264,8 +277,10 @@ export class SidecarSupervisor {
       stdio: ["pipe", "pipe", "pipe"],
       // Make both processes agree on the data root: pass LOQUI_DATA_DIR so the
       // sidecar writes its WAVs into the SAME <dataRoot>/meetings/<id>/ dir the
-      // main process owns. Inherit the rest of the env (PATH, etc.).
-      env: { ...process.env, [DATA_DIR_ENV]: this.dataRoot },
+      // main process owns. Also pass the PRD-9 transcription-engine env (read
+      // fresh here so a settings change applies on this spawn). Inherit the rest
+      // of the env (PATH, etc.).
+      env: { ...process.env, [DATA_DIR_ENV]: this.dataRoot, ...this.extraEnv() },
     });
     this.child = child;
 

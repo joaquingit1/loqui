@@ -161,6 +161,8 @@ class TranscriptionManager:
         *,
         emit: Optional[SegmentEmitter] = None,
         backend: Optional[AsrBackend] = None,
+        backend_factory: Optional[Callable[[], AsrBackend]] = None,
+        backend_shareable: bool = True,
         config: Optional[TranscriptionConfig] = None,
         pipeline_factory: Optional[PipelineFactory] = None,
     ) -> None:
@@ -168,10 +170,16 @@ class TranscriptionManager:
         #: each segment becomes one ``transcriptSegment`` WS notification.
         self._emit: SegmentEmitter = emit or _noop_emitter
         #: The ASR backend (Foundation: fake; build unit: faster-whisper).
-        self._backend: AsrBackend = backend or FakeAsrBackend()
+        self._backend_shareable = backend_shareable
+        if backend_factory is not None and backend_shareable:
+            self._backend: AsrBackend = backend_factory()
+        else:
+            self._backend = backend or FakeAsrBackend()
+        self._backend_factory = backend_factory
         self._config = config or TranscriptionConfig()
         self._make_pipeline: PipelineFactory = pipeline_factory or _default_pipeline_factory
         self._pipelines: dict[tuple[str, str], TranscriptionPipeline] = {}
+        self._pipeline_backends: dict[tuple[str, str], AsrBackend] = {}
         self._lock = threading.Lock()
         #: Diagnostic counters (parity with AudioIngest; handy in tests).
         self.frames_seen = 0
@@ -200,13 +208,17 @@ class TranscriptionManager:
             with self._lock:
                 key = (meeting_id, source)
                 existing = self._pipelines.pop(key, None)
+                existing_backend = self._pipeline_backends.pop(key, None)
                 if existing is not None:
-                    self._safe_finish(existing)
+                    self._safe_finish(existing, existing_backend)
+                backend = self._backend_for_pipeline()
+                if not self._backend_shareable:
+                    self._pipeline_backends[key] = backend
                 self._pipelines[key] = self._make_pipeline(
                     meeting_id,
                     source,
                     self._guarded_emit,
-                    self._backend,
+                    backend,
                     self._config,
                 )
         except Exception:  # noqa: BLE001 - transcription must never raise.
@@ -228,19 +240,25 @@ class TranscriptionManager:
         """Flush + drop the ``(meeting_id, source)`` pipeline (audioStop)."""
         try:
             with self._lock:
-                pipeline = self._pipelines.pop((meeting_id, source), None)
+                key = (meeting_id, source)
+                pipeline = self._pipelines.pop(key, None)
+                backend = self._pipeline_backends.pop(key, None)
             if pipeline is not None:
-                self._safe_finish(pipeline)
+                self._safe_finish(pipeline, backend)
         except Exception:  # noqa: BLE001 - transcription must never raise.
             logger.exception("transcription on_stop failed for %s/%s", meeting_id, source)
 
     def close(self) -> None:
         """Flush all pipelines (process-shutdown safety net)."""
         with self._lock:
-            pipelines = list(self._pipelines.values())
+            items = [
+                (key, pipeline, self._pipeline_backends.get(key))
+                for key, pipeline in self._pipelines.items()
+            ]
             self._pipelines.clear()
-        for pipeline in pipelines:
-            self._safe_finish(pipeline)
+            self._pipeline_backends.clear()
+        for _key, pipeline, backend in items:
+            self._safe_finish(pipeline, backend)
 
     # -- internals ------------------------------------------------------------
 
@@ -254,12 +272,25 @@ class TranscriptionManager:
                 "transcription emit failed for %s/%s", segment.meeting_id, segment.source
             )
 
+    def _backend_for_pipeline(self) -> AsrBackend:
+        if self._backend_shareable or self._backend_factory is None:
+            return self._backend
+        return self._backend_factory()
+
     @staticmethod
-    def _safe_finish(pipeline: TranscriptionPipeline) -> None:
+    def _safe_finish(pipeline: TranscriptionPipeline, backend: Optional[AsrBackend] = None) -> None:
         try:
             pipeline.finish()
         except Exception:  # noqa: BLE001 - finish must never propagate.
             logger.exception("transcription pipeline.finish raised")
+        finally:
+            if backend is not None:
+                close = getattr(backend, "close", None)
+                if callable(close):
+                    try:
+                        close()
+                    except Exception:  # noqa: BLE001 - close must never propagate.
+                        logger.exception("transcription backend.close raised")
 
 
 #: Type of the low-level WS notification sender app.py owns: ``send(event, data)``.
@@ -282,30 +313,29 @@ def make_ws_emitter(send: NotificationSender) -> SegmentEmitter:
     return emit
 
 
-def _select_backend() -> AsrBackend:
-    """Choose the ASR backend for the live sidecar.
+def _select_backend():
+    """Choose the ASR backend plan for the live sidecar (PRD-9 pluggable engines).
 
-    * ``LOQUI_FAKE_ASR`` set -> the deterministic, source-aware streaming FAKE
-      backend (no model, no network) so the unit gate + ``smoke:transcription``
-      stay hermetic yet exercise the real LocalAgreement-2 + pipeline path.
-    * otherwise -> the real :class:`FasterWhisperBackend`, lazily loaded (the
-      model is only constructed when a pipeline first feeds it, on ``audioStart``).
+    Delegates to :func:`loqui_sidecar.transcription.engine_select.select_backend`,
+    which:
+
+    * forces the deterministic, source-aware streaming FAKE backend when
+      ``LOQUI_FAKE_ASR`` is set (the unit gate + ``smoke:transcription`` stay
+      hermetic yet exercise the real LocalAgreement-2 + pipeline path);
+    * otherwise reads the ``LOQUI_TRANSCRIPTION_*`` env contract (the user's
+      engine/model/language from Settings) and returns a native helper backend
+      factory for a macOS on-device engine — or falls back to the real
+      :class:`FasterWhisperBackend` on Windows / when the engine/helper is
+      unavailable (invariant #4: no engine choice ever breaks a meeting).
+
+    Backends are constructed but not loaded (the pipeline lazily loads off the WS
+    hot path). Shareable backends (fake / faster-whisper) are constructed once;
+    native helpers are constructed per ``(meeting, source)`` so mic and system do
+    not share a stateful recognizer session.
     """
-    if _fake_asr_enabled():
-        from .fake_stream import make_streaming_fake_backend
+    from .engine_select import select_backend
 
-        return make_streaming_fake_backend()
-    # Real backend: import + construct here (cheap — the heavy faster_whisper
-    # import + model download are lazy, inside FasterWhisperBackend.load()).
-    from .asr_backend import FasterWhisperBackend
-
-    cfg = TranscriptionConfig()
-    return FasterWhisperBackend(
-        model_size=cfg.model_size,
-        device=cfg.device,
-        compute_type=cfg.compute_type,
-        language=cfg.language,
-    )
+    return select_backend()
 
 
 def default_transcription_manager() -> TranscriptionManager:
@@ -325,7 +355,9 @@ def default_transcription_manager() -> TranscriptionManager:
     """
     from .pipeline import make_pipeline_factory
 
+    backend_selection = _select_backend()
     return TranscriptionManager(
-        backend=_select_backend(),
+        backend_factory=backend_selection.factory,
+        backend_shareable=backend_selection.shareable,
         pipeline_factory=make_pipeline_factory(),
     )

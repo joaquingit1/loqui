@@ -304,6 +304,27 @@ export const IPC = {
    */
   getCaptureCapability: "loqui:privacy:getCaptureCapability",
 
+  // --- Pluggable transcription engines (PRD-9) ---
+  /**
+   * invoke: read the persisted transcription-engine settings (->
+   * {@link import("@loqui/shared").TranscriptionSettings}): the selected engine
+   * (faster-whisper default), the Whisper model size, and the language hint.
+   */
+  getTranscriptionSettings: "loqui:transcription:getSettings",
+  /**
+   * invoke: patch the transcription-engine settings (payload
+   * {@link import("@loqui/shared").UpdateTranscriptionSettings}; ->
+   * {@link import("@loqui/shared").TranscriptionSettings}). Takes effect for the
+   * NEXT meeting (the sidecar reads the engine at launch).
+   */
+  setTranscriptionSettings: "loqui:transcription:setSettings",
+  /**
+   * invoke: list the selectable engines + their availability on this OS/arch (->
+   * {@link import("@loqui/shared").TranscriptionEngineInfo}[]). macOS-only engines
+   * are marked so the UI hides/disables them on Windows.
+   */
+  getTranscriptionEngines: "loqui:transcription:getEngines",
+
   // --- Google Meet speaker-name attribution (PRD-6) ---
   /**
    * invoke: current extension-connection / name-capture status

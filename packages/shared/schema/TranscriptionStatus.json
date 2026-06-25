@@ -1,0 +1,34 @@
+{
+  "$ref": "#/definitions/TranscriptionStatus",
+  "definitions": {
+    "TranscriptionStatus": {
+      "type": "object",
+      "properties": {
+        "requestedEngine": {
+          "type": "string",
+          "enum": [
+            "faster-whisper",
+            "apple-speech",
+            "whisperkit",
+            "mlx-whisper",
+            "parakeet"
+          ],
+          "default": "faster-whisper"
+        },
+        "activeEngine": {
+          "$ref": "#/definitions/TranscriptionStatus/properties/requestedEngine"
+        },
+        "fellBack": {
+          "type": "boolean",
+          "default": false
+        },
+        "reason": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

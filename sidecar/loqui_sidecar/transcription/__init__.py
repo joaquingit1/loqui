@@ -67,6 +67,18 @@ from .manager import (
     default_transcription_manager,
     make_ws_emitter,
 )
+from .native_backend import (
+    HelperProcess,
+    NativeHelperBackend,
+    probe_capabilities,
+    resolve_helper_binary,
+)
+from .engine_select import (
+    BackendSelection,
+    EngineSelection,
+    resolve_engine_selection,
+    select_backend,
+)
 
 __all__ = [
     "TRANSCRIPT_SEGMENT_EVENT",
@@ -82,4 +94,13 @@ __all__ = [
     "TranscriptionManager",
     "default_transcription_manager",
     "make_ws_emitter",
+    # PRD-9 pluggable engines.
+    "HelperProcess",
+    "NativeHelperBackend",
+    "probe_capabilities",
+    "resolve_helper_binary",
+    "BackendSelection",
+    "EngineSelection",
+    "resolve_engine_selection",
+    "select_backend",
 ]

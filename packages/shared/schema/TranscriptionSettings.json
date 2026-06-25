@@ -1,0 +1,41 @@
+{
+  "$ref": "#/definitions/TranscriptionSettings",
+  "definitions": {
+    "TranscriptionSettings": {
+      "type": "object",
+      "properties": {
+        "engine": {
+          "type": "string",
+          "enum": [
+            "faster-whisper",
+            "apple-speech",
+            "whisperkit",
+            "mlx-whisper",
+            "parakeet"
+          ],
+          "default": "faster-whisper"
+        },
+        "modelSize": {
+          "type": "string",
+          "enum": [
+            "tiny",
+            "base",
+            "small",
+            "medium",
+            "large"
+          ],
+          "default": "small"
+        },
+        "language": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -1,0 +1,50 @@
+{
+  "$ref": "#/definitions/TranscriptionEngineInfo",
+  "definitions": {
+    "TranscriptionEngineInfo": {
+      "type": "object",
+      "properties": {
+        "engine": {
+          "type": "string",
+          "enum": [
+            "faster-whisper",
+            "apple-speech",
+            "whisperkit",
+            "mlx-whisper",
+            "parakeet"
+          ],
+          "default": "faster-whisper"
+        },
+        "label": {
+          "type": "string",
+          "default": ""
+        },
+        "macOnly": {
+          "type": "boolean",
+          "default": false
+        },
+        "usesModelSize": {
+          "type": "boolean",
+          "default": true
+        },
+        "availability": {
+          "type": "string",
+          "enum": [
+            "available",
+            "unsupported-os",
+            "helper-missing",
+            "needs-permission",
+            "needs-download"
+          ],
+          "default": "available"
+        },
+        "note": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

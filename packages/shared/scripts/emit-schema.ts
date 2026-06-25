@@ -79,6 +79,12 @@ import {
   updateUpdaterSettingsSchema,
   updaterStateSchema,
 } from "../src/updater.js";
+import {
+  transcriptionSettingsSchema,
+  updateTranscriptionSettingsSchema,
+  transcriptionEngineInfoSchema,
+  transcriptionStatusSchema,
+} from "../src/transcription.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, "..", "schema");
@@ -165,6 +171,16 @@ const schemas: Record<string, ZodTypeAny> = {
   UpdaterSettings: updaterSettingsSchema,
   UpdateUpdaterSettings: updateUpdaterSettingsSchema,
   UpdaterState: updaterStateSchema,
+  // PRD-9 pluggable transcription engines. TranscriptionSettings is the persisted
+  // engine/model/language policy (default faster-whisper); the rest are emitted so
+  // the engine-availability probe + the resolved status contract are fully visible
+  // to cross-process consumers. The sidecar reads the chosen engine via the
+  // LOQUI_TRANSCRIPTION_* env contract (transcription.ts), not these schemas at
+  // runtime, but they document the shapes for parity.
+  TranscriptionSettings: transcriptionSettingsSchema,
+  UpdateTranscriptionSettings: updateTranscriptionSettingsSchema,
+  TranscriptionEngineInfo: transcriptionEngineInfoSchema,
+  TranscriptionStatus: transcriptionStatusSchema,
 };
 
 rmSync(outDir, { recursive: true, force: true });

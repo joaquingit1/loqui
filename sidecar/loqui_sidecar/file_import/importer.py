@@ -180,7 +180,8 @@ def _transcribe_file(
     reused diarization can read it). Raises :class:`DecodeError` if the file has
     no decodable audio.
     """
-    backend = backend if backend is not None else _select_backend()
+    backend_selection = None if backend is not None else _select_backend()
+    backend = backend if backend is not None else backend_selection.factory()
     config = config or TranscriptionConfig()
     collector = _Collector()
     pipeline = StreamingTranscriptionPipeline(
@@ -192,10 +193,16 @@ def _transcribe_file(
     )
 
     pcm_chunks: list[bytes] = []
-    for frame in iter_decoded_frames(file_path):
-        pcm_chunks.append(frame.pcm)
-        pipeline.feed(frame)
-    pipeline.finish()
+    try:
+        for frame in iter_decoded_frames(file_path):
+            pcm_chunks.append(frame.pcm)
+            pipeline.feed(frame)
+        pipeline.finish()
+    finally:
+        if backend_selection is not None and not backend_selection.shareable:
+            close = getattr(backend, "close", None)
+            if callable(close):
+                close()
 
     pcm = b"".join(pcm_chunks)
     # Persist the decoded audio as system.wav so the reused diarization (which

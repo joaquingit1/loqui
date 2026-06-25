@@ -27,12 +27,16 @@ import {
   updateAutoRecordSettingsSchema,
   updaterSettingsSchema,
   updateUpdaterSettingsSchema,
+  transcriptionSettingsSchema,
+  updateTranscriptionSettingsSchema,
   type CaptureSettings,
   type UpdateCaptureSettings,
   type AutoRecordSettings,
   type UpdateAutoRecordSettings,
   type UpdaterSettings,
   type UpdateUpdaterSettings,
+  type TranscriptionSettings,
+  type UpdateTranscriptionSettings,
 } from "@loqui/shared";
 import { dataRoot } from "../store/paths.js";
 
@@ -45,6 +49,8 @@ interface AppSettingsFile {
   autoRecord?: unknown;
   /** PRD-8 updater policy (additive; absent => all-defaults = auto-check on). */
   updater?: unknown;
+  /** PRD-9 transcription-engine policy (additive; absent => default faster-whisper). */
+  transcription?: unknown;
 }
 
 function appSettingsPath(): string {
@@ -122,6 +128,33 @@ export class SettingsStore {
     const merged = updaterSettingsSchema.parse({ ...current, ...clean });
     const file = this.#readFile();
     file.updater = merged;
+    this.#writeFile(file);
+    return merged;
+  }
+
+  /**
+   * Read the persisted transcription-engine settings (PRD-9; validated +
+   * defaulted). An older `app-settings.json` (or a missing `transcription` key)
+   * parses forward to the all-defaults value (engine faster-whisper, model
+   * `small`, language auto-detect) — byte-identical to the existing PRD-2 flow.
+   */
+  getTranscriptionSettings(): TranscriptionSettings {
+    const file = this.#readFile();
+    return transcriptionSettingsSchema.parse(file.transcription ?? {});
+  }
+
+  /**
+   * Patch the transcription-engine settings (any subset). Merges over the
+   * current settings, re-validates, persists, and returns the stored value. The
+   * change takes effect for the NEXT meeting (the sidecar reads the engine at
+   * launch via the LOQUI_TRANSCRIPTION_* env contract).
+   */
+  setTranscriptionSettings(patch: UpdateTranscriptionSettings): TranscriptionSettings {
+    const clean = updateTranscriptionSettingsSchema.parse(patch ?? {});
+    const current = this.getTranscriptionSettings();
+    const merged = transcriptionSettingsSchema.parse({ ...current, ...clean });
+    const file = this.#readFile();
+    file.transcription = merged;
     this.#writeFile(file);
     return merged;
   }

@@ -59,6 +59,9 @@ import type {
   StopMeetingParams,
   Summary,
   TranscriptSegment,
+  TranscriptionEngineInfo,
+  TranscriptionSettings,
+  UpdateTranscriptionSettings,
   UpdaterSettings,
   UpdaterState,
   UpdateUpdaterSettings,
@@ -101,6 +104,8 @@ export interface LoquiApi {
   export: LoquiExportApi;
   /** Capture / privacy controls bridge (PRD-13). */
   privacy: LoquiPrivacyApi;
+  /** Pluggable transcription-engine bridge (PRD-9). */
+  transcription: LoquiTranscriptionApi;
   /** Packaging + custom GitHub auto-updater bridge (PRD-8). */
   updater: LoquiUpdaterApi;
 }
@@ -162,6 +167,22 @@ export interface LoquiPrivacyApi {
   setCaptureSettings(patch: UpdateCaptureSettings): Promise<CaptureSettings>;
   /** The per-app system-audio capability probe + resolved capture mode. */
   getCaptureCapability(): Promise<CaptureCapability>;
+}
+
+/**
+ * Pluggable transcription-engine surface (PRD-9). Reads + patches the persisted
+ * engine/model/language settings and lists the selectable engines + their
+ * availability on this OS/arch. The chosen engine takes effect for the NEXT
+ * meeting (the sidecar reads it at launch). macOS-only engines are flagged so the
+ * UI hides/disables them on Windows. No secrets here.
+ */
+export interface LoquiTranscriptionApi {
+  /** Read the persisted transcription-engine settings. */
+  getSettings(): Promise<TranscriptionSettings>;
+  /** Patch the engine/model/language settings (takes effect next meeting). */
+  setSettings(patch: UpdateTranscriptionSettings): Promise<TranscriptionSettings>;
+  /** List the selectable engines + their availability on this OS/arch. */
+  getEngines(): Promise<TranscriptionEngineInfo[]>;
 }
 
 /**
@@ -544,6 +565,15 @@ const exportApi: LoquiExportApi = {
   pickExportDir: (): Promise<string | null> => ipcRenderer.invoke(IPC.exportPickDir),
 };
 
+const transcription: LoquiTranscriptionApi = {
+  getSettings: (): Promise<TranscriptionSettings> =>
+    ipcRenderer.invoke(IPC.getTranscriptionSettings),
+  setSettings: (patch: UpdateTranscriptionSettings): Promise<TranscriptionSettings> =>
+    ipcRenderer.invoke(IPC.setTranscriptionSettings, patch),
+  getEngines: (): Promise<TranscriptionEngineInfo[]> =>
+    ipcRenderer.invoke(IPC.getTranscriptionEngines),
+};
+
 const privacy: LoquiPrivacyApi = {
   getCaptureSettings: (): Promise<CaptureSettings> =>
     ipcRenderer.invoke(IPC.getCaptureSettings),
@@ -590,6 +620,7 @@ const api: LoquiApi = {
   autoRecord,
   export: exportApi,
   privacy,
+  transcription,
   updater,
 };
 

@@ -136,6 +136,20 @@ function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
         reason: "",
       })),
     },
+    // PRD-9 transcription-engine bridge: a no-op fake; reached from the Settings panel.
+    transcription: {
+      getSettings: vi.fn(async () => ({
+        engine: "faster-whisper" as const,
+        modelSize: "small" as const,
+        language: null,
+      })),
+      setSettings: vi.fn(async () => ({
+        engine: "faster-whisper" as const,
+        modelSize: "small" as const,
+        language: null,
+      })),
+      getEngines: vi.fn(async () => []),
+    },
     // PRD-8 updater bridge: a no-op fake; the App under test does not exercise it
     // directly (Settings + the restart prompt arrive with the UI rehaul).
     updater: {
