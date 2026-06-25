@@ -130,6 +130,30 @@ test("sidecar reaches healthy + ping round-trips through the real IPC/WS seam", 
   expect(typeof pong.latencyMs).toBe("number");
 });
 
+test("the capture AudioWorklet bundle loads + registers (regression: addModule must not 404)", async () => {
+  // The worklet generates the PCM frames; if its bundle isn't built/served,
+  // addModule throws AbortError "The user aborted a request." and recording
+  // silently produces nothing. Verify the real bundle loads + the processor
+  // ("loqui-capture") registers — exercised through the actual built renderer.
+  const result = await page.evaluate(async () => {
+    try {
+      const ctx = new AudioContext({ sampleRate: 16000 });
+      await ctx.audioWorklet.addModule(new URL("capture-worklet.js", document.baseURI).href);
+      const node = new AudioWorkletNode(ctx, "loqui-capture", {
+        numberOfInputs: 1,
+        numberOfOutputs: 0,
+        processorOptions: { source: "mic", startTimeMs: 0 },
+      });
+      const ok = !!node;
+      await ctx.close();
+      return { ok };
+    } catch (e) {
+      return { ok: false, name: (e as Error).name, message: (e as Error).message };
+    }
+  });
+  expect(result.ok).toBe(true);
+});
+
 test("the PRD-6 speaker-names indicator renders + the status IPC round-trips (absent extension degrades gracefully)", async () => {
   // PRD-6 is WIRED into the running app: the status IPC handler is registered
   // (registerSpeakerNamesIpc) so window.loqui.speakerNames.status() round-trips

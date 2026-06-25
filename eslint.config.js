@@ -17,6 +17,8 @@ export default tseslint.config(
       "**/*.tsbuildinfo",
       "**/coverage/**",
       "packages/shared/schema/**",
+      // Static assets served as-is (incl. the esbuild-bundled AudioWorklet).
+      "**/renderer/public/**",
     ],
   },
   js.configs.recommended,

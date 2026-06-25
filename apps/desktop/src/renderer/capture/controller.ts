@@ -124,7 +124,13 @@ function defaultEnv(): CaptureEnv {
         numberOfOutputs: 0,
         processorOptions: { source, startTimeMs: 0 },
       }),
-    workletModuleUrl: () => new URL("./capture.worklet.js", import.meta.url),
+    // The worklet is pre-bundled (esbuild, scripts/build-worklet.mjs) into the
+    // renderer's public/ as a SELF-CONTAINED script, served at the web root in
+    // dev and copied next to index.html on build — so resolving it against
+    // document.baseURI works in both. (Loading it relative to import.meta.url —
+    // i.e. the hashed assets/ bundle — 404'd, which made addModule throw
+    // AbortError "The user aborted a request.")
+    workletModuleUrl: () => new URL("capture-worklet.js", document.baseURI),
     requestAnimationFrame: (cb) => requestAnimationFrame(cb),
     cancelAnimationFrame: (h) => cancelAnimationFrame(h),
   };
