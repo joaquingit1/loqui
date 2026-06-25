@@ -108,14 +108,23 @@ function makeStore(opts: {
 
 function makeHfKeystore() {
   const setCalls: unknown[] = [];
+  const backendCalls: unknown[] = [];
   return {
     setCalls,
+    backendCalls,
     setHfToken(params: { token: string | null }) {
       setCalls.push(params);
       return { hasToken: Boolean(params.token && params.token.trim()) };
     },
     getHfTokenStatus() {
       return { hasToken: true };
+    },
+    setDiarizationBackend(params: { diarizationBackend: "auto" | "sherpa" | "pyannote" }) {
+      backendCalls.push(params);
+      return { diarizationBackend: params.diarizationBackend };
+    },
+    getDiarizationBackendStatus() {
+      return { diarizationBackend: "auto" as const };
     },
   };
 }
@@ -262,6 +271,20 @@ describe("registerPostProcessIpc — regenerate + HF token", () => {
     expect(handlers.handle.get(IPC.getHfTokenStatus)!(null)).toEqual({ hasToken: true });
   });
 
+  it("set/getDiarizationBackend delegates to the keystore", () => {
+    const hfKeystore = makeHfKeystore();
+    registerPostProcessIpc({ store: makeStore(), hfKeystore, pipeline: makePipeline() });
+    expect(
+      handlers.handle.get(IPC.setDiarizationBackend)!(null, {
+        diarizationBackend: "pyannote",
+      }),
+    ).toEqual({ diarizationBackend: "pyannote" });
+    expect(hfKeystore.backendCalls).toEqual([{ diarizationBackend: "pyannote" }]);
+    expect(handlers.handle.get(IPC.getDiarizationBackendStatus)!(null)).toEqual({
+      diarizationBackend: "auto",
+    });
+  });
+
   it("the disposer removes every handler it registered", () => {
     const dispose = registerPostProcessIpc({ store: makeStore(), hfKeystore: makeHfKeystore(), pipeline: makePipeline() });
     dispose();
@@ -273,6 +296,8 @@ describe("registerPostProcessIpc — regenerate + HF token", () => {
         IPC.regenerateSummary,
         IPC.setHfToken,
         IPC.getHfTokenStatus,
+        IPC.setDiarizationBackend,
+        IPC.getDiarizationBackendStatus,
       ]),
     );
   });

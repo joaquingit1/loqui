@@ -26,7 +26,16 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { hfTokenStatusSchema, type HfTokenStatus, type SetHfTokenParams } from "@loqui/shared";
+import {
+  diarizationBackendStatusSchema,
+  hfTokenStatusSchema,
+  setDiarizationBackendParamsSchema,
+  type DiarizationBackendPreference,
+  type DiarizationBackendStatus,
+  type HfTokenStatus,
+  type SetDiarizationBackendParams,
+  type SetHfTokenParams,
+} from "@loqui/shared";
 import { dataRoot } from "../store/paths.js";
 
 /**
@@ -51,6 +60,7 @@ export interface SafeStorageLike {
 /** On-disk shape of `postprocess-settings.json`. `hfToken` is base64 ciphertext. */
 interface PostProcessSettingsFile {
   hfToken?: string;
+  diarizationBackend?: DiarizationBackendPreference;
 }
 
 const POSTPROCESS_SETTINGS_FILE = "postprocess-settings.json";
@@ -99,6 +109,30 @@ export class HfKeystore {
   getHfTokenStatus(): HfTokenStatus {
     const file = this.#readFile();
     return hfTokenStatusSchema.parse({ hasToken: Boolean(file.hfToken) });
+  }
+
+  setDiarizationBackend(params: SetDiarizationBackendParams): DiarizationBackendStatus {
+    const parsed = setDiarizationBackendParamsSchema.parse(params);
+    const file = this.#readFile();
+    file.diarizationBackend = parsed.diarizationBackend;
+    this.#writeFile(file);
+    return diarizationBackendStatusSchema.parse({
+      diarizationBackend: parsed.diarizationBackend,
+    });
+  }
+
+  getDiarizationBackendStatus(): DiarizationBackendStatus {
+    return diarizationBackendStatusSchema.parse({
+      diarizationBackend: this.getDiarizationBackend(),
+    });
+  }
+
+  getDiarizationBackend(): DiarizationBackendPreference {
+    const file = this.#readFile();
+    const parsed = diarizationBackendStatusSchema.safeParse({
+      diarizationBackend: file.diarizationBackend,
+    });
+    return parsed.success ? parsed.data.diarizationBackend : "auto";
   }
 
   /**

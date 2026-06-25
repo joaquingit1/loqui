@@ -36,6 +36,7 @@ Required scenarios (per the build-unit brief):
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Iterator, Optional
 
@@ -332,6 +333,47 @@ def test_diarizer_backend_crash_degrades_not_fatal(data_dir):
     done = _done(events)
     assert done["diarization"] == "skipped"
     assert done["summary"] == "done"
+
+
+def test_native_diarizer_crash_degrades_meeting_still_finalizes(data_dir, monkeypatch, tmp_path):
+    """CRASH-SAFETY INVARIANT (PRD-14): a NATIVE segfault in the sherpa-onnx
+    backend (a C++ access violation no Python try/except can catch) must NEVER
+    kill the sidecar. The real SherpaOnnxDiarizer isolates the ONNX run in a
+    child process; here we force that child to hard-exit 139 (a real segfault's
+    exit code) and assert run_postprocess STILL emits postProcessDone with
+    diarization "skipped" + a degrade note, the summary still runs, and NOTHING
+    propagates — the meeting finalizes.
+    """
+    from loqui_sidecar.postprocess import SherpaOnnxDiarizer, sherpa_models
+    from loqui_sidecar.postprocess import sherpa_backend
+
+    # Stage placeholder model files so the diarizer reaches the (crashing) child.
+    models_dir = tmp_path / "diar_models"
+    models_dir.mkdir()
+    monkeypatch.setenv(sherpa_models.SHERPA_MODELS_DIR_ENV, str(models_dir))
+    (models_dir / sherpa_models.SEGMENTATION_MODEL.filename).write_bytes(b"seg")
+    (models_dir / sherpa_models.EMBEDDING_MODEL.filename).write_bytes(b"emb")
+
+    _seed(data_dir, "m1", system_wav=True)
+
+    # Replace the real child command with a genuine crashing one (os._exit(139)).
+    real_run = sherpa_backend.subprocess.run
+
+    def _run_crashing(cmd, **kwargs):
+        return real_run([sys.executable, "-c", "import os; os._exit(139)"], **kwargs)
+
+    monkeypatch.setattr(sherpa_backend.subprocess, "run", _run_crashing)
+
+    events, emit = _collect_emit()
+    # No exception must escape even though the child segfaults.
+    run_postprocess(_request("m1"), emit, diarizer=SherpaOnnxDiarizer())
+
+    done = _done(events)
+    assert done["diarization"] == "skipped"  # degraded, not "done"
+    assert done["summary"] == "done"  # the meeting still completes
+    assert "diarization unavailable on this system" in done["note"]
+    # A terminal postProcessDone WAS emitted (the meeting can finalize).
+    assert any(e == POSTPROCESS_DONE_EVENT for e, _ in events)
 
 
 # --- 3) SUMMARY-PROVIDER ERROR ------------------------------------------------

@@ -62,3 +62,7 @@ release/
 test-results/
 playwright-report/
 .playwright/
+
+# stray uv/pytest temp dirs (created when tools run with a relative cache/tmp dir)
+/tmp/
+/.tmp/

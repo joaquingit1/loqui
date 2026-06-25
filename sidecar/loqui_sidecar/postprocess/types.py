@@ -67,10 +67,13 @@ class DiarizationResult:
 
     ``turns`` are the speaker turns over ``system.wav`` (empty when diarization
     was skipped). ``diarized`` is False when the backend degraded gracefully
-    (torch/pyannote/HF token unavailable) — the pipeline then labels every system
-    segment a single fallback ``Speaker 1`` so the meeting still completes.
-    ``backend`` identifies the model used (e.g.
-    ``"pyannote/speaker-diarization-3.1"`` or ``"fake"``); ``note`` is a
+    (e.g. the no-token sherpa-onnx models aren't downloaded yet, or — for the
+    opt-in pyannote backend — torch/the HF token is unavailable) — the pipeline
+    then labels every system segment a single fallback ``Speaker 1`` so the
+    meeting still completes. With NO HF token the DEFAULT is the no-token
+    sherpa-onnx backend (it does NOT mean "skipped"). ``backend`` identifies the
+    model used (e.g. ``"sherpa-onnx/pyannote-segmentation+campplus"``,
+    ``"pyannote/speaker-diarization-3.1"``, or ``"fake"``); ``note`` is a
     secret-free, user-facing reason when skipped.
     """
 

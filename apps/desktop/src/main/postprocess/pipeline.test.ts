@@ -20,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Meeting, ProviderConfig } from "@loqui/shared";
+import type { DiarizationBackendPreference, Meeting, ProviderConfig } from "@loqui/shared";
 import { createPostProcessPipeline } from "./pipeline.js";
 
 let dir: string;
@@ -118,8 +118,14 @@ function makeProviderKeys(opts: { provider?: ProviderConfig["provider"]; apiKey?
   };
 }
 
-function makeHfKeystore(token: string | null) {
-  return { getHfToken: () => token };
+function makeHfKeystore(
+  token: string | null,
+  diarizationBackend: DiarizationBackendPreference = "auto",
+) {
+  return {
+    getHfToken: () => token,
+    getDiarizationBackend: () => diarizationBackend,
+  };
 }
 
 // --- Tests -------------------------------------------------------------------
@@ -150,6 +156,7 @@ describe("pipeline — stop -> audioFinalized -> postProcess request", () => {
       meetingId: "m1",
       apiKey: "sk-ant-SUMMARY",
       hfToken: "hf_TOKEN",
+      diarizationBackend: "auto",
       regenerateSummary: false,
       rediarize: false,
     });
@@ -191,10 +198,31 @@ describe("pipeline — stop -> audioFinalized -> postProcess request", () => {
     supervisor.emit("audioFinalized", { meetingId: "m1", source: "system" });
 
     // The request is STILL sent (the summary step runs even with no HF token);
-    // hfToken is null so the sidecar degrades diarization gracefully.
+    // hfToken is null; the default auto backend will choose local sherpa.
     expect(supervisor.sent).toHaveLength(1);
     expect((supervisor.sent[0]!.data as { hfToken: unknown }).hfToken).toBeNull();
+    expect((supervisor.sent[0]!.data as { diarizationBackend: unknown }).diarizationBackend).toBe(
+      "auto",
+    );
     expect((supervisor.sent[0]!.data as { apiKey: unknown }).apiKey).toBe("sk-ant-SUMMARY");
+    pipeline.dispose();
+  });
+
+  it("threads an explicit diarizationBackend preference into the request", () => {
+    const supervisor = makeSupervisor();
+    const store = makeStore([meeting("m1")]);
+    const pipeline = createPostProcessPipeline({
+      supervisor,
+      store,
+      providerKeys: makeProviderKeys(),
+      hfKeystore: makeHfKeystore("hf_TOKEN", "sherpa"),
+    });
+    pipeline.onMeetingProcessing(meeting("m1"));
+    supervisor.emit("audioFinalized", { meetingId: "m1", source: "system" });
+
+    expect((supervisor.sent[0]!.data as { diarizationBackend: unknown }).diarizationBackend).toBe(
+      "sherpa",
+    );
     pipeline.dispose();
   });
 

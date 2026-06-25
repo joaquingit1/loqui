@@ -76,7 +76,7 @@ export interface PostProcessPipelineDeps {
   /** Provider settings + summary api key (the PRD-4 chat keystore in prod). */
   providerKeys: ProviderKeySource;
   /** HF token storage (decrypted out of band; null => diarization degrades). */
-  hfKeystore: Pick<HfKeystore, "getHfToken">;
+  hfKeystore: Pick<HfKeystore, "getHfToken" | "getDiarizationBackend">;
   /**
    * Emit a meeting-status change (the controller's status emitter, so the
    * `processing -> done`/`error` transition the pipeline drives is pushed to the
@@ -131,6 +131,7 @@ export function createPostProcessPipeline(
     // degrades gracefully (the meeting still completes with the live transcript
     // + summary). Never logged, never sent to the renderer.
     const hfToken = hfKeystore.getHfToken();
+    const diarizationBackend = hfKeystore.getDiarizationBackend();
     return postProcessRequestSchema.parse({
       meetingId,
       providerConfig: {
@@ -142,6 +143,7 @@ export function createPostProcessPipeline(
       },
       apiKey,
       hfToken,
+      diarizationBackend,
       regenerateSummary: opts.regenerateSummary,
       rediarize: opts.rediarize,
     });

@@ -2,14 +2,16 @@
  * HfTokenSettings — store / clear the Hugging Face token for the gated
  * pyannote diarization weights (PRD-5).
  *
- * pyannote.audio's speaker-diarization-3.1 weights are gated: the user must
- * accept the model terms on Hugging Face and supply an access token. The token
- * is typed into a password field and handed to MAIN for OS-keychain (Electron
- * safeStorage) encryption via `postprocess.setHfToken`. It is NEVER echoed back
- * — after saving we only show "Token saved" (read from `getHfTokenStatus`,
- * which returns a boolean, never the token). Without a token, diarization
- * degrades gracefully (the meeting still completes with the live transcript +
- * summary); this entry is how the user opts in to real diarization.
+ * PRD-14: diarization works with NO token by default (the local, no-account
+ * sherpa-onnx ONNX backend). This entry is the MAX-ACCURACY opt-in: pyannote's
+ * speaker-diarization weights are gated, so the user must accept the model terms
+ * on Hugging Face and supply an access token to switch to the (slightly more
+ * accurate) pyannote backend. The token is typed into a password field and
+ * handed to MAIN for OS-keychain (Electron safeStorage) encryption via
+ * `postprocess.setHfToken`. It is NEVER echoed back — after saving we only show
+ * "Token saved" (read from `getHfTokenStatus`, which returns a boolean, never
+ * the token). Without a token, diarization still runs (the no-token default) and
+ * the meeting completes with a diarized transcript + summary.
  *
  * SECURITY: the plaintext token lives only in this component's transient input
  * state until Save; after Save it is cleared and never rendered again.
@@ -18,6 +20,7 @@
  * tests), never to IPC channels or Node globals.
  */
 import { useCallback, useEffect, useState, type JSX } from "react";
+import type { DiarizationBackendPreference } from "@loqui/shared";
 import type { LoquiPostProcessApi } from "../../preload/index.js";
 
 /** Where to accept the gated model terms (shown as guidance, not a live link). */
@@ -25,7 +28,13 @@ export const PYANNOTE_TERMS_URL = "https://huggingface.co/pyannote/speaker-diari
 
 export interface HfTokenSettingsProps {
   /** Postprocess bridge (subset). Injectable for tests; defaults to window.loqui.postprocess. */
-  api?: Pick<LoquiPostProcessApi, "setHfToken" | "getHfTokenStatus">;
+  api?: Pick<
+    LoquiPostProcessApi,
+    | "setHfToken"
+    | "getHfTokenStatus"
+    | "setDiarizationBackend"
+    | "getDiarizationBackendStatus"
+  >;
 }
 
 export function HfTokenSettings({ api }: HfTokenSettingsProps): JSX.Element {
@@ -35,6 +44,8 @@ export function HfTokenSettings({ api }: HfTokenSettingsProps): JSX.Element {
   const [hasToken, setHasToken] = useState(false);
   // Transient plaintext token; never persisted in component state past Save.
   const [tokenInput, setTokenInput] = useState("");
+  const [diarizationBackend, setDiarizationBackend] =
+    useState<DiarizationBackendPreference>("auto");
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -47,6 +58,10 @@ export function HfTokenSettings({ api }: HfTokenSettingsProps): JSX.Element {
       .getHfTokenStatus()
       .then((s) => setHasToken(Boolean(s?.hasToken)))
       .catch(() => setHasToken(false));
+    bridge
+      .getDiarizationBackendStatus?.()
+      .then((s) => setDiarizationBackend(s?.diarizationBackend ?? "auto"))
+      .catch(() => setDiarizationBackend("auto"));
   }, [bridge]);
 
   useEffect(() => {
@@ -90,6 +105,26 @@ export function HfTokenSettings({ api }: HfTokenSettingsProps): JSX.Element {
       });
   }, [bridge]);
 
+  const onDiarizationBackendChange = useCallback(
+    (value: DiarizationBackendPreference) => {
+      setDiarizationBackend(value);
+      if (!bridge?.setDiarizationBackend) return;
+      setStatus(null);
+      bridge
+        .setDiarizationBackend({ diarizationBackend: value })
+        .then((s) => {
+          setDiarizationBackend(s.diarizationBackend);
+          setStatus("Diarization engine saved.");
+        })
+        .catch((err: unknown) => {
+          setStatus(
+            `Could not save engine: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+    },
+    [bridge],
+  );
+
   return (
     <div className="chat__settings hf-token" data-testid="hf-token-settings">
       <div className="chat__field" data-testid="hf-token-field">
@@ -125,13 +160,39 @@ export function HfTokenSettings({ api }: HfTokenSettingsProps): JSX.Element {
             </button>
           )}
         </div>
-        <p className="chat__hint">
-          Enables real speaker diarization (pyannote). Accept the gated model terms at{" "}
+        <p className="chat__hint" data-testid="hf-token-note">
+          Default: local diarization runs with no token — speakers are separated on-device using
+          bundled open models (no Hugging Face account needed). Max accuracy: add a free Hugging
+          Face token to switch to pyannote (slightly higher accuracy). Accept the gated model terms
+          at{" "}
           <span className="hf-token__url" data-testid="hf-token-terms-url">
             {PYANNOTE_TERMS_URL}
           </span>
           , then paste your token here. Stored encrypted in your OS keychain; never shown again.
-          Without it, meetings still complete and are summarized — only diarization is skipped.
+        </p>
+      </div>
+
+      <div className="chat__field" data-testid="diarization-backend-field">
+        <label className="chat__field-label" htmlFor="diarization-backend-select">
+          Diarization engine
+        </label>
+        <select
+          id="diarization-backend-select"
+          className="chat__select"
+          data-testid="diarization-backend-select"
+          value={diarizationBackend}
+          onChange={(e) =>
+            onDiarizationBackendChange(e.target.value as DiarizationBackendPreference)
+          }
+        >
+          <option value="auto">Automatic</option>
+          <option value="sherpa">Local (no token)</option>
+          <option value="pyannote">Max accuracy (Hugging Face token)</option>
+        </select>
+        <p className="chat__hint" data-testid="diarization-backend-note">
+          Automatic uses pyannote when a token is saved and local sherpa-onnx otherwise.
+          Local has the smallest footprint and needs no account; max accuracy uses the larger
+          pyannote stack and requires the token above.
         </p>
       </div>
 

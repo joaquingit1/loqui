@@ -58,6 +58,12 @@ from .pyannote_backend import (
     PyannoteDiarizer,
     pyannote_factory,
 )
+from .sherpa_backend import (
+    SHERPA_BACKEND_NAME,
+    SherpaOnnxDiarizer,
+    sherpa_factory,
+)
+from . import sherpa_models
 from .summary import SUMMARY_INSTRUCTION, summarize
 from .writers import (
     diarized_json_path,
@@ -102,7 +108,12 @@ __all__ = [
     "fake_diarizer_enabled",
     "FAKE_DIARIZER_ENV",
     "scripted_turns",
-    # real diarizer build-unit seam
+    # no-token default diarizer (PRD-14)
+    "SherpaOnnxDiarizer",
+    "sherpa_factory",
+    "SHERPA_BACKEND_NAME",
+    "sherpa_models",
+    # max-accuracy opt-in diarizer (HF token)
     "PyannoteDiarizer",
     "pyannote_factory",
     "PYANNOTE_PIPELINE",

@@ -50,6 +50,7 @@ from .align import align, distinct_system_speakers
 from .fake import FakeDiarizer, fake_diarizer_enabled
 from .pyannote_backend import PyannoteDiarizer
 from .request import PostProcessRequest
+from .sherpa_backend import SherpaOnnxDiarizer
 from .summary import summarize
 from .types import (
     JOB_KIND_DIARIZATION,
@@ -65,18 +66,42 @@ from .types import (
 
 logger = logging.getLogger("loqui_sidecar.postprocess.runner")
 
-#: Builds a :class:`DiarizationBackend`. Foundation's default returns the
-#: hermetic FakeDiarizer when ``LOQUI_FAKE_DIARIZER`` is set, else the real
-#: PyannoteDiarizer (which itself degrades gracefully when torch/pyannote/the HF
-#: token are absent). The build unit / tests may inject a different factory.
-DiarizerFactory = Callable[[], DiarizationBackend]
+#: Builds a :class:`DiarizationBackend` for the current env + an optional HF token.
+#: The default (:func:`default_diarizer_factory`) selects, in order: the hermetic
+#: FakeDiarizer when ``LOQUI_FAKE_DIARIZER`` is set (the gate); explicit user
+#: selection when configured; else ``auto`` chooses pyannote with an HF token and
+#: sherpa without one. The build unit / tests may inject a different factory.
+DiarizerFactory = Callable[[Optional[str], str], DiarizationBackend]
 
 
-def default_diarizer_factory() -> DiarizationBackend:
-    """Return the diarizer for the current env (fake when forced, else pyannote)."""
+def default_diarizer_factory(
+    hf_token: Optional[str] = None,
+    diarization_backend: str = "auto",
+) -> DiarizationBackend:
+    """Select the diarization backend for the current env (PRD-14).
+
+    Selection order:
+
+    1. ``LOQUI_FAKE_DIARIZER`` set -> :class:`FakeDiarizer` (the hermetic gate +
+       smoke; deterministic, no model/network).
+    2. explicit ``sherpa`` -> :class:`SherpaOnnxDiarizer`.
+    3. explicit ``pyannote`` -> :class:`PyannoteDiarizer` (it self-degrades
+       without a token/torch).
+    4. ``auto`` -> pyannote when an HF token is configured; otherwise sherpa.
+
+    The chosen backend still degrades gracefully on its own (e.g. sherpa skips
+    when its models aren't downloaded yet, pyannote skips when torch/the token
+    are unavailable) so the meeting always completes.
+    """
     if fake_diarizer_enabled():
         return FakeDiarizer()
-    return PyannoteDiarizer()
+    if diarization_backend == "sherpa":
+        return SherpaOnnxDiarizer()
+    if diarization_backend == "pyannote":
+        return PyannoteDiarizer()
+    if hf_token:
+        return PyannoteDiarizer()
+    return SherpaOnnxDiarizer()
 
 
 def _read_structured_transcript(meeting_id: str) -> list[TranscriptRecord]:
@@ -131,7 +156,10 @@ def run_postprocess(
     Never raises into the caller; each stage is individually guarded.
     """
     meeting_id = request.meeting_id
-    diarizer = diarizer or default_diarizer_factory()
+    diarizer = diarizer or default_diarizer_factory(
+        request.hf_token,
+        request.diarization_backend,
+    )
     selector = selector or _default_provider_selector
     reader = reader or FsTranscriptReader()
 

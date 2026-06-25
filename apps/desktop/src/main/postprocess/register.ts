@@ -23,6 +23,7 @@
 import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import {
   EVENT,
+  setDiarizationBackendParamsSchema,
   getDiarizedTranscriptParamsSchema,
   getSummaryParamsSchema,
   jobEventSchema,
@@ -31,6 +32,7 @@ import {
   setHfTokenParamsSchema,
   type DiarizedSegment,
   type DiarizedTranscript,
+  type DiarizationBackendStatus,
   type HfTokenStatus,
   type Summary,
 } from "@loqui/shared";
@@ -48,7 +50,13 @@ export interface PostProcessIpcDeps {
     "getMeeting" | "updateMeeting" | "getSummary" | "getDiarizedTranscript" | "upsertSearchText"
   >;
   /** HF token storage (set/get status; never returns the token). */
-  hfKeystore: Pick<HfKeystore, "setHfToken" | "getHfTokenStatus">;
+  hfKeystore: Pick<
+    HfKeystore,
+    | "setHfToken"
+    | "getHfTokenStatus"
+    | "setDiarizationBackend"
+    | "getDiarizationBackendStatus"
+  >;
   /** The post-processing pipeline (backs the regenerate-summary IPC). */
   pipeline: Pick<PostProcessPipeline, "requestSummaryRegeneration">;
 }
@@ -105,6 +113,17 @@ export function registerPostProcessIpc(deps: PostProcessIpcDeps): () => void {
     return hfKeystore.getHfTokenStatus();
   });
 
+  ipcMain.handle(
+    IPC.setDiarizationBackend,
+    (_e: IpcMainInvokeEvent, params: unknown): DiarizationBackendStatus => {
+      return hfKeystore.setDiarizationBackend(setDiarizationBackendParamsSchema.parse(params));
+    },
+  );
+
+  ipcMain.handle(IPC.getDiarizationBackendStatus, (): DiarizationBackendStatus => {
+    return hfKeystore.getDiarizationBackendStatus();
+  });
+
   return () => {
     ipcMain.removeHandler(IPC.getSummary);
     ipcMain.removeHandler(IPC.getDiarizedTranscript);
@@ -112,6 +131,8 @@ export function registerPostProcessIpc(deps: PostProcessIpcDeps): () => void {
     ipcMain.removeHandler(IPC.regenerateSummary);
     ipcMain.removeHandler(IPC.setHfToken);
     ipcMain.removeHandler(IPC.getHfTokenStatus);
+    ipcMain.removeHandler(IPC.setDiarizationBackend);
+    ipcMain.removeHandler(IPC.getDiarizationBackendStatus);
   };
 }
 

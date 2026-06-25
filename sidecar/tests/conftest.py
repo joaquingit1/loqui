@@ -29,6 +29,7 @@ import pytest
 # (tests/test_asr_real_model.py) constructs FasterWhisperBackend directly and is
 # unaffected by this flag. Set before any sidecar import / spawn.
 os.environ.setdefault("LOQUI_FAKE_ASR", "1")
+os.environ.setdefault("LOQUI_NO_MODEL_DOWNLOAD", "1")
 
 
 @dataclass

@@ -165,6 +165,10 @@ export const IPC = {
    * {@link import("@loqui/shared").HfTokenStatus}). Never returns the token.
    */
   getHfTokenStatus: "loqui:postprocess:getHfTokenStatus",
+  /** invoke: persist the postprocess diarization engine preference. */
+  setDiarizationBackend: "loqui:postprocess:setDiarizationBackend",
+  /** invoke: read the postprocess diarization engine preference. */
+  getDiarizationBackendStatus: "loqui:postprocess:getDiarizationBackendStatus",
 
   // --- Local MCP server (PRD-7) ---
   /**

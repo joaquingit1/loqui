@@ -9,7 +9,12 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { HfTokenStatus, SetHfTokenParams } from "@loqui/shared";
+import type {
+  DiarizationBackendStatus,
+  HfTokenStatus,
+  SetDiarizationBackendParams,
+  SetHfTokenParams,
+} from "@loqui/shared";
 import { HfTokenSettings } from "./HfTokenSettings.js";
 
 afterEach(cleanup);
@@ -18,11 +23,23 @@ function makeApi(
   over: Partial<{
     setHfToken: (p: SetHfTokenParams) => Promise<HfTokenStatus>;
     getHfTokenStatus: () => Promise<HfTokenStatus>;
+    setDiarizationBackend: (
+      p: SetDiarizationBackendParams,
+    ) => Promise<DiarizationBackendStatus>;
+    getDiarizationBackendStatus: () => Promise<DiarizationBackendStatus>;
   }> = {},
 ) {
   return {
     setHfToken: vi.fn(async (p: SetHfTokenParams) => ({ hasToken: Boolean(p.token) })),
     getHfTokenStatus: vi.fn(async (): Promise<HfTokenStatus> => ({ hasToken: false })),
+    setDiarizationBackend: vi.fn(
+      async (p: SetDiarizationBackendParams): Promise<DiarizationBackendStatus> => ({
+        diarizationBackend: p.diarizationBackend,
+      }),
+    ),
+    getDiarizationBackendStatus: vi.fn(
+      async (): Promise<DiarizationBackendStatus> => ({ diarizationBackend: "auto" }),
+    ),
     ...over,
   };
 }
@@ -77,5 +94,35 @@ describe("HfTokenSettings", () => {
     expect(screen.getByTestId("hf-token-terms-url").textContent).toContain(
       "pyannote/speaker-diarization-3.1",
     );
+  });
+
+  it("explains diarization works with no token by default (PRD-14)", async () => {
+    render(<HfTokenSettings api={makeApi()} />);
+    await waitFor(() => expect(screen.getByTestId("hf-token-note")).toBeTruthy());
+    const note = screen.getByTestId("hf-token-note").textContent ?? "";
+    // The no-token default + the max-accuracy opt-in are both surfaced.
+    expect(note).toMatch(/no token/i);
+    expect(note).toMatch(/max accuracy/i);
+  });
+
+  it("loads and saves the diarization engine preference", async () => {
+    const api = makeApi({
+      getDiarizationBackendStatus: vi.fn(async () => ({
+        diarizationBackend: "sherpa" as const,
+      })),
+    });
+    render(<HfTokenSettings api={api} />);
+    const select = (await screen.findByTestId(
+      "diarization-backend-select",
+    )) as HTMLSelectElement;
+    await waitFor(() => expect(select.value).toBe("sherpa"));
+
+    fireEvent.change(select, { target: { value: "pyannote" } });
+    await waitFor(() =>
+      expect(api.setDiarizationBackend).toHaveBeenCalledWith({
+        diarizationBackend: "pyannote",
+      }),
+    );
+    expect(screen.getByTestId("diarization-backend-note").textContent).toMatch(/footprint/i);
   });
 });

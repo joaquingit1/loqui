@@ -23,6 +23,7 @@ import type {
   ChatSendParams,
   ChatStreamEvent,
   DiarizedTranscript,
+  DiarizationBackendStatus,
   GetDiarizedTranscriptParams,
   GetSummaryParams,
   GetTranscriptParams,
@@ -42,6 +43,7 @@ import type {
   RenameSpeakerParams,
   ScreenPermissionStatus,
   SetApiKeyParams,
+  SetDiarizationBackendParams,
   SetHfTokenParams,
   SpeakerNamesStatus,
   StartMeetingParams,
@@ -195,6 +197,12 @@ export interface LoquiPostProcessApi {
   setHfToken(params: SetHfTokenParams): Promise<HfTokenStatus>;
   /** Whether an HF token is currently stored (never returns the token). */
   getHfTokenStatus(): Promise<HfTokenStatus>;
+  /** Persist the preferred diarization engine. */
+  setDiarizationBackend(
+    params: SetDiarizationBackendParams,
+  ): Promise<DiarizationBackendStatus>;
+  /** Read the preferred diarization engine. */
+  getDiarizationBackendStatus(): Promise<DiarizationBackendStatus>;
 }
 
 /**
@@ -344,6 +352,12 @@ const postprocess: LoquiPostProcessApi = {
     ipcRenderer.invoke(IPC.setHfToken, params),
   getHfTokenStatus: (): Promise<HfTokenStatus> =>
     ipcRenderer.invoke(IPC.getHfTokenStatus),
+  setDiarizationBackend: (
+    params: SetDiarizationBackendParams,
+  ): Promise<DiarizationBackendStatus> =>
+    ipcRenderer.invoke(IPC.setDiarizationBackend, params),
+  getDiarizationBackendStatus: (): Promise<DiarizationBackendStatus> =>
+    ipcRenderer.invoke(IPC.getDiarizationBackendStatus),
 };
 
 const mcp: LoquiMcpApi = {

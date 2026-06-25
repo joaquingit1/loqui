@@ -196,6 +196,9 @@ export const POSTPROCESS_EVENT = {
 export const POSTPROCESS_REQUEST_EVENT = POSTPROCESS_EVENT.request;
 export const POSTPROCESS_DONE_EVENT = POSTPROCESS_EVENT.done;
 
+export const diarizationBackendPreferenceSchema = z.enum(["auto", "sherpa", "pyannote"]);
+export type DiarizationBackendPreference = z.infer<typeof diarizationBackendPreferenceSchema>;
+
 /**
  * The `postProcess` notification `data` (main -> sidecar). Carries the meeting
  * id + the SAME provider config + transient BYOK api key as a chat request
@@ -228,10 +231,17 @@ export const postProcessRequestSchema = z.object({
   apiKey: z.string().nullable().default(null).optional(),
   /**
    * Transient Hugging Face token for the gated pyannote weights, injected by
-   * main from the keystore. Null/absent => diarization degrades gracefully.
-   * NEVER persisted or logged by the sidecar.
+   * main from the keystore. PRD-14: this is the MAX-ACCURACY opt-in selector —
+   * when present the sidecar uses the higher-accuracy pyannote backend; when
+   * null/absent the sidecar uses the NO-TOKEN sherpa-onnx default (diarization
+   * still runs — it is NOT skipped). NEVER persisted or logged by the sidecar.
    */
   hfToken: z.string().nullable().default(null).optional(),
+  /**
+   * User-selected diarization engine. "auto" preserves the default selection:
+   * pyannote when an HF token is present, otherwise local sherpa-onnx.
+   */
+  diarizationBackend: diarizationBackendPreferenceSchema.default("auto"),
   /** Run only the summary step (regenerate); skip diarization. */
   regenerateSummary: z.boolean().default(false),
   /** Force diarization to re-run even if prior output exists (idempotent). */
@@ -258,7 +268,12 @@ export type PostProcessStage = z.infer<typeof postProcessStageSchema>;
  */
 export const postProcessDoneSchema = z.object({
   meetingId: z.string(),
-  /** Diarization stage outcome (skipped when torch/pyannote/HF token absent). */
+  /**
+   * Diarization stage outcome. PRD-14: "done" on the no-token sherpa-onnx
+   * default OR the max-accuracy pyannote backend; "skipped" only when the
+   * selected backend degraded (e.g. local models not downloaded yet, or — for
+   * the pyannote opt-in — torch/the HF token absent).
+   */
   diarization: postProcessStageSchema.default("skipped"),
   /** Summary stage outcome. */
   summary: postProcessStageSchema.default("skipped"),
@@ -330,6 +345,18 @@ export const hfTokenStatusSchema = z.object({
   hasToken: z.boolean().default(false),
 });
 export type HfTokenStatus = z.infer<typeof hfTokenStatusSchema>;
+
+export const setDiarizationBackendParamsSchema = z.object({
+  diarizationBackend: diarizationBackendPreferenceSchema.default("auto"),
+});
+export type SetDiarizationBackendParams = z.infer<
+  typeof setDiarizationBackendParamsSchema
+>;
+
+export const diarizationBackendStatusSchema = z.object({
+  diarizationBackend: diarizationBackendPreferenceSchema.default("auto"),
+});
+export type DiarizationBackendStatus = z.infer<typeof diarizationBackendStatusSchema>;
 
 /**
  * The renderer-facing JobUpdate push payload (main -> renderer): main forwards

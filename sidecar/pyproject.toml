@@ -24,6 +24,37 @@ dependencies = [
     # out to an installed `claude`/`codex` via subprocess (no extra dep).
     "anthropic>=0.40.0",
     "httpx>=0.27.0",
+    # PRD-14 no-token local diarization. sherpa-onnx (k2-fsa) is the DEFAULT
+    # speaker-diarization backend: Apache-2.0, lightweight, CPU-only, NO torch and
+    # NO Hugging Face token/account (the ONNX models come from sherpa-onnx's own
+    # non-gated GitHub releases). It stays in the BASE deps — unlike torch/pyannote
+    # (the heavy optional `diarization` group below) — because it is small and the
+    # no-token path is the default. The hermetic gate still uses the FAKE diarizer
+    # and the SherpaOnnxDiarizer lazy-imports sherpa_onnx + resolves models from a
+    # local cache (NO download at test time), so the gate never pulls a model.
+    "sherpa-onnx>=1.10.0",
+    # sherpa-onnx>=1.13 splits its native libraries into a companion
+    # `sherpa-onnx-core` wheel (the bundled onnxruntime.dll + sherpa C/C++ API
+    # DLLs live there). The `sherpa-onnx` wheel declares it as a dependency, but
+    # uv's lock resolution reads the platform-agnostic sdist metadata, which does
+    # NOT list it — so `uv sync` would otherwise UNINSTALL sherpa-onnx-core and
+    # leave sherpa_onnx/lib/ with only the .pyd, no native libs. The .pyd then
+    # falls back to whatever onnxruntime.dll is on the DLL path (an incompatible
+    # one) and SEGFAULTS at OfflineSpeakerDiarization construction. Pinning the
+    # core wheel explicitly keeps the bundled, ABI-matched native libs installed.
+    "sherpa-onnx-core>=1.10.0",
+    # onnxruntime is the native runtime shared by sherpa-onnx (PRD-14 diarization)
+    # and faster-whisper (PRD-2 ASR, which itself imports it). sherpa-onnx's
+    # prebuilt Windows wheel dynamically links the `onnxruntime.dll` from THIS
+    # package, and its bundled C++ was built against onnxruntime ~1.17-1.20 — an
+    # onnxruntime >= 1.21 (e.g. 1.27) raises a native flatbuffer-schema mismatch
+    # ("The given version [24] is not supported, only version 1 to 10 …") that
+    # SEGFAULTS the process at OfflineSpeakerDiarization construction (a C++ crash
+    # the Python try/except in diarize() cannot catch). Pin onnxruntime to the
+    # range sherpa-onnx 1.13.x is ABI-compatible with
+    # (faster-whisper imposes no onnxruntime upper bound, so no conflict) so the
+    # no-token diarizer actually loads.
+    "onnxruntime>=1.17.0,<1.21.0",
 ]
 
 [project.scripts]

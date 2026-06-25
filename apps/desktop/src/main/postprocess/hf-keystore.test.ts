@@ -82,6 +82,24 @@ describe("HfKeystore", () => {
     expect(JSON.stringify(ks.getHfTokenStatus())).not.toContain("hf_DO_NOT_LEAK");
   });
 
+  it("defaults the diarization backend preference to auto", () => {
+    const ks = new HfKeystore(makeSafeStorage());
+    expect(ks.getDiarizationBackend()).toBe("auto");
+    expect(ks.getDiarizationBackendStatus()).toEqual({ diarizationBackend: "auto" });
+  });
+
+  it("persists the diarization backend preference next to the encrypted token", () => {
+    const ks = new HfKeystore(makeSafeStorage());
+    expect(ks.setDiarizationBackend({ diarizationBackend: "sherpa" })).toEqual({
+      diarizationBackend: "sherpa",
+    });
+    expect(ks.getDiarizationBackend()).toBe("sherpa");
+
+    const onDisk = readFileSync(join(dir, SETTINGS), "utf8");
+    const parsed = JSON.parse(onDisk) as { diarizationBackend: string };
+    expect(parsed.diarizationBackend).toBe("sherpa");
+  });
+
   it("throws when encryption is unavailable (does not write plaintext)", () => {
     const ks = new HfKeystore(makeSafeStorage({ available: false }));
     expect(() => ks.setHfToken({ token: "hf_X" })).toThrow(/not available/);

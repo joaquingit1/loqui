@@ -64,6 +64,8 @@ function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
       regenerateSummary: vi.fn(async () => {}),
       setHfToken: vi.fn(async () => ({}) as never),
       getHfTokenStatus: vi.fn(async () => ({}) as never),
+      setDiarizationBackend: vi.fn(async () => ({}) as never),
+      getDiarizationBackendStatus: vi.fn(async () => ({}) as never),
     },
     // PRD-7 MCP bridge: a no-op fake; the App under test does not use it yet.
     mcp: {

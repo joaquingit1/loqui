@@ -48,6 +48,15 @@
           ],
           "default": null
         },
+        "diarizationBackend": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "sherpa",
+            "pyannote"
+          ],
+          "default": "auto"
+        },
         "regenerateSummary": {
           "type": "boolean",
           "default": false
