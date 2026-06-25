@@ -117,6 +117,9 @@ class AsrBackend(Protocol):
         pcm: bytes,
         sample_rate: int = AUDIO_SAMPLE_RATE,
         language: Optional[str] = None,
+        # Optional sink the backend calls ONCE with a confidently auto-detected
+        # language (only when ``language`` is None), so the caller can lock it.
+        on_language: Optional[Callable[[str], None]] = None,
     ) -> list[AsrToken]: ...
 
 

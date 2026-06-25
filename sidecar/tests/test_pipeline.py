@@ -353,7 +353,7 @@ def test_pipeline_feed_and_finish_never_raise_on_backend_error():
         def load(self):  # pragma: no cover - is_loaded already True
             pass
 
-        def transcribe(self, pcm, sample_rate=AUDIO_SAMPLE_RATE, language=None):
+        def transcribe(self, pcm, sample_rate=AUDIO_SAMPLE_RATE, language=None, on_language=None):
             raise RuntimeError("decode boom")
 
     emitted: list[TranscriptSegment] = []
@@ -363,6 +363,66 @@ def test_pipeline_feed_and_finish_never_raise_on_backend_error():
     feed_utterance(pipe, "mic")  # must not raise despite every decode throwing
     pipe.finish()
     assert emitted == []  # a failing decode degrades to a logged drop
+
+
+# --- language lock (auto-detect once, then pin) -------------------------------
+
+
+class _LangSpyBackend:
+    """Records the ``language`` passed to each decode; reports a detection once.
+
+    Mimics faster-whisper auto-detect: when called with ``language=None`` it
+    invokes ``on_language`` with a confident detection (here ``"es"``). Lets the
+    test assert the pipeline LOCKS that language and pins every later decode.
+    """
+
+    name = "langspy"
+    is_loaded = True
+
+    def __init__(self, detected: str = "es") -> None:
+        self._detected = detected
+        self.seen_languages: list = []
+
+    def load(self):  # pragma: no cover - is_loaded already True
+        pass
+
+    def transcribe(self, pcm, sample_rate=AUDIO_SAMPLE_RATE, language=None, on_language=None):
+        self.seen_languages.append(language)
+        if language is None and on_language is not None:
+            on_language(self._detected)
+        return _toks(["hola", "mundo"])
+
+
+def test_pipeline_locks_auto_detected_language_after_first_decode():
+    backend = _LangSpyBackend(detected="es")
+    emitted: list[TranscriptSegment] = []
+    # language defaults to None (auto-detect) on the pipeline + config.
+    pipe = StreamingTranscriptionPipeline(
+        "m1", "mic", emitted.append, backend, config=fast_decode_config()
+    )
+    # Two utterances -> several decodes; the first sees None, the rest "es".
+    nxt = feed_utterance(pipe, "mic")
+    feed_utterance(pipe, "mic", start_seq=nxt)
+    pipe.finish()
+
+    assert backend.seen_languages, "expected at least one decode"
+    # First decode auto-detects (None); once locked, NO later decode is None.
+    assert backend.seen_languages[0] is None
+    assert all(lang == "es" for lang in backend.seen_languages[1:])
+
+
+def test_pipeline_does_not_lock_when_language_preconfigured():
+    backend = _LangSpyBackend(detected="es")
+    emitted: list[TranscriptSegment] = []
+    # An explicit language pins every decode and the detection sink is moot.
+    pipe = StreamingTranscriptionPipeline(
+        "m1", "mic", emitted.append, backend, config=fast_decode_config(), language="en"
+    )
+    feed_utterance(pipe, "mic")
+    pipe.finish()
+
+    assert backend.seen_languages, "expected at least one decode"
+    assert all(lang == "en" for lang in backend.seen_languages)
 
 
 # --- backpressure: bounded buffer ---------------------------------------------

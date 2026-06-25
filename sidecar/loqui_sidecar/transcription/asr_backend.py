@@ -55,6 +55,10 @@ MODELS_DIR_NAME = "models"
 #: Full-scale magnitude of a signed 16-bit PCM sample.
 _INT16_FULL_SCALE = 32768.0
 
+#: Minimum language-detection probability before we LOCK the stream's language
+#: (below this we keep auto-detecting; above it we trust + pin the detection).
+_LANGUAGE_LOCK_MIN_PROB = 0.5
+
 #: Progress callback: ``(stage: str, detail: dict) -> None``. Stages are
 #: ``"download"`` (model fetch begins) / ``"load"`` (model construction) /
 #: ``"ready"`` (loaded). Never required; defaulted to a no-op.
@@ -107,7 +111,12 @@ class FasterWhisperBackend:
         device: str = "cpu",
         compute_type: str = "int8",
         language: Optional[str] = None,
-        vad_filter: bool = False,
+        # ON by default: faster-whisper's built-in Silero VAD drops non-speech
+        # BEFORE decoding, which is what kills the silence/noise hallucinations
+        # (random text in random languages on quiet windows). The decoder's
+        # hallucination guards (no_speech/log_prob/compression thresholds) are
+        # already applied via faster-whisper's defaults.
+        vad_filter: bool = True,
         models_dir: Optional[Path] = None,
         download_root: Optional[str] = None,
         cpu_threads: int = 0,
@@ -198,6 +207,7 @@ class FasterWhisperBackend:
         pcm: bytes,
         sample_rate: int = AUDIO_SAMPLE_RATE,
         language: Optional[str] = None,
+        on_language: Optional[Callable[[str], None]] = None,
     ) -> List[AsrToken]:
         """Decode one ``pcm_s16le`` buffer to time-ordered word tokens.
 
@@ -213,7 +223,7 @@ class FasterWhisperBackend:
         if audio.size == 0:
             return []
         lang = language if language is not None else self._language
-        segments, _info = self._model.transcribe(
+        segments, info = self._model.transcribe(
             audio,
             language=lang,
             beam_size=self._beam_size,
@@ -222,6 +232,14 @@ class FasterWhisperBackend:
             vad_filter=self._vad_filter,
             condition_on_previous_text=False,
         )
+        # If we auto-detected (no language pinned), report a confident detection
+        # so the caller can LOCK it — this stops per-window re-detection from
+        # flip-flopping between languages (e.g. English/Spanish) mid-stream.
+        if on_language is not None and lang is None:
+            detected = getattr(info, "language", None)
+            prob = float(getattr(info, "language_probability", 0.0) or 0.0)
+            if detected and prob >= _LANGUAGE_LOCK_MIN_PROB:
+                on_language(detected)
         tokens: List[AsrToken] = []
         for seg in segments:
             words = getattr(seg, "words", None)

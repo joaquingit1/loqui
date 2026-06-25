@@ -293,6 +293,14 @@ class StreamingTranscriptionPipeline:
         self._config = config or PipelineConfig()
         # Per-pipeline language: explicit arg > config.language.
         self._language = language if language is not None else self._config.language
+        # The effective language we feed the backend. Starts at the configured
+        # language (possibly None = auto-detect). When None, the backend reports a
+        # confident detection back via the on_language sink and we LOCK it here, so
+        # every subsequent decode is pinned to one language. This is what stops a
+        # mono-lingual speaker's stream from flip-flopping between languages as
+        # faster-whisper re-detects per window. Per-pipeline (NOT on the shared
+        # backend), so mic + system streams lock independently.
+        self._locked_language: Optional[str] = self._language
 
         self._vad: VadEndpointer = self._config.vad_factory()
         self._policy: StreamingPolicy = self._config.policy_factory()
@@ -539,11 +547,22 @@ class StreamingTranscriptionPipeline:
             self._utterance_index += 1
         self._emitted_current = False
 
+    def _lock_language(self, detected: str) -> None:
+        """Pin the stream to the first confidently auto-detected language."""
+        if self._locked_language is None and detected:
+            self._locked_language = detected
+            logger.info(
+                "Locked language=%s for %s/%s", detected, self.meeting_id, self.source
+            )
+
     def _safe_transcribe(self, pcm: bytes) -> Optional[list[AsrToken]]:
         try:
             return list(
                 self._backend.transcribe(
-                    pcm, sample_rate=self._config.sample_rate, language=self._language
+                    pcm,
+                    sample_rate=self._config.sample_rate,
+                    language=self._locked_language,
+                    on_language=self._lock_language,
                 )
             )
         except Exception:  # noqa: BLE001 - a decode error degrades to a dropped window.

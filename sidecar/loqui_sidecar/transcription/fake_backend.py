@@ -60,6 +60,9 @@ class FakeAsrBackend:
         pcm: bytes,
         sample_rate: int = AUDIO_SAMPLE_RATE,
         language: Optional[str] = None,
+        # Accepted for protocol parity; the fake never auto-detects, so it never
+        # invokes the lock sink.
+        on_language: Optional[Callable[[str], None]] = None,
     ) -> list[AsrToken]:
         index = self.decode_count
         self.decode_count += 1

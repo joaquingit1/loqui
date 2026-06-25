@@ -83,7 +83,7 @@ import logging
 import os
 import shutil
 import subprocess
-from typing import List, Optional, Protocol, runtime_checkable
+from typing import Callable, List, Optional, Protocol, runtime_checkable
 
 from .types import AUDIO_SAMPLE_RATE, AsrBackend, AsrToken
 
@@ -363,6 +363,10 @@ class NativeHelperBackend:
         pcm: bytes,
         sample_rate: int = AUDIO_SAMPLE_RATE,
         language: Optional[str] = None,
+        # Accepted for AsrBackend parity. The native helper is configured with a
+        # fixed language at construction (no per-window auto-detect), so the lock
+        # sink is never invoked here.
+        on_language: Optional[Callable[[str], None]] = None,
     ) -> List[AsrToken]:
         """Decode one window through the helper -> buffer-relative tokens.
 

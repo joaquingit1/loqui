@@ -127,7 +127,7 @@ def make_streaming_fake_backend(name: str = "fake-stream"):
 
     # Override transcribe to inspect PCM content (the base FakeScript only sees
     # the byte length, which cannot distinguish sources). Deterministic + pure.
-    def transcribe(pcm, sample_rate=AUDIO_SAMPLE_RATE, language=None):
+    def transcribe(pcm, sample_rate=AUDIO_SAMPLE_RATE, language=None, on_language=None):
         backend.decode_count += 1
         backend.total_pcm_bytes += len(pcm)
         return _tokens_for(_marker_of(bytes(pcm)), len(pcm))
