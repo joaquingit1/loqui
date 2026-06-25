@@ -243,12 +243,17 @@ function registerDisplayMediaLoopback(): void {
           if (screen) {
             callback({ video: screen, audio: "loopback" });
           } else {
-            // No screen source available (permission not yet granted) — fall
-            // back to audio-only; the renderer surfaces a clear per-source error.
-            callback({ audio: "loopback" });
+            // No screen source (permission not granted / unavailable). DENY
+            // cleanly so getDisplayMedia rejects with a HANDLED error — calling
+            // back with audio-only throws "Video was requested, but no video
+            // stream was provided" as an UNHANDLED main rejection.
+            callback({});
           }
         })
-        .catch(() => callback({ audio: "loopback" }));
+        .catch((err: unknown) => {
+          console.error("[loqui] display-media getSources failed:", err);
+          callback({});
+        });
     },
     { useSystemPicker: false },
   );
@@ -311,6 +316,25 @@ function applyRunInBackground(enabled: boolean): void {
  * shutdown on app quit.
  */
 export async function bootstrap(): Promise<void> {
+  // Single-instance: a second launch must NOT start a competing app + sidecar.
+  // Multiple instances fighting over the sidecar/loopback ports is exactly what
+  // leaves the transcription engine stuck "connecting". If we can't get the
+  // lock, focus the existing window and exit. (Skipped under E2E, where each
+  // hermetic test launches its own isolated instance.)
+  const isE2E = process.env["LOQUI_E2E"] === "1";
+  if (!isE2E) {
+    if (!app.requestSingleInstanceLock()) {
+      app.quit();
+      return;
+    }
+    app.on("second-instance", () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+      }
+    });
+  }
+
   await app.whenReady();
 
   // PRD-8: resolve dev-vs-packaged paths once (bundled sidecar/MCP binaries, the

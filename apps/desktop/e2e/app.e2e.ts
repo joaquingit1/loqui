@@ -44,7 +44,7 @@ test.beforeAll(async () => {
   app = await electron.launch({
     args: [MAIN_ENTRY],
     cwd: DESKTOP_ROOT,
-    env: { ...process.env, LOQUI_DATA_DIR: dataDir, LOQUI_FAKE_ASR: "1" },
+    env: { ...process.env, LOQUI_DATA_DIR: dataDir, LOQUI_FAKE_ASR: "1", LOQUI_E2E: "1" },
   });
   page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
