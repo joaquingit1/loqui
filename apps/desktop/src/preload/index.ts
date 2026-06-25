@@ -35,6 +35,7 @@ import type {
   McpStatus,
   LoquiAudioApi,
   Meeting,
+  ImportFileParams,
   MeetingSearchHit,
   MeetingStatusEvent,
   ProviderConfig,
@@ -258,6 +259,20 @@ export interface LoquiLibraryApi {
   /** Rename a meeting's title (persists to meta.json + index). */
   renameMeeting(params: RenameMeetingParams): Promise<Meeting>;
   /**
+   * Transcribe an existing audio/video file (PRD-12). Mints a `kind:"import"`
+   * meeting (status "processing") and hands the file to the sidecar to decode +
+   * transcribe + diarize + summarize via the existing pipeline. Returns the
+   * created Meeting immediately; progress arrives via `postprocess.onJob` and the
+   * meeting transitions to "done" via `onMeetingStatus`.
+   */
+  importFile(params: ImportFileParams): Promise<Meeting>;
+  /**
+   * Open the native file-picker and import the chosen audio/video file (PRD-12).
+   * Resolves to the created `kind:"import"` Meeting, or null when cancelled. The
+   * picker lives in main (the renderer cannot read absolute paths in Electron 33+).
+   */
+  pickAndImportFile(): Promise<Meeting | null>;
+  /**
    * Subscribe to meeting lifecycle/status changes. The callback fires with the
    * full updated Meeting on each transition. Returns an unsubscribe fn.
    */
@@ -303,6 +318,9 @@ const library: LoquiLibraryApi = {
     ipcRenderer.invoke(IPC.getTranscript, params),
   renameMeeting: (params: RenameMeetingParams): Promise<Meeting> =>
     ipcRenderer.invoke(IPC.renameMeeting, params),
+  importFile: (params: ImportFileParams): Promise<Meeting> =>
+    ipcRenderer.invoke(IPC.importFile, params),
+  pickAndImportFile: (): Promise<Meeting | null> => ipcRenderer.invoke(IPC.importFilePick),
   onMeetingStatus: (cb: (meeting: Meeting) => void): (() => void) => {
     const listener = (_e: unknown, ev: MeetingStatusEvent): void => cb(ev.meeting);
     ipcRenderer.on(IPC.meetingStatus, listener);

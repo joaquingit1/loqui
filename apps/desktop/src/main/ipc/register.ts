@@ -7,10 +7,12 @@
  * never references channels directly — it only sees the typed `window.loqui`
  * API exposed via contextBridge.
  */
-import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
+import { dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import {
+  IMPORT_FILE_EXTENSIONS,
   TRANSCRIPT_SEGMENT_EVENT,
   getTranscriptParamsSchema,
+  importFileParamsSchema,
   listMeetingsQuerySchema,
   renameMeetingParamsSchema,
   startMeetingParamsSchema,
@@ -19,6 +21,7 @@ import {
   type CreateMeetingInput,
   type GetTranscriptParams,
   type Health,
+  type ImportFileParams,
   type ListMeetingsQuery,
   type Meeting,
   type RenameMeetingParams,
@@ -31,6 +34,7 @@ import { IPC } from "../../shared/ipc.js";
 import type { SidecarSupervisor } from "../sidecar/supervisor.js";
 import type { MeetingStore } from "../store/index.js";
 import type { MeetingController } from "../transcript/index.js";
+import type { ImportPipeline } from "../import/pipeline.js";
 
 export interface IpcDeps {
   supervisor: Pick<SidecarSupervisor, "ping" | "getHealth" | "onStatus">;
@@ -41,6 +45,17 @@ export interface IpcDeps {
    * `meetingStatus` renderer push.
    */
   controller: MeetingController;
+  /**
+   * The file-import pipeline (PRD-12). Backs the `importFile` IPC channel:
+   * mints a `kind:"import"` meeting and drives the sidecar decode/transcribe/
+   * diarize/summarize over an existing media file.
+   */
+  importPipeline: ImportPipeline;
+  /**
+   * Resolve the live window (the modal file-picker parent). Optional — when
+   * absent the picker opens unparented.
+   */
+  getWindow?: () => BrowserWindow | null;
 }
 
 /**
@@ -48,7 +63,7 @@ export interface IpcDeps {
  * removes them (used on app teardown / window recreation).
  */
 export function registerIpcHandlers(deps: IpcDeps): () => void {
-  const { supervisor, store, controller } = deps;
+  const { supervisor, store, controller, importPipeline, getWindow } = deps;
 
   ipcMain.handle(IPC.ping, async (): Promise<{ ok: boolean; latencyMs: number }> => {
     return supervisor.ping();
@@ -128,6 +143,38 @@ export function registerIpcHandlers(deps: IpcDeps): () => void {
     },
   );
 
+  // --- File import (PRD-12) ---
+  // Validate the path/title (defense in depth — the renderer is untrusted), then
+  // hand it to the import pipeline (mints the kind:"import" meeting + drives the
+  // sidecar). Returns the created Meeting immediately.
+  ipcMain.handle(
+    IPC.importFile,
+    (_e: IpcMainInvokeEvent, params: ImportFileParams): Meeting => {
+      const parsed = importFileParamsSchema.parse(params);
+      return importPipeline.importFile(parsed);
+    },
+  );
+
+  // Open the native picker (main owns absolute paths in Electron 33+) and import
+  // the chosen file. Returns null when the dialog is cancelled.
+  ipcMain.handle(IPC.importFilePick, async (): Promise<Meeting | null> => {
+    const win = getWindow?.() ?? null;
+    const opts = {
+      title: "Transcribe a file",
+      properties: ["openFile"] as Array<"openFile">,
+      filters: [
+        { name: "Audio / Video", extensions: [...IMPORT_FILE_EXTENSIONS] },
+        { name: "All files", extensions: ["*"] },
+      ],
+    };
+    const result = win
+      ? await dialog.showOpenDialog(win, opts)
+      : await dialog.showOpenDialog(opts);
+    const filePath = result.filePaths[0];
+    if (result.canceled || !filePath) return null;
+    return importPipeline.importFile({ filePath });
+  });
+
   return () => {
     ipcMain.removeHandler(IPC.ping);
     ipcMain.removeHandler(IPC.getSidecarHealth);
@@ -141,6 +188,8 @@ export function registerIpcHandlers(deps: IpcDeps): () => void {
     ipcMain.removeHandler(IPC.searchMeetings);
     ipcMain.removeHandler(IPC.getTranscript);
     ipcMain.removeHandler(IPC.renameMeeting);
+    ipcMain.removeHandler(IPC.importFile);
+    ipcMain.removeHandler(IPC.importFilePick);
   };
 }
 

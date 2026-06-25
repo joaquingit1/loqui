@@ -19,7 +19,7 @@
  * of the click handler.
  */
 import { useCallback, useEffect, useReducer, useRef } from "react";
-import type { Meeting, StartMeetingParams } from "@loqui/shared";
+import type { AudioSource, Meeting, StartMeetingParams } from "@loqui/shared";
 import type { LoquiApi } from "../../preload/index.js";
 import {
   applyStatusEvent,
@@ -43,7 +43,11 @@ export type MeetingLifecycleApi = Pick<
  * freshly-created meeting; `stopAll()` tears every source down.
  */
 export interface MeetingCaptureControl {
-  startAll(meetingId: string): Promise<void> | void;
+  /**
+   * Begin capture for the freshly-created meeting. `sources` defaults to both
+   * mic + system; PRD-12 voice memos pass `["mic"]` so no system stream opens.
+   */
+  startAll(meetingId: string, sources?: readonly AudioSource[]): Promise<void> | void;
   stopAll(): Promise<void> | void;
 }
 
@@ -168,15 +172,19 @@ export function useMeetingController(
       inFlightRef.current = true;
       dispatch({ type: "starting" });
       try {
-        const meeting = await api.startMeeting({ ...defaultParams, ...params });
+        const merged = { ...defaultParams, ...params };
+        const meeting = await api.startMeeting(merged);
         if (!mountedRef.current) return;
         dispatch({ type: "started", meeting });
         // Kick off capture for the freshly-created meeting. A capture failure is
         // surfaced per-source by the capture UI; we still consider the meeting
         // started (audio may be partially available), so we don't flip to error
-        // here — startAll swallows/own-reports its own errors.
+        // here — startAll swallows/own-reports its own errors. PRD-12: a voice
+        // memo is MIC-ONLY — never open the system stream.
+        const sources: readonly AudioSource[] =
+          merged.kind === "voice-memo" ? ["mic"] : ["mic", "system"];
         try {
-          await capture?.startAll(meeting.id);
+          await capture?.startAll(meeting.id, sources);
         } catch (err) {
           // Non-fatal: the meeting is recording; capture surfaces its own error.
           if (mountedRef.current) {

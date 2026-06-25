@@ -22,6 +22,7 @@ function meeting(overrides: Partial<Meeting> & { id: string; createdAt: string }
     startedAt: null,
     endedAt: null,
     status: "done",
+    kind: "meeting",
     participants: [],
     modelVersions: {},
     updatedAt: overrides.createdAt,

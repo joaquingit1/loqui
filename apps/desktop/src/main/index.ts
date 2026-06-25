@@ -34,6 +34,7 @@ import {
   createMeetingController,
   createTranscriptWriter,
 } from "./transcript/index.js";
+import { createImportPipeline } from "./import/pipeline.js";
 import { McpServerManager, makeMcpStatusPush, registerMcpIpc } from "./mcp/index.js";
 import {
   CalendarKeystore,
@@ -159,6 +160,7 @@ let disposeChatStreamPush: (() => void) | null = null;
 let disposePostProcessIpc: (() => void) | null = null;
 let disposeJobUpdatePush: (() => void) | null = null;
 let disposePostProcessPipeline: (() => void) | null = null;
+let disposeImportPipeline: (() => void) | null = null;
 let mcpManager: McpServerManager | null = null;
 let disposeMcpIpc: (() => void) | null = null;
 // PRD-15 calendar seam: the disposer for the calendar IPC bridge + push, and
@@ -252,7 +254,27 @@ export async function bootstrap(): Promise<void> {
   // reacts without re-listing.
   disposeMeetingStatusPush = pushMeetingStatus(controller, () => mainWindow);
 
-  disposeIpc = registerIpcHandlers({ supervisor, store, controller });
+  // File import (PRD-12). REUSES the same store + provider/HF key sources + the
+  // jobUpdate relay as the PRD-5 pipeline; it only mints the kind:"import"
+  // meeting, sends ONE `importFile` WS request to the sidecar (which decodes +
+  // transcribes + diarizes + summarizes the file via the EXISTING pipeline), and
+  // finalizes the meeting on `importFileDone`. It NEVER writes the transcript.
+  const importPipeline = createImportPipeline({
+    supervisor,
+    store,
+    providerKeys: chatKeystore,
+    hfKeystore,
+    emitStatus: pushMeetingStatusToRenderer,
+  });
+  disposeImportPipeline = () => importPipeline.dispose();
+
+  disposeIpc = registerIpcHandlers({
+    supervisor,
+    store,
+    controller,
+    importPipeline,
+    getWindow: () => mainWindow,
+  });
   disposeAudioIpc = registerAudioIpc({
     supervisor,
     getScreenPermission: getScreenPermissionStatus,
@@ -409,6 +431,8 @@ async function shutdown(): Promise<void> {
   disposeJobUpdatePush = null;
   disposePostProcessPipeline?.();
   disposePostProcessPipeline = null;
+  disposeImportPipeline?.();
+  disposeImportPipeline = null;
   disposeMcpIpc?.();
   disposeMcpIpc = null;
   mcpManager?.dispose();

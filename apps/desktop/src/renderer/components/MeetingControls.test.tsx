@@ -39,6 +39,7 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
     startedAt: "2026-06-23T10:00:00.000Z",
     endedAt: null,
     status: "recording",
+    kind: "meeting",
     participants: [],
     modelVersions: {},
     createdAt: "2026-06-23T10:00:00.000Z",
@@ -117,6 +118,8 @@ function makeFakeApi(overrides: Partial<LoquiApi["library"]> = {}): {
     searchMeetings: vi.fn(async () => []),
     getTranscript: vi.fn(async () => ""),
     renameMeeting: vi.fn(async () => meeting()),
+    importFile: vi.fn(async () => meeting({ kind: "import" })),
+    pickAndImportFile: vi.fn(async () => meeting({ kind: "import" })),
     onMeetingStatus: (cb) => {
       statusListeners.add(cb);
       return () => statusListeners.delete(cb);

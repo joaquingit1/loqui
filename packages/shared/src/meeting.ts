@@ -17,6 +17,24 @@ export const meetingStatusSchema = z
   .default("recording");
 export type MeetingStatus = z.infer<typeof meetingStatusSchema>;
 
+/**
+ * What KIND of recording this Meeting is (PRD-12). Additive + defaulted to
+ * `"meeting"` so every older `meta.json` (written before this field existed)
+ * parses forward as a normal meeting:
+ *
+ * - `"meeting"`    — a captured meeting (mic "You" + system "They"); the default.
+ * - `"import"`     — an audio/video file transcribed offline (single-stream; all
+ *                    speakers diarized as Speaker 1/2/…).
+ * - `"voice-memo"` — a mic-only live capture (no system audio).
+ *
+ * The store, library, and search treat all kinds UNIFORMLY (they are all just
+ * meetings); the library only uses `kind` to pick an icon/label.
+ */
+export const meetingKindSchema = z
+  .enum(["meeting", "import", "voice-memo"])
+  .default("meeting");
+export type MeetingKind = z.infer<typeof meetingKindSchema>;
+
 /** A meeting participant. Names are filled in by the speaker-names PRD. */
 export const participantSchema = z.object({
   id: z.string().default(""),
@@ -33,6 +51,8 @@ export const meetingSchema = z.object({
   startedAt: z.string().datetime({ offset: true }).nullable().default(null),
   endedAt: z.string().datetime({ offset: true }).nullable().default(null),
   status: meetingStatusSchema,
+  /** What kind of recording this is (PRD-12). Defaults to `"meeting"`. */
+  kind: meetingKindSchema,
   participants: z.array(participantSchema).default([]),
   /** Map of pipeline-stage -> model identifier used to produce that stage. */
   modelVersions: z.record(z.string(), z.string()).default({}),

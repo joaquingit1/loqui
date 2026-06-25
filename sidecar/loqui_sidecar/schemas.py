@@ -37,6 +37,8 @@ AUDIO_STOP = "AudioStop"
 CHAT_REQUEST = "ChatRequest"
 #: PRD-5: the inbound `postProcess` notification payload (main -> sidecar).
 POSTPROCESS_REQUEST = "PostProcessRequest"
+#: PRD-12: the inbound `importFile` notification payload (main -> sidecar).
+IMPORT_FILE_REQUEST = "ImportFileRequest"
 
 
 class SchemaError(RuntimeError):
@@ -163,5 +165,12 @@ def preload() -> None:
     Called during startup so a missing/broken schema dir fails before we print
     the handshake line and begin serving.
     """
-    for name in (WS_ENVELOPE, AUDIO_START, AUDIO_STOP, CHAT_REQUEST, POSTPROCESS_REQUEST):
+    for name in (
+        WS_ENVELOPE,
+        AUDIO_START,
+        AUDIO_STOP,
+        CHAT_REQUEST,
+        POSTPROCESS_REQUEST,
+        IMPORT_FILE_REQUEST,
+    ):
         _validator_for(name)

@@ -8,7 +8,12 @@
  * in the Build phase; this module defines TYPES + zod schemas only.
  */
 import { z } from "zod";
-import { meetingPlatformSchema, meetingSchema, type Meeting } from "./meeting.js";
+import {
+  meetingKindSchema,
+  meetingPlatformSchema,
+  meetingSchema,
+  type Meeting,
+} from "./meeting.js";
 import { TRANSCRIPT_VARIANTS } from "./constants.js";
 
 /**
@@ -69,6 +74,12 @@ export const startMeetingParamsSchema = z
   .object({
     title: z.string().optional(),
     platform: meetingPlatformSchema.optional(),
+    /**
+     * What KIND of recording to start (PRD-12). Defaults to `"meeting"`.
+     * `"voice-memo"` is a mic-only capture (the renderer suppresses the system
+     * stream); it still flows through the SAME lifecycle + transcription path.
+     */
+    kind: meetingKindSchema.optional(),
   })
   .default({});
 export type StartMeetingParams = z.infer<typeof startMeetingParamsSchema>;

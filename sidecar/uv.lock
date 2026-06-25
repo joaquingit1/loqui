@@ -878,6 +878,7 @@ version = "0.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
+    { name = "av" },
     { name = "fastapi" },
     { name = "faster-whisper" },
     { name = "httpx" },
@@ -906,6 +907,7 @@ diarization = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.40.0" },
+    { name = "av", specifier = ">=11.0.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "faster-whisper", specifier = ">=1.0.0" },
     { name = "httpx", specifier = ">=0.27.0" },

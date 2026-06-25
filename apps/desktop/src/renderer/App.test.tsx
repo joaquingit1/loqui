@@ -44,6 +44,8 @@ function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
       searchMeetings: vi.fn(async () => []),
       getTranscript: vi.fn(async () => ""),
       renameMeeting: vi.fn(async () => ({}) as never),
+      importFile: vi.fn(async () => ({}) as never),
+      pickAndImportFile: vi.fn(async () => null),
       onMeetingStatus: () => () => {},
     },
     // PRD-4 chat bridge: a no-op fake; the App under test does not use it yet.

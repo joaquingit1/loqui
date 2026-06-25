@@ -58,6 +58,7 @@ function meeting(id: string, patch: Partial<Meeting> = {}): Meeting {
     startedAt: now,
     endedAt: now,
     status: "done",
+    kind: "meeting",
     participants: [],
     modelVersions: {},
     createdAt: now,

@@ -54,6 +54,25 @@ export const IPC = {
    */
   meetingStatus: "loqui:meetingStatus",
 
+  // --- File import (PRD-12) ---
+  /**
+   * invoke: transcribe an existing audio/video file (payload
+   * {@link import("@loqui/shared").ImportFileParams} {filePath, title?}; ->
+   * Meeting). Mints a `kind:"import"` meeting (status "processing"), hands the
+   * file to the sidecar to decode + transcribe + diarize + summarize (reusing
+   * the existing pipeline), and returns the created Meeting immediately.
+   * Progress arrives via the existing {@link postProcessJob} jobUpdate channel;
+   * the meeting transitions to "done" via {@link meetingStatus} when finished.
+   */
+  importFile: "loqui:importFile",
+  /**
+   * invoke: open a native file-picker for an audio/video file and, if one is
+   * chosen, import it (-> Meeting | null; null when the dialog was cancelled).
+   * The renderer cannot read absolute paths (Electron 33+), so the picker lives
+   * in main; this is the one-click "Transcribe a file" entry point.
+   */
+  importFilePick: "loqui:importFilePick",
+
   // --- Audio capture (PRD-1) ---
   /** invoke: begin a capture stream for one source (-> AudioCaptureResult). */
   audioStartCapture: "loqui:audio:startCapture",

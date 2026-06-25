@@ -93,6 +93,34 @@ describe("create -> get -> list round-trip", () => {
     expect(list[0]).toEqual(created);
   });
 
+  // PRD-12: the `kind` discriminator round-trips through meta.json + the store,
+  // and an OLD meta.json (written before `kind` existed) loads as "meeting".
+  it("persists + round-trips the meeting kind, defaulting old records to 'meeting'", () => {
+    const normal = store.createMeeting({ title: "Standup" });
+    const imported = store.createMeeting({ title: "clip.m4a", kind: "import" });
+    const memo = store.createMeeting({ title: "Note", kind: "voice-memo" });
+
+    expect(normal.kind).toBe("meeting");
+    expect(store.getMeeting(imported.id)?.kind).toBe("import");
+    expect(store.getMeeting(memo.id)?.kind).toBe("voice-memo");
+
+    // meta.json carries the kind for the non-default kinds.
+    const onDisk = JSON.parse(readFileSync(meetingMetaPath(imported.id), "utf8"));
+    expect(onDisk.kind).toBe("import");
+
+    // Simulate a pre-PRD-12 meta.json with NO `kind` field: it must still load
+    // (defaulted to "meeting") rather than failing to parse.
+    const legacy = { ...onDisk };
+    delete legacy.kind;
+    writeFileSync(meetingMetaPath(imported.id), JSON.stringify(legacy), "utf8");
+    expect(store.getMeeting(imported.id)?.kind).toBe("meeting");
+
+    // All kinds list + are treated uniformly (newest-first, all present).
+    expect(store.listMeetings().map((m) => m.id).sort()).toEqual(
+      [normal.id, imported.id, memo.id].sort(),
+    );
+  });
+
   it("createMeeting() with no input defaults everything", () => {
     const m = store.createMeeting();
     expect(m.title).toBe("");

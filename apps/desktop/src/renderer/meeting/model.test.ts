@@ -25,6 +25,7 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
     startedAt: "2026-06-23T10:00:00.000Z",
     endedAt: null,
     status: "recording",
+    kind: "meeting",
     participants: [],
     modelVersions: {},
     createdAt: "2026-06-23T10:00:00.000Z",

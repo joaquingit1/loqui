@@ -174,6 +174,9 @@ export function createMeetingController(
       const created = store.createMeeting({
         title: fields.title,
         platform: fields.platform,
+        // PRD-12: a voice memo is mic-only (the renderer suppresses the system
+        // stream) but otherwise reuses the SAME lifecycle. Defaults to "meeting".
+        kind: fields.kind ?? "meeting",
       });
       const meeting = store.updateMeeting(created.id, {
         status: "recording",

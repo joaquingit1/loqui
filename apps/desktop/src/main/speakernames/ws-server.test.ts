@@ -31,6 +31,7 @@ function meeting(id: string, status: Meeting["status"] = "recording"): Meeting {
     startedAt: now,
     endedAt: null,
     status,
+    kind: "meeting",
     participants: [],
     modelVersions: {},
     createdAt: now,

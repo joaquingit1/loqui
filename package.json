@@ -31,6 +31,7 @@
     "smoke:meeting": "node scripts/smoke-meeting.mjs",
     "smoke:chat": "node scripts/smoke-chat.mjs",
     "smoke:postprocess": "node scripts/smoke-postprocess.mjs",
+    "smoke:import": "node scripts/smoke-import.mjs",
     "smoke:mcp": "node scripts/smoke-mcp.mjs",
     "smoke:calendar": "node scripts/smoke-calendar.mjs",
     "smoke:speakernames": "node scripts/smoke-speakernames.mjs"

@@ -20,6 +20,7 @@ const MEETING: Meeting = {
   startedAt: "2026-06-24T14:00:00Z",
   endedAt: "2026-06-24T14:30:00Z",
   status: "done",
+  kind: "meeting",
   participants: [],
   modelVersions: {},
   createdAt: "2026-06-24T14:00:00",

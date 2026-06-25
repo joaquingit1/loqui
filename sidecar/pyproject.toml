@@ -15,6 +15,12 @@ dependencies = [
     # math. The default unit gate uses a FAKE AsrBackend and never imports
     # faster-whisper, so neither pulls in a model download at test time.
     "faster-whisper>=1.0.0",
+    # PRD-12 file import. PyAV (`av`) wraps ffmpeg's libav* to decode an existing
+    # audio/video file (m4a/mp3/wav/mp4/mov/…) to the SAME 16 kHz mono pcm_s16le
+    # the live capture path feeds the engine (its AudioResampler does the resample
+    # + mono downmix). Already pulled transitively by faster-whisper; declared
+    # explicitly here because the import decode path imports it directly.
+    "av>=11.0.0",
     "numpy>=1.26.0",
     # PRD-4 AI chat provider abstraction. `anthropic` is the OFFICIAL SDK for the
     # BYOK provider (streaming via client.messages.stream, adaptive thinking);

@@ -85,7 +85,7 @@ export function MeetingControls({
   // Stable across renders so the controller's start/stop callbacks don't churn.
   const captureControl = useMemo<MeetingCaptureControl>(
     () => ({
-      startAll: (meetingId) => capture.startAll(meetingId),
+      startAll: (meetingId, sources) => capture.startAll(meetingId, sources),
       stopAll: () => capture.stopAll(),
     }),
     [capture.startAll, capture.stopAll],
@@ -119,6 +119,13 @@ export function MeetingControls({
     else if (controller.canStart) void controller.start();
   }, [controller]);
 
+  // PRD-12 Voice Memo: a MIC-ONLY recording. Reuses the SAME lifecycle +
+  // transcription path; we only tag the meeting kind (so the system stream is
+  // suppressed and the library shows it distinctly).
+  const onVoiceMemo = useCallback(() => {
+    if (controller.canStart) void controller.start({ kind: "voice-memo" });
+  }, [controller]);
+
   const buttonLabel = recording || phase === "stopping" ? "Stop meeting" : "Start meeting";
   const isStopAction = controller.canStop || phase === "stopping";
 
@@ -138,20 +145,35 @@ export function MeetingControls({
             Start a meeting to record both sides and watch the transcript build live.
           </p>
         </div>
-        <button
-          type="button"
-          className={`btn ${isStopAction ? "btn--stop" : ""}`}
-          data-testid="meeting-toggle"
-          aria-pressed={recording}
-          disabled={isStopAction ? controller.busy : startDisabled}
-          onClick={onToggle}
-        >
-          {controller.busy
-            ? phase === "starting"
-              ? "Starting…"
-              : "Stopping…"
-            : buttonLabel}
-        </button>
+        <div className="meeting__actions">
+          <button
+            type="button"
+            className={`btn ${isStopAction ? "btn--stop" : ""}`}
+            data-testid="meeting-toggle"
+            aria-pressed={recording}
+            disabled={isStopAction ? controller.busy : startDisabled}
+            onClick={onToggle}
+          >
+            {controller.busy
+              ? phase === "starting"
+                ? "Starting…"
+                : "Stopping…"
+              : buttonLabel}
+          </button>
+          {/* Voice Memo (PRD-12): mic-only. Only offered when idle (a start is
+              valid); hidden once a meeting/memo is recording or finishing. */}
+          {!isStopAction && (
+            <button
+              type="button"
+              className="btn btn--secondary"
+              data-testid="meeting-voice-memo"
+              disabled={startDisabled}
+              onClick={onVoiceMemo}
+            >
+              Voice memo
+            </button>
+          )}
+        </div>
       </div>
 
       <RecordingStatus phase={phase} elapsedSeconds={elapsed} error={error} />

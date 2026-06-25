@@ -59,6 +59,15 @@
           ],
           "default": "recording"
         },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "meeting",
+            "import",
+            "voice-memo"
+          ],
+          "default": "meeting"
+        },
         "participants": {
           "type": "array",
           "items": {

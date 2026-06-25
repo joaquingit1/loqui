@@ -25,6 +25,7 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
     startedAt: "2026-06-23T10:00:00.000Z",
     endedAt: null,
     status: "recording",
+    kind: "meeting",
     participants: [],
     modelVersions: {},
     createdAt: "2026-06-23T10:00:00.000Z",
@@ -94,10 +95,33 @@ describe("useMeetingController", () => {
 
     expect(api.startMeeting).toHaveBeenCalledTimes(1);
     expect(api.startMeeting).toHaveBeenCalledWith({ platform: "zoom" });
-    expect(cap.startAll).toHaveBeenCalledWith(ID);
+    // A normal meeting opens BOTH sources (mic + system).
+    expect(cap.startAll).toHaveBeenCalledWith(ID, ["mic", "system"]);
     expect(result.current.phase).toBe("recording");
     expect(result.current.canStop).toBe(true);
     expect(result.current.meeting?.id).toBe(ID);
+  });
+
+  it("voice memo (PRD-12) starts kind:'voice-memo' MIC-ONLY (no system stream)", async () => {
+    const { api } = makeFakeApi({
+      startMeeting: vi.fn(async (_p?: StartMeetingParams) =>
+        meeting({ kind: "voice-memo" }),
+      ),
+    });
+    const cap = makeFakeCapture();
+    const { result } = renderHook(() =>
+      useMeetingController({ api, capture: cap.capture }),
+    );
+
+    await act(async () => {
+      await result.current.start({ kind: "voice-memo" });
+    });
+
+    expect(api.startMeeting).toHaveBeenCalledWith({ kind: "voice-memo" });
+    // MIC-ONLY: the system stream is never opened.
+    expect(cap.startAll).toHaveBeenCalledWith(ID, ["mic"]);
+    expect(result.current.phase).toBe("recording");
+    expect(result.current.meeting?.kind).toBe("voice-memo");
   });
 
   it("merges defaultParams under explicit start params", async () => {

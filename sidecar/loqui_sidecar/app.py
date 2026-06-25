@@ -87,6 +87,27 @@ def _default_postprocess_handler(
     run_postprocess(PostProcessRequest.from_wire(data), emit, selector=build_selector())
 
 
+def _default_import_handler(
+    data: dict[str, Any], emit: Callable[[str, dict[str, Any]], None]
+) -> None:
+    """Default file-import handler (PRD-12): decode the ``importFile`` ``data``
+    and run :func:`loqui_sidecar.file_import.run_import` (decode -> the EXISTING
+    transcription engine -> the EXISTING diarization + summary), streaming
+    ``jobUpdate`` progress + a terminal ``importFileDone`` via ``emit``.
+
+    Imports the file_import + providers packages lazily so PyAV (``av``) and the
+    provider/diarization deps are not imported at app startup. Wires the PRODUCTION
+    provider selector for the reused summary step (so ``LOQUI_FAKE_CHAT`` still
+    forces the fake provider in tests). Never raises (run_import guards
+    internally). NEVER logs the api/hf token.
+    """
+    from .file_import import run_import
+    from .file_import.importer import ImportFileRequest
+    from .providers import build_selector
+
+    run_import(ImportFileRequest.from_wire(data), emit, selector=build_selector())
+
+
 #: WS close code used when a connection fails token auth (policy violation).
 WS_CLOSE_POLICY_VIOLATION = 1008
 
@@ -151,6 +172,18 @@ class AppState:
     #: only the derived diarized + summary files).
     postprocess_handler: Callable[[dict[str, Any], Callable[[str, dict[str, Any]], None]], None] = (
         field(default=_default_postprocess_handler)
+    )
+    #: File-import handler entry point (PRD-12). Called for each inbound
+    #: ``importFile`` notification with the decoded ``data`` dict + an
+    #: ``emit(event, data)`` bound to the live WS sender (``notify``); it decodes
+    #: the file, runs the EXISTING transcription engine + the EXISTING diarization
+    #: + summary (no forked pipeline), streaming ``jobUpdate`` progress + a
+    #: terminal ``importFileDone``. Defaulted to the real :func:`run_import`
+    #: wrapper. Injectable so tests can stub it. Run OFF the WS receive loop (the
+    #: decode + ASR + a provider call block) on the postprocess executor — file
+    #: import is a long-running, offline job just like post-processing.
+    import_handler: Callable[[dict[str, Any], Callable[[str, dict[str, Any]], None]], None] = field(
+        default=_default_import_handler
     )
     #: Single-thread executor for chat requests so a slow/streaming provider call
     #: never blocks the WS control channel. Lazily created; closed by ``close``.
@@ -541,6 +574,44 @@ async def _handle_postprocess_request(state: AppState, websocket: WebSocket, dat
         _run()
 
 
+async def _handle_import_request(state: AppState, websocket: WebSocket, data: Any) -> None:
+    """Validate + dispatch one ``importFile`` notification (PRD-12).
+
+    Validates ``data`` against the emitted ``ImportFileRequest`` schema, then runs
+    the import handler on the single-thread postprocess executor (OFF the WS
+    receive loop) so the long-running decode + transcription + diarization +
+    summary never stalls the control channel. The handler streams ``jobUpdate``
+    progress + a terminal ``importFileDone`` via ``state.notify`` (the thread-safe
+    per-connection sender), so a dropped socket simply no-ops the emits. The
+    handler never raises (it guards internally); the submit is guarded too. NEVER
+    logs the api/hf token (they live only in ``data`` and are consumed transiently).
+    """
+    try:
+        schemas.validate(schemas.IMPORT_FILE_REQUEST, data)
+    except schemas.FrameValidationError as exc:
+        await websocket.send_json(
+            _make_error(None, "invalid_frame", f"importFile validation failed: {exc}")
+        )
+        return
+    if not isinstance(data, dict):
+        return
+
+    emit = state.notify
+    handler = state.import_handler
+
+    def _run() -> None:
+        try:
+            handler(data, emit)
+        except Exception:  # noqa: BLE001 - import must never break the control channel.
+            logger.exception("import handler crashed")
+
+    try:
+        state.postprocess_executor().submit(_run)
+    except RuntimeError:
+        # Executor shut down (shutdown race): run inline as a last resort.
+        _run()
+
+
 async def _handle_notification(
     state: AppState, websocket: WebSocket, frame: dict[str, Any]
 ) -> None:
@@ -572,6 +643,16 @@ async def _handle_notification(
     # back via the live WS sender.
     if event == "postProcess":
         await _handle_postprocess_request(state, websocket, data)
+        return
+
+    # File import (PRD-12): an `importFile` notification (main -> sidecar) begins
+    # the decode + transcription + diarization + summary pipeline for an existing
+    # media file. Validated against the emitted ImportFileRequest schema, then
+    # dispatched to the import handler on the postprocess executor (OFF this
+    # receive loop — the decode + a provider call block). The handler streams
+    # jobUpdate + importFileDone notifications back via the live WS sender.
+    if event == "importFile":
+        await _handle_import_request(state, websocket, data)
         return
 
     schema_name = {"audioStart": schemas.AUDIO_START, "audioStop": schemas.AUDIO_STOP}.get(event)

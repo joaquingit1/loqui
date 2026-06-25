@@ -23,6 +23,7 @@ function meeting(overrides: Partial<Meeting> & { id: string; createdAt: string }
     startedAt: null,
     endedAt: null,
     status: "done",
+    kind: "meeting",
     participants: [],
     modelVersions: {},
     updatedAt: overrides.createdAt,
@@ -53,6 +54,8 @@ function makeApi(overrides: Partial<LoquiLibraryApi> = {}): LoquiLibraryApi {
     searchMeetings: vi.fn(async () => []),
     getTranscript: vi.fn(async () => ""),
     renameMeeting: vi.fn(async () => TODAY),
+    importFile: vi.fn(async () => TODAY),
+    pickAndImportFile: vi.fn(async () => TODAY),
     onMeetingStatus: () => () => {},
     ...overrides,
   };

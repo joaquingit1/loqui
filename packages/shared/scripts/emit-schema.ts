@@ -53,6 +53,7 @@ import {
   speakerCorrelationResultSchema,
   speakerNamesStatusSchema,
 } from "../src/speakernames.js";
+import { importFileRequestSchema, importFileDoneSchema } from "../src/importfile.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, "..", "schema");
@@ -103,6 +104,11 @@ const schemas: Record<string, ZodTypeAny> = {
   SpeakerNameResolution: speakerNameResolutionSchema,
   SpeakerCorrelationResult: speakerCorrelationResultSchema,
   SpeakerNamesStatus: speakerNamesStatusSchema,
+  // PRD-12 file import. The sidecar validates the inbound `importFile`
+  // notification against ImportFileRequest; ImportFileDone is emitted so the
+  // terminal import contract is fully visible to Python.
+  ImportFileRequest: importFileRequestSchema,
+  ImportFileDone: importFileDoneSchema,
 };
 
 rmSync(outDir, { recursive: true, force: true });

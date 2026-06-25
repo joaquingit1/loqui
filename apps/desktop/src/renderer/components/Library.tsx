@@ -21,6 +21,8 @@ import {
   formatDuration,
   formatMeetingTime,
   groupMeetingsByDate,
+  kindIcon,
+  kindLabel,
   platformLabel,
   statusLabel,
 } from "../library/grouping.js";
@@ -75,6 +77,38 @@ export function Library({ api, now }: LibraryProps): JSX.Element {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  // "Transcribe a file" (PRD-12): open the native picker via main, import the
+  // chosen file, and reload so the new kind:"import" meeting shows immediately.
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const onImportFile = useCallback(() => {
+    if (!library?.pickAndImportFile) return;
+    setImportError(null);
+    setImporting(true);
+    library
+      .pickAndImportFile()
+      .then((meeting) => {
+        if (meeting) reload();
+      })
+      .catch((err: unknown) => {
+        setImportError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => setImporting(false));
+  }, [library, reload]);
+
+  // React to lifecycle/status pushes (e.g. an import finishing) without re-listing.
+  useEffect(() => {
+    if (!library?.onMeetingStatus) return;
+    return library.onMeetingStatus((updated) => {
+      setMeetings((prev) => {
+        const exists = prev.some((m) => m.id === updated.id);
+        return exists
+          ? prev.map((m) => (m.id === updated.id ? updated : m))
+          : [updated, ...prev];
+      });
+    });
+  }, [library]);
 
   // Run a search (debounced-on-submit via effect on the trimmed query).
   useEffect(() => {
@@ -137,6 +171,23 @@ export function Library({ api, now }: LibraryProps): JSX.Element {
         Library
       </h2>
       <p className="panel__subtitle">Your past meetings, newest first.</p>
+
+      <div className="library__actions">
+        <button
+          type="button"
+          className="library__import-btn"
+          data-testid="library-import"
+          onClick={onImportFile}
+          disabled={importing || !library?.pickAndImportFile}
+        >
+          {importing ? "Importing…" : "Transcribe a file"}
+        </button>
+        {importError && (
+          <span className="library__error" data-testid="library-import-error" role="alert">
+            {importError}
+          </span>
+        )}
+      </div>
 
       <div className="library__controls">
         <input
@@ -231,6 +282,15 @@ function MeetingRow({ meeting, onOpen }: MeetingRowProps): JSX.Element {
       >
         <span className="library__row-title">{displayTitle(meeting)}</span>
         <span className="library__row-meta">
+          {meeting.kind !== "meeting" && (
+            <span
+              className={`library__row-kind library__row-kind--${meeting.kind}`}
+              data-testid={`library-row-kind-${meeting.id}`}
+              data-kind={meeting.kind}
+            >
+              {kindIcon(meeting.kind)} {kindLabel(meeting.kind)}
+            </span>
+          )}
           <span className="library__row-time">{formatMeetingTime(meeting.createdAt)}</span>
           {duration && <span className="library__row-duration">{duration}</span>}
           <span className="library__row-platform">{platformLabel(meeting.platform)}</span>

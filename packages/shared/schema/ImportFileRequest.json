@@ -1,0 +1,83 @@
+{
+  "$ref": "#/definitions/ImportFileRequest",
+  "definitions": {
+    "ImportFileRequest": {
+      "type": "object",
+      "properties": {
+        "meetingId": {
+          "type": "string"
+        },
+        "filePath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "providerConfig": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": [
+                "anthropic",
+                "ollama",
+                "agent-cli",
+                "fake"
+              ],
+              "default": "fake"
+            },
+            "model": {
+              "type": "string",
+              "default": "claude-opus-4-8"
+            },
+            "baseUrl": {
+              "type": "string",
+              "default": "http://localhost:11434"
+            },
+            "ollamaModel": {
+              "type": "string",
+              "default": "llama3.1"
+            },
+            "cli": {
+              "type": "string",
+              "enum": [
+                "claude",
+                "codex"
+              ],
+              "default": "claude"
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
+        "apiKey": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "hfToken": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "diarizationBackend": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "sherpa",
+            "pyannote"
+          ],
+          "default": "auto"
+        }
+      },
+      "required": [
+        "meetingId",
+        "filePath"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

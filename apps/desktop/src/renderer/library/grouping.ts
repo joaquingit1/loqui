@@ -9,7 +9,7 @@
  * Today / Yesterday / This week (earlier this calendar week) / Earlier. Buckets
  * are emitted newest-first and empty buckets are omitted.
  */
-import type { Meeting, MeetingPlatform, MeetingStatus } from "@loqui/shared";
+import type { Meeting, MeetingKind, MeetingPlatform, MeetingStatus } from "@loqui/shared";
 
 /** A stable group key, in display (newest-first) order. */
 export const GROUP_ORDER = ["today", "yesterday", "thisWeek", "earlier"] as const;
@@ -147,4 +147,32 @@ export function statusLabel(status: MeetingStatus): string {
 export function displayTitle(meeting: Pick<Meeting, "title">): string {
   const t = meeting.title?.trim();
   return t && t.length > 0 ? t : "Untitled meeting";
+}
+
+/**
+ * Human label per Meeting kind (PRD-12). The library shows the kind alongside a
+ * meeting so imports + voice memos read distinctly from a captured meeting.
+ * `"meeting"` returns "" so a normal meeting shows no extra badge.
+ */
+export const KIND_LABEL: Record<MeetingKind, string> = {
+  meeting: "Meeting",
+  import: "Imported file",
+  "voice-memo": "Voice memo",
+};
+
+/** A short icon glyph per kind, for the row badge (degrades to text label). */
+export const KIND_ICON: Record<MeetingKind, string> = {
+  meeting: "",
+  import: "📄",
+  "voice-memo": "🎙️",
+};
+
+/** Library label for a meeting's kind (defaults to "meeting" for old records). */
+export function kindLabel(kind: MeetingKind | undefined): string {
+  return KIND_LABEL[kind ?? "meeting"];
+}
+
+/** Library icon glyph for a meeting's kind (empty for a normal meeting). */
+export function kindIcon(kind: MeetingKind | undefined): string {
+  return KIND_ICON[kind ?? "meeting"];
 }

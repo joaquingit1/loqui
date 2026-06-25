@@ -41,8 +41,11 @@ export interface UseMeetingCaptureOptions {
 export interface UseMeetingCaptureResult {
   /** Per-source status snapshots for the meters / error display. */
   statuses: Record<AudioSource, CaptureStatus>;
-  /** Build a controller for `meetingId` and start both sources. */
-  startAll(meetingId: string): Promise<void>;
+  /**
+   * Build a controller for `meetingId` and start the given `sources` (defaults to
+   * both). PRD-12 voice memos pass `["mic"]` so NO system stream is opened.
+   */
+  startAll(meetingId: string, sources?: readonly AudioSource[]): Promise<void>;
   /** Stop both sources and dispose the controller. */
   stopAll(): Promise<void>;
 }
@@ -73,7 +76,7 @@ export function useMeetingCapture(
   }, []);
 
   const startAll = useCallback(
-    async (meetingId: string): Promise<void> => {
+    async (meetingId: string, sources: readonly AudioSource[] = SOURCES): Promise<void> => {
       // Dispose any prior controller (defensive — normally idle here).
       await controllerRef.current?.stopAll();
 
@@ -89,10 +92,11 @@ export function useMeetingCapture(
       controllerRef.current = controller;
       setStatuses({ mic: IDLE, system: IDLE });
 
-      // Start both sources independently; one rejecting must not stop the other.
-      // (The controller itself already catches per-source errors into status,
-      // but we settle defensively in case a custom controller rejects.)
-      await Promise.allSettled(SOURCES.map((s) => controller.start(s)));
+      // Start the requested sources independently; one rejecting must not stop the
+      // other. (The controller already catches per-source errors into status, but
+      // we settle defensively in case a custom controller rejects.) A voice memo
+      // passes ["mic"] so the system stream is NEVER opened (mic-only by design).
+      await Promise.allSettled(sources.map((s) => controller.start(s)));
     },
     [audio, micDeviceId, factory],
   );
