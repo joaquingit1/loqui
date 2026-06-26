@@ -50,6 +50,7 @@ import type {
   ProviderConfig,
   RegenerateSummaryParams,
   RenameMeetingParams,
+  DeleteMeetingParams,
   RenameSpeakerParams,
   ScreenPermissionStatus,
   SetApiKeyParams,
@@ -391,6 +392,8 @@ export interface LoquiLibraryApi {
   getTranscript(params: GetTranscriptParams): Promise<string>;
   /** Rename a meeting's title (persists to meta.json + index). */
   renameMeeting(params: RenameMeetingParams): Promise<Meeting>;
+  /** Permanently delete a meeting (files + index). Destructive; refused while recording. */
+  deleteMeeting(params: DeleteMeetingParams): Promise<void>;
   /**
    * Transcribe an existing audio/video file (PRD-12). Mints a `kind:"import"`
    * meeting (status "processing") and hands the file to the sidecar to decode +
@@ -451,6 +454,8 @@ const library: LoquiLibraryApi = {
     ipcRenderer.invoke(IPC.getTranscript, params),
   renameMeeting: (params: RenameMeetingParams): Promise<Meeting> =>
     ipcRenderer.invoke(IPC.renameMeeting, params),
+  deleteMeeting: (params: DeleteMeetingParams): Promise<void> =>
+    ipcRenderer.invoke(IPC.deleteMeeting, params),
   importFile: (params: ImportFileParams): Promise<Meeting> =>
     ipcRenderer.invoke(IPC.importFile, params),
   pickAndImportFile: (): Promise<Meeting | null> => ipcRenderer.invoke(IPC.importFilePick),

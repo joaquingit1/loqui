@@ -6,7 +6,7 @@
  * and opening a meeting (renders its transcript via MeetingView).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { Meeting, MeetingSearchHit } from "@loqui/shared";
 import { Library } from "./Library.js";
 import type { LoquiLibraryApi } from "../../preload/index.js";
@@ -54,6 +54,7 @@ function makeApi(overrides: Partial<LoquiLibraryApi> = {}): LoquiLibraryApi {
     searchMeetings: vi.fn(async () => []),
     getTranscript: vi.fn(async () => ""),
     renameMeeting: vi.fn(async () => TODAY),
+    deleteMeeting: vi.fn(async () => {}),
     importFile: vi.fn(async () => TODAY),
     pickAndImportFile: vi.fn(async () => TODAY),
     onMeetingStatus: () => () => {},
@@ -227,6 +228,31 @@ describe("Library", () => {
     // Back returns to the list.
     fireEvent.click(screen.getByTestId("meeting-back"));
     await waitFor(() => expect(screen.getByTestId("library-group-today")).toBeTruthy());
+  });
+
+  it("deletes a row in place (two-step confirm, no re-open, no re-list)", async () => {
+    const api = makeApi();
+    render(<Library api={api} now={NOW} />);
+    await waitFor(() => expect(screen.getByTestId(`library-row-${TODAY.id}`)).toBeTruthy());
+    expect(api.listMeetings).toHaveBeenCalledTimes(1);
+
+    // Scope to TODAY's row; the delete sits as a sibling of the row button.
+    const row = screen.getByTestId(`library-row-${TODAY.id}`).closest("li") as HTMLElement;
+    const del = within(row).getByTestId("meeting-delete");
+
+    // First click arms — it must NOT open the meeting detail.
+    fireEvent.click(del);
+    expect(screen.queryByTestId("meeting-view")).toBeNull();
+    expect(api.deleteMeeting).not.toHaveBeenCalled();
+
+    // Second click deletes.
+    fireEvent.click(del);
+    await waitFor(() => expect(api.deleteMeeting).toHaveBeenCalledWith({ id: TODAY.id }));
+
+    // The row is filtered out in place; YESTERDAY stays; no re-list happened.
+    await waitFor(() => expect(screen.queryByTestId(`library-row-${TODAY.id}`)).toBeNull());
+    expect(screen.getByTestId(`library-row-${YESTERDAY.id}`)).toBeTruthy();
+    expect(api.listMeetings).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces a list error instead of throwing", async () => {

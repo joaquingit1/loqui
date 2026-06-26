@@ -120,6 +120,7 @@ function makeFakeApi(overrides: Partial<LoquiApi["library"]> = {}): {
     searchMeetings: vi.fn(async () => []),
     getTranscript: vi.fn(async () => ""),
     renameMeeting: vi.fn(async () => meeting()),
+    deleteMeeting: vi.fn(async () => {}),
     importFile: vi.fn(async () => meeting({ kind: "import" })),
     pickAndImportFile: vi.fn(async () => meeting({ kind: "import" })),
     onMeetingStatus: (cb) => {

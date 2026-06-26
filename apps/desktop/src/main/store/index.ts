@@ -9,7 +9,7 @@
  * zod `meetingSchema`.
  */
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import {
   createMeetingInputSchema,
   diarizedTranscriptSchema,
@@ -26,6 +26,7 @@ import {
 } from "@loqui/shared";
 import {
   appendTranscriptText,
+  deleteMeetingRow,
   ftsPhrase,
   openIndexDb,
   searchMeetingsFts,
@@ -38,6 +39,7 @@ import { readMeta, writeMeta } from "./meta.js";
 import {
   dataRoot,
   meetingsDir,
+  meetingDir,
   meetingDiarizedTranscriptJsonPath,
   meetingHifiTranscriptJsonlPath,
   meetingHifiTranscriptMdPath,
@@ -94,6 +96,12 @@ export interface MeetingStore {
   getDiarizedTranscript(id: string): DiarizedTranscript | null;
   /** Patch a meeting; bumps updatedAt; rewrites meta.json atomically. */
   updateMeeting(id: string, patch: UpdateMeetingInput): Meeting;
+  /**
+   * Permanently delete a meeting: removes its on-disk directory (meta,
+   * transcripts, audio, summary, diarized + hi-fi) AND its search-index rows.
+   * Idempotent — deleting an unknown id is a no-op. Destructive + irreversible.
+   */
+  deleteMeeting(id: string): void;
   /** Index a meeting's searchable text (title/summary; transcript via append). */
   upsertSearchText(text: SearchText): void;
   /**
@@ -209,6 +217,15 @@ class FsMeetingStore implements MeetingStore {
     writeMeta(updated);
     upsertMeetingRow(this.#db, updated);
     return updated;
+  }
+
+  deleteMeeting(id: string): void {
+    assertSafeId(id);
+    // Remove the whole meeting directory (meta + transcripts + audio + summary +
+    // diarized + hi-fi) then drop the search-index rows. Idempotent: a missing
+    // dir / unknown id is a no-op (rmSync force, deleteMeetingRow guarded).
+    rmSync(meetingDir(id), { recursive: true, force: true });
+    deleteMeetingRow(this.#db, id);
   }
 
   searchMeetings(query: string, limit?: number): MeetingSearchHit[] {

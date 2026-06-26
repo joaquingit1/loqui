@@ -65,6 +65,13 @@ export const renameMeetingParamsSchema = z.object({
 });
 export type RenameMeetingParams = z.infer<typeof renameMeetingParamsSchema>;
 
+/** Params for the `deleteMeeting` library IPC channel. Permanently removes the
+ * meeting's files + search-index rows (destructive). */
+export const deleteMeetingParamsSchema = z.object({
+  id: z.string(),
+});
+export type DeleteMeetingParams = z.infer<typeof deleteMeetingParamsSchema>;
+
 /**
  * Params to START a meeting (lifecycle). All optional — the controller mints
  * the id and defaults the rest, mirroring `createMeeting`. Returns the created

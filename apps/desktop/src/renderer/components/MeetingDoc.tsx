@@ -21,6 +21,7 @@ import type {
   LoquiLibraryApi,
 } from "../../preload/index.js";
 import { ExportMenu } from "./ExportMenu.js";
+import { DeleteMeetingButton } from "./DeleteMeetingButton.js";
 import { Icon } from "./Icon.js";
 import { displayTitle, formatDuration, platformLabel } from "../library/grouping.js";
 import { SummaryView } from "./SummaryView.js";
@@ -33,7 +34,7 @@ export interface MeetingDocProps {
   /** The meeting to display (live-finished via the controller, or loaded by id). */
   meeting: Meeting;
   /** Library bridge (subset). Injectable for tests; defaults to window.loqui.library. */
-  api?: Pick<LoquiLibraryApi, "getTranscript" | "renameMeeting">;
+  api?: Pick<LoquiLibraryApi, "getTranscript" | "renameMeeting" | "deleteMeeting">;
   /** Export bridge (PRD-13). Injectable for tests; defaults to window.loqui.export. */
   exportApi?: Pick<LoquiExportApi, "exportMeeting">;
   /** Chat bridge (PRD-4). Injectable for tests; defaults to window.loqui.chat. */
@@ -42,6 +43,8 @@ export interface MeetingDocProps {
   onBack?: () => void;
   /** Fired with the updated Meeting after a successful rename. */
   onRenamed?: (meeting: Meeting) => void;
+  /** Fired after a successful delete, so the parent can navigate away + drop it. */
+  onDeleted?: (meetingId: string) => void;
 }
 
 type LoadState =
@@ -56,6 +59,7 @@ export function MeetingDoc({
   chatApi,
   onBack,
   onRenamed,
+  onDeleted,
 }: MeetingDocProps): JSX.Element {
   const library = (api ?? window.loqui?.library) as MeetingDocProps["api"] | undefined;
   const [load, setLoad] = useState<LoadState>({ kind: "loading" });
@@ -251,7 +255,14 @@ export function MeetingDoc({
               </>
             )}
           </p>
-          <ExportMenu meetingId={meeting.id} api={exportApi} />
+          <div className="mdoc__actions">
+            <ExportMenu meetingId={meeting.id} api={exportApi} />
+            <DeleteMeetingButton
+              meetingId={meeting.id}
+              api={library}
+              onDeleted={onDeleted}
+            />
+          </div>
         </div>
       </header>
 

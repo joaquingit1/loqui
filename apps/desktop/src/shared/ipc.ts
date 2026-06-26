@@ -48,6 +48,13 @@ export const IPC = {
    */
   renameMeeting: "loqui:renameMeeting",
   /**
+   * invoke: permanently delete a meeting — removes its directory (transcripts,
+   * audio, summary, diarized, hi-fi) + search-index rows (payload
+   * {@link import("@loqui/shared").DeleteMeetingParams}; -> void). Refused while
+   * the meeting is still recording.
+   */
+  deleteMeeting: "loqui:deleteMeeting",
+  /**
    * push (main -> renderer): a meeting's lifecycle/status changed. Payload is a
    * {@link import("@loqui/shared").MeetingStatusEvent} carrying the full updated
    * Meeting; the renderer subscribes via `window.loqui.onMeetingStatus`.

@@ -20,7 +20,7 @@ export interface MeetingViewProps {
   /** The meeting to display. */
   meeting: Meeting;
   /** Library bridge (subset). Injectable for tests; defaults to window.loqui.library. */
-  api?: Pick<LoquiLibraryApi, "getTranscript" | "renameMeeting">;
+  api?: Pick<LoquiLibraryApi, "getTranscript" | "renameMeeting" | "deleteMeeting">;
   /** Export bridge (PRD-13). Injectable for tests; defaults to window.loqui.export. */
   exportApi?: Pick<LoquiExportApi, "exportMeeting">;
   /** Chat bridge (PRD-4). Injectable for tests; defaults to window.loqui.chat. */
@@ -29,6 +29,8 @@ export interface MeetingViewProps {
   onBack?: () => void;
   /** Fired with the updated Meeting after a successful rename. */
   onRenamed?: (meeting: Meeting) => void;
+  /** Fired after a successful delete, so the parent can navigate away + drop it. */
+  onDeleted?: (meetingId: string) => void;
 }
 
 export function MeetingView(props: MeetingViewProps): JSX.Element {

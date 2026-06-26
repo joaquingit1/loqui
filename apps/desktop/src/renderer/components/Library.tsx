@@ -27,6 +27,7 @@ import {
 import { Icon } from "./Icon.js";
 import { Kbd, modKeyLabel } from "../shortcuts/index.js";
 import { MeetingView } from "./MeetingView.js";
+import { DeleteMeetingButton } from "./DeleteMeetingButton.js";
 import "../library/library.css";
 
 export interface LibraryProps {
@@ -34,6 +35,8 @@ export interface LibraryProps {
   api?: LoquiLibraryApi;
   /** Reference "now" for date grouping. Injectable so tests are deterministic. */
   now?: Date;
+  /** Lifted to the shell after a delete (drop from sidebar recents). Optional. */
+  onDeleted?: (meetingId: string) => void;
   /**
    * One-shot ⌘F intent from the shell (PRD-16): when this counter increments,
    * focus + select the search field. 0 = no pending intent (default).
@@ -50,7 +53,7 @@ function toIsoBound(value: string, end: boolean): string | undefined {
   return d.toISOString();
 }
 
-export function Library({ api, now, focusSearchSignal = 0 }: LibraryProps): JSX.Element {
+export function Library({ api, now, focusSearchSignal = 0, onDeleted }: LibraryProps): JSX.Element {
   const library = (api ?? window.loqui?.library) as LoquiLibraryApi | undefined;
 
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -165,6 +168,18 @@ export function Library({ api, now, focusSearchSignal = 0 }: LibraryProps): JSX.
     setMeetings((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
   }, []);
 
+  // After a delete: drop it from the list + search hits, close the detail if it
+  // was open, and lift to the shell so the sidebar recents drop it too.
+  const handleDeleted = useCallback(
+    (id: string) => {
+      setMeetings((prev) => prev.filter((m) => m.id !== id));
+      setHits((prev) => (prev ? prev.filter((h) => h.meeting.id !== id) : prev));
+      setSelectedId((cur) => (cur === id ? null : cur));
+      onDeleted?.(id);
+    },
+    [onDeleted],
+  );
+
   const searchActive = search.trim().length > 0;
   const filtersActive = from !== "" || to !== "";
   // UI disclosure (PRD-16 macOS-skill: "hide filters/toolbars until content
@@ -199,6 +214,7 @@ export function Library({ api, now, focusSearchSignal = 0 }: LibraryProps): JSX.
         api={library}
         onBack={() => setSelectedId(null)}
         onRenamed={onRenamed}
+        onDeleted={handleDeleted}
       />
     );
   }
@@ -287,9 +303,20 @@ export function Library({ api, now, focusSearchSignal = 0 }: LibraryProps): JSX.
       )}
 
       {libraryIsEmpty ? null : searchActive ? (
-        <SearchResults hits={hits} searching={searching} onOpen={setSelectedId} />
+        <SearchResults
+          hits={hits}
+          searching={searching}
+          onOpen={setSelectedId}
+          onDelete={handleDeleted}
+          deleteApi={library}
+        />
       ) : (
-        <GroupedList groups={groups} onOpen={setSelectedId} />
+        <GroupedList
+          groups={groups}
+          onOpen={setSelectedId}
+          onDelete={handleDeleted}
+          deleteApi={library}
+        />
       )}
     </section>
   );
@@ -340,12 +367,18 @@ function LibraryEmpty({
   );
 }
 
-interface GroupedListProps {
+/** The bridge subset + success callback the per-row delete needs. */
+type RowDeleteProps = {
+  onDelete?: (id: string) => void;
+  deleteApi?: Pick<LoquiLibraryApi, "deleteMeeting">;
+};
+
+interface GroupedListProps extends RowDeleteProps {
   groups: ReturnType<typeof groupMeetingsByDate>;
   onOpen: (id: string) => void;
 }
 
-function GroupedList({ groups, onOpen }: GroupedListProps): JSX.Element {
+function GroupedList({ groups, onOpen, onDelete, deleteApi }: GroupedListProps): JSX.Element {
   if (groups.length === 0) {
     return (
       <p className="library__empty" data-testid="library-empty">
@@ -360,7 +393,13 @@ function GroupedList({ groups, onOpen }: GroupedListProps): JSX.Element {
           <h3 className="library__group-heading">{group.label}</h3>
           <ul className="library__rows">
             {group.meetings.map((m) => (
-              <MeetingRow key={m.id} meeting={m} onOpen={onOpen} />
+              <MeetingRow
+                key={m.id}
+                meeting={m}
+                onOpen={onOpen}
+                onDelete={onDelete}
+                deleteApi={deleteApi}
+              />
             ))}
           </ul>
         </div>
@@ -369,19 +408,19 @@ function GroupedList({ groups, onOpen }: GroupedListProps): JSX.Element {
   );
 }
 
-interface MeetingRowProps {
+interface MeetingRowProps extends RowDeleteProps {
   meeting: Meeting;
   onOpen: (id: string) => void;
 }
 
-function MeetingRow({ meeting, onOpen }: MeetingRowProps): JSX.Element {
+function MeetingRow({ meeting, onOpen, onDelete, deleteApi }: MeetingRowProps): JSX.Element {
   // Status by EXCEPTION (DESIGN-SYSTEM §12.5): only an in-flight (processing) or
   // failed (error) meeting earns a status dot. A completed meeting shows no
   // status chrome at all. The right side collapses to ONE muted secondary line
   // — time · platform; duration moves to the meeting detail.
   const needsStatusDot = meeting.status === "processing" || meeting.status === "error";
   return (
-    <li>
+    <li className="library__row-item">
       <button
         type="button"
         className="library__row"
@@ -422,17 +461,25 @@ function MeetingRow({ meeting, onOpen }: MeetingRowProps): JSX.Element {
           <span className="library__row-platform">{platformLabel(meeting.platform)}</span>
         </span>
       </button>
+      {onDelete && (
+        <DeleteMeetingButton
+          variant="icon"
+          meetingId={meeting.id}
+          api={deleteApi}
+          onDeleted={onDelete}
+        />
+      )}
     </li>
   );
 }
 
-interface SearchResultsProps {
+interface SearchResultsProps extends RowDeleteProps {
   hits: MeetingSearchHit[] | null;
   searching: boolean;
   onOpen: (id: string) => void;
 }
 
-function SearchResults({ hits, searching, onOpen }: SearchResultsProps): JSX.Element {
+function SearchResults({ hits, searching, onOpen, onDelete, deleteApi }: SearchResultsProps): JSX.Element {
   if (hits === null || searching) {
     return (
       <p className="library__hint" data-testid="library-searching">
@@ -450,7 +497,7 @@ function SearchResults({ hits, searching, onOpen }: SearchResultsProps): JSX.Ele
   return (
     <ul className="library__rows library__search-results" data-testid="library-search-results">
       {hits.map(({ meeting, snippet }) => (
-        <li key={meeting.id}>
+        <li key={meeting.id} className="library__row-item">
           <button
             type="button"
             className="library__row library__row--search"
@@ -465,6 +512,14 @@ function SearchResults({ hits, searching, onOpen }: SearchResultsProps): JSX.Ele
               {snippet}
             </span>
           </button>
+          {onDelete && (
+            <DeleteMeetingButton
+              variant="icon"
+              meetingId={meeting.id}
+              api={deleteApi}
+              onDeleted={onDelete}
+            />
+          )}
         </li>
       ))}
     </ul>

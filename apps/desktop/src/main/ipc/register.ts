@@ -11,6 +11,7 @@ import { dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "el
 import {
   IMPORT_FILE_EXTENSIONS,
   TRANSCRIPT_SEGMENT_EVENT,
+  deleteMeetingParamsSchema,
   getTranscriptParamsSchema,
   importFileParamsSchema,
   listMeetingsQuerySchema,
@@ -19,6 +20,7 @@ import {
   stopMeetingParamsSchema,
   transcriptSegmentSchema,
   type CreateMeetingInput,
+  type DeleteMeetingParams,
   type GetTranscriptParams,
   type Health,
   type ImportFileParams,
@@ -143,6 +145,18 @@ export function registerIpcHandlers(deps: IpcDeps): () => void {
     },
   );
 
+  ipcMain.handle(
+    IPC.deleteMeeting,
+    (_e: IpcMainInvokeEvent, params: DeleteMeetingParams): void => {
+      const { id } = deleteMeetingParamsSchema.parse(params);
+      // Never delete a meeting that's still recording (its files are in flight).
+      if (controller.getActiveMeeting()?.id === id) {
+        throw new Error("Cannot delete a meeting while it is still recording.");
+      }
+      store.deleteMeeting(id);
+    },
+  );
+
   // --- File import (PRD-12) ---
   // Validate the path/title (defense in depth — the renderer is untrusted), then
   // hand it to the import pipeline (mints the kind:"import" meeting + drives the
@@ -188,6 +202,7 @@ export function registerIpcHandlers(deps: IpcDeps): () => void {
     ipcMain.removeHandler(IPC.searchMeetings);
     ipcMain.removeHandler(IPC.getTranscript);
     ipcMain.removeHandler(IPC.renameMeeting);
+    ipcMain.removeHandler(IPC.deleteMeeting);
     ipcMain.removeHandler(IPC.importFile);
     ipcMain.removeHandler(IPC.importFilePick);
   };

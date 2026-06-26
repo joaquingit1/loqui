@@ -39,6 +39,7 @@ export type IconName =
   | "play"
   | "pause"
   | "x"
+  | "trash"
   | "download"
   | "share"
   | "lock"
@@ -148,6 +149,12 @@ const ICONS: Record<IconName, JSX.Element> = {
   play: <path d="M8 5.5 18 12 8 18.5z" />,
   pause: <path d="M9 5.5v13M15 5.5v13" />,
   x: <path d="M6 6l12 12M18 6 6 18" />,
+  trash: (
+    <>
+      <path d="M4 7h16M9.5 7V5.5a1.5 1.5 0 0 1 1.5-1.5h2a1.5 1.5 0 0 1 1.5 1.5V7" />
+      <path d="M6.5 7v12a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V7M10 11v6M14 11v6" />
+    </>
+  ),
   download: (
     <>
       <path d="M12 4v11M7.5 10.5 12 15l4.5-4.5" />

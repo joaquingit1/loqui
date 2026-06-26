@@ -27,12 +27,13 @@ const MEETING: Meeting = {
   updatedAt: "2026-06-24T14:30:00",
 };
 
-type Api = Pick<LoquiLibraryApi, "getTranscript" | "renameMeeting">;
+type Api = Pick<LoquiLibraryApi, "getTranscript" | "renameMeeting" | "deleteMeeting">;
 
 function makeApi(overrides: Partial<Api> = {}): Api {
   return {
     getTranscript: vi.fn(async () => "[00:00:01] You said: Hi\n[00:00:03] They said: Hello\n"),
     renameMeeting: vi.fn(async (params) => ({ ...MEETING, title: params.title })),
+    deleteMeeting: vi.fn(async () => {}),
     ...overrides,
   };
 }
@@ -174,5 +175,19 @@ describe("MeetingView", () => {
     await waitFor(() => expect(screen.getByTestId("meeting-transcript-text")).toBeTruthy());
     fireEvent.click(screen.getByTestId("meeting-back"));
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("deletes the meeting (two-step confirm) and lifts onDeleted", async () => {
+    const api = makeApi();
+    const onDeleted = vi.fn();
+    render(<MeetingView meeting={MEETING} api={api} onDeleted={onDeleted} />);
+    await waitFor(() => expect(screen.getByTestId("meeting-transcript-text")).toBeTruthy());
+
+    const del = screen.getByTestId("meeting-delete");
+    fireEvent.click(del); // arm
+    expect(api.deleteMeeting).not.toHaveBeenCalled();
+    fireEvent.click(del); // confirm
+    await waitFor(() => expect(api.deleteMeeting).toHaveBeenCalledWith({ id: MEETING.id }));
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledWith(MEETING.id));
   });
 });

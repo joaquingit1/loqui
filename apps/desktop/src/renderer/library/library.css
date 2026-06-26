@@ -188,6 +188,59 @@
   box-shadow: var(--shadow-focus);
 }
 
+/* Per-row delete: a hover-revealed trash at the trailing edge. It's a sibling of
+   the row button (not nested — no nested <button>), positioned over the row's
+   right padding. Reveal on row hover / when focused / mid-confirm. */
+.library__row-item {
+  position: relative;
+}
+.library__row-delete {
+  position: absolute;
+  top: 50%;
+  right: var(--space-3);
+  transform: translateY(-50%);
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  height: 28px;
+  min-width: 28px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+.library__row-item:hover .library__row-delete,
+.library__row-delete:focus-visible,
+.library__row-delete[data-phase="confirming"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.library__row-delete:hover:not(:disabled) {
+  background: var(--red-soft);
+  color: var(--red);
+}
+.library__row-delete:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.library__row-delete--confirm {
+  background: var(--red-soft);
+  color: var(--red);
+}
+.library__row-delete-confirm-text {
+  font-size: var(--text-label);
+  font-weight: var(--weight-semibold);
+}
+
 .library__row--search {
   flex-direction: column;
   align-items: flex-start;
@@ -669,6 +722,51 @@
   margin: 0;
   font-size: var(--text-caption);
   color: var(--red);
+}
+
+/* Header actions (Export + Delete), trailing-aligned in the meta row. */
+.mdoc__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.mdoc__delete-trigger {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 0;
+  background: var(--surface-sunken);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  height: 34px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+.mdoc__delete-trigger:hover:not(:disabled) {
+  background: var(--red-soft);
+  color: var(--red);
+}
+.mdoc__delete-trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.mdoc__delete-trigger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+/* Confirm state: flushes red so the second (destructive) click is unmistakable. */
+.mdoc__delete-confirm,
+.mdoc__delete-confirm:hover:not(:disabled) {
+  background: var(--red-soft);
+  color: var(--red);
+  font-weight: var(--weight-semibold);
 }
 
 /* The transcript drawer — closed by default; the summary leads. */

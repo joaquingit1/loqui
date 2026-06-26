@@ -547,3 +547,60 @@ describe("getTranscript — high-accuracy (hifi) precedence (PRD-2 two-tier)", (
     expect(store.getTranscript(m.id, "live")).toBe("");
   });
 });
+
+describe("deleteMeeting", () => {
+  it("removes the meeting dir and all index rows (meta, FTS, transcript)", () => {
+    const m = store.createMeeting({ title: "Quarterly roadmap" });
+    // Give it on-disk artifacts (transcript/audio/summary) + an indexed segment.
+    writeFileSync(join(meetingDir(m.id), "transcript.live.md"), "[00:00:00] hi\n");
+    writeFileSync(join(meetingDir(m.id), "audio.wav"), "RIFFfake");
+    store.appendTranscriptSegment(m.id, "s1", "the unicornword roadmap");
+
+    // Sanity: present + listed + searchable before delete.
+    expect(existsSync(meetingDir(m.id))).toBe(true);
+    expect(store.getMeeting(m.id)?.title).toBe("Quarterly roadmap");
+    expect(store.listMeetings()).toHaveLength(1);
+    expect(store.searchMeetings("unicornword")).toHaveLength(1);
+
+    store.deleteMeeting(m.id);
+
+    // The whole dir is gone (transcript/audio/summary all removed with it).
+    expect(existsSync(meetingDir(m.id))).toBe(false);
+    // Index rows gone: get null, not listed, FTS no longer matches title OR body.
+    expect(store.getMeeting(m.id)).toBeNull();
+    expect(store.listMeetings()).toEqual([]);
+    expect(store.searchMeetings("unicornword")).toEqual([]);
+    expect(store.listMeetings({ query: "roadmap" })).toEqual([]);
+  });
+
+  it("leaves OTHER meetings untouched", () => {
+    const keep = store.createMeeting({ title: "Keep me" });
+    const drop = store.createMeeting({ title: "Drop me" });
+    store.deleteMeeting(drop.id);
+    expect(store.getMeeting(keep.id)?.title).toBe("Keep me");
+    expect(store.listMeetings().map((x) => x.id)).toEqual([keep.id]);
+  });
+
+  it("is a no-op (no throw) for an unknown id", () => {
+    expect(() => store.deleteMeeting("44444444-4444-4444-4444-444444444444")).not.toThrow();
+  });
+
+  it("rejects a path-traversal id before touching the filesystem", () => {
+    for (const bad of ["../escape", "..", "a/b", "with space", ""]) {
+      expect(() => store.deleteMeeting(bad)).toThrow(/invalid meeting id/);
+    }
+  });
+
+  it("the delete does not survive a reopen (truly gone, not just cached)", () => {
+    const m = store.createMeeting({ title: "Ephemeral" });
+    store.deleteMeeting(m.id);
+    store.close();
+    const reopened = openStore();
+    try {
+      expect(reopened.getMeeting(m.id)).toBeNull();
+      expect(reopened.listMeetings()).toEqual([]);
+    } finally {
+      reopened.close();
+    }
+  });
+});

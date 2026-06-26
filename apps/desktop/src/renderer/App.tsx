@@ -214,6 +214,19 @@ export function App({
     setSelectedMeeting((cur) => (cur && cur.id === updated.id ? updated : cur));
   }, []);
 
+  // A delete drops the meeting from the sidebar recents and, if it was the open
+  // detail, closes it back to Home (it no longer exists).
+  const onMeetingDeleted = useCallback((meetingId: string) => {
+    setRecents((prev) => prev.filter((m) => m.id !== meetingId));
+    setSelectedMeeting((cur) => {
+      if (cur && cur.id === meetingId) {
+        setView((v) => (v === "detail" ? "home" : v));
+        return null;
+      }
+      return cur;
+    });
+  }, []);
+
   // Navigate to a primary view (also clears any open detail), shared by the nav
   // buttons and the ⌘1/2/3/, shortcuts so both paths behave identically.
   const goTo = useCallback((v: AppView) => {
@@ -269,6 +282,7 @@ export function App({
         chatApi={api?.chat}
         onBack={() => setView("home")}
         onRenamed={onMeetingRenamed}
+        onDeleted={onMeetingDeleted}
       />
     );
   } else if (view === "home") {
@@ -290,7 +304,13 @@ export function App({
       />
     );
   } else if (view === "library") {
-    content = <Library api={api?.library} focusSearchSignal={librarySearchSignal} />;
+    content = (
+      <Library
+        api={api?.library}
+        focusSearchSignal={librarySearchSignal}
+        onDeleted={onMeetingDeleted}
+      />
+    );
   } else {
     content = (
       <>
