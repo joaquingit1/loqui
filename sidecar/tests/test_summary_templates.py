@@ -32,6 +32,7 @@ from loqui_sidecar.postprocess.summary import (
 from loqui_sidecar.providers import (
     FAKE_CHAT_ENV,
     ChatMessage,
+    ChatProviderError,
     ProviderConfig,
 )
 from loqui_sidecar.providers import transcript as transcript_mod
@@ -260,6 +261,30 @@ def test_transcript_byte_identical_after_native_summary(data_dir):
     assert (mdir / "summary.json").exists()
     summary_doc = json.loads((mdir / "summary.json").read_text(encoding="utf-8"))
     assert summary_doc["provider"] == "native"
+
+
+class _EchoProvider:
+    """A degraded provider that echoes the instruction back (mimics an extractive
+    engine summarizing the prompt) instead of generating a summary."""
+
+    name = "echo"
+
+    def stream_chat(self, messages, config, api_key=None):  # type: ignore[no-untyped-def]
+        yield "• Use ONLY the transcript as ground truth.\n• Summarize the meeting."
+
+
+def test_echoed_prompt_is_rejected_as_failed_summary(data_dir):
+    """A real provider that returns the echoed prompt/instruction must NOT become
+    a summary — summarize() raises so the runner marks the stage as an error
+    rather than rendering the instruction text as the TL;DR."""
+    _seed(data_dir, "m1")
+    with pytest.raises(ChatProviderError):
+        summarize(
+            "m1",
+            _EchoProvider(),
+            ProviderConfig(provider="anthropic"),
+            reader=FsTranscriptReader(),
+        )
 
 
 def test_native_provider_has_no_transcript_writer():

@@ -67,13 +67,20 @@ export function MeetingDoc({
   const [transcriptReload, setTranscriptReload] = useState(0);
   const [summaryRunKey, setSummaryRunKey] = useState(0);
   const [regenerating, setRegenerating] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
   const { jobs } = useJobProgress({
     onEvent: (event) => {
       if (event.kind === "summary") {
-        if (event.state === "running") setSummaryRunKey((n) => n + 1);
+        if (event.state === "running") {
+          setSummaryRunKey((n) => n + 1);
+          setSummaryError(null);
+        }
         if (event.state === "done" || event.state === "error") {
           setSummaryReload((n) => n + 1);
           setRegenerating(false);
+        }
+        if (event.state === "error") {
+          setSummaryError(event.error || "the summary provider failed.");
         }
       }
       if (event.kind === "transcription" && event.state === "done") {
@@ -260,6 +267,7 @@ export function MeetingDoc({
           regenerating={regenerating}
           onRegenerate={() => setRegenerating(true)}
           streamingText={streamingSummary}
+          jobError={summaryError}
         />
       )}
 
@@ -290,9 +298,10 @@ export function MeetingDoc({
         </div>
       </details>
 
-      {/* Docked bottom chat: "Continue chat" about this meeting (read-only). */}
+      {/* Docked bottom chat: ask about this meeting (read-only + EPHEMERAL — the
+          conversation isn't saved across sessions, so there's no "continue"). */}
       <div className="mdoc__chat" data-testid="meeting-chat">
-        <ChatPanel meetingId={meeting.id} api={chatApi} bare title="Continue chat" />
+        <ChatPanel meetingId={meeting.id} api={chatApi} bare />
       </div>
     </article>
   );

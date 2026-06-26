@@ -125,6 +125,36 @@ def _extract_json_object(text: str) -> Optional[dict]:
     return parsed if isinstance(parsed, dict) else None
 
 
+#: Distinctive INSTRUCTION phrases that should never appear in a real summary.
+#: If a provider's output contains one of these it echoed the prompt back (e.g. an
+#: extractive engine summarizing the instruction text) instead of summarizing the
+#: meeting — we reject that as a failed summary rather than rendering it.
+_ECHO_MARKERS = (
+    "use only the transcript",
+    "respond with a single json",
+    "give a concise",
+    "<transcript>",
+)
+
+
+def _looks_like_prompt_echo(text: str) -> bool:
+    """True when the provider output is clearly the echoed prompt/instruction.
+
+    Defense in depth across providers: a real generative summary never reproduces
+    the instruction verbatim, so the presence of these instruction-only phrases (or
+    the rendered ``User:``-prefixed prompt) marks an echo we must not surface.
+    """
+    if not text:
+        return False
+    lowered = text.lower()
+    if any(marker in lowered for marker in _ECHO_MARKERS):
+        return True
+    # The native helper renders the conversation as "User: …" lines; an extractive
+    # echo therefore starts with that prefix (optionally bulleted).
+    stripped = text.lstrip().lstrip("•").lstrip()
+    return stripped.startswith("User:")
+
+
 def _parse_summary(text: str, meeting_id: str, provider: str, model: str) -> Summary:
     """Map the provider's streamed output onto a structured :class:`Summary`.
 
@@ -256,6 +286,17 @@ def summarize(
         raise ChatProviderError("internal_error", "summary generation failed") from exc
 
     text = "".join(assembled).strip()
+    # Reject an echoed prompt/instruction (e.g. a degraded extractive engine) so it
+    # never becomes the "summary" — the runner maps this to a clean summary-stage
+    # error + jobUpdate, and the UI shows a clear failure instead of garbage. The
+    # hermetic "fake" provider intentionally echoes the context to prove read-only
+    # grounding, so it is exempt (it is never a real provider in production).
+    if config.provider != "fake" and _looks_like_prompt_echo(text):
+        raise ChatProviderError(
+            "provider_error",
+            "The summary provider returned the prompt instead of a summary "
+            "(no generative model available).",
+        )
     return _parse_summary(
         text,
         meeting_id=meeting_id,

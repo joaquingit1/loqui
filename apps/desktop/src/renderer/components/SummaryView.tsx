@@ -43,6 +43,11 @@ export interface SummaryViewProps {
    * arrives (reloadKey bump on "done") the structured sections replace it.
    */
   streamingText?: string;
+  /**
+   * Set when the summary JOB failed (e.g. the on-device model is unavailable) —
+   * so the absent state can explain + guide instead of implying "still working".
+   */
+  jobError?: string | null;
 }
 
 type LoadState =
@@ -58,6 +63,7 @@ export function SummaryView({
   regenerating = false,
   onRegenerate,
   streamingText = "",
+  jobError = null,
 }: SummaryViewProps): JSX.Element {
   const bridge =
     api ?? (typeof window !== "undefined" ? window.loqui?.postprocess : undefined);
@@ -145,7 +151,14 @@ export function SummaryView({
         </p>
       )}
 
-      {!showStreaming && load.kind === "absent" && (
+      {!showStreaming && load.kind === "absent" && jobError && (
+        <p className="summary__error" data-testid="summary-job-error" role="alert">
+          Couldn’t generate the summary: {jobError} Enable Apple Intelligence in
+          System Settings, or choose a provider in Settings, then Regenerate.
+        </p>
+      )}
+
+      {!showStreaming && load.kind === "absent" && !jobError && (
         <p className="summary__hint" data-testid="summary-absent">
           No summary yet. It is generated after the meeting is processed.
         </p>

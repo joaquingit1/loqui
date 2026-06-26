@@ -38,10 +38,12 @@ protocol SummaryEngine {
 #if FOUNDATION_MODELS
 import FoundationModels
 
-/// Apple Foundation Models engine — the on-device Apple-Intelligence LLM.
-/// Available only when the OS supports it AND Apple Intelligence is enabled; the
-/// initializer throws `EngineError.unavailable` otherwise so the host falls back
-/// to apple-nl (or, on the host side, to Ollama / cloud).
+/// Apple Foundation Models engine — the on-device Apple-Intelligence LLM
+/// (macOS 26+). The initializer throws `EngineError.unavailable` when the OS is
+/// too old, Apple Intelligence is off, or the model isn't ready — the host then
+/// surfaces a clear error (it does NOT silently fall back to extractive output,
+/// which would echo the prompt instead of summarizing).
+@available(macOS 26.0, *)
 final class AppleFoundationEngine: SummaryEngine {
     private let session: LanguageModelSession
 
@@ -98,7 +100,11 @@ final class AppleNaturalLanguageEngine: SummaryEngine {
             return true
         }
         if sentences.isEmpty {
-            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Never echo the raw prompt back as a "summary" — return nothing so
+            // the host treats it as no usable summary rather than rendering the
+            // instruction text. (This engine is extractive and not used for the
+            // structured summary; this guard is defense in depth.)
+            return ""
         }
         // Rank by length as a cheap salience proxy; keep first-appearance order for
         // the top-k so the highlights read in chronological order.
@@ -192,7 +198,7 @@ final class MlxSummaryEngine: SummaryEngine {
 func probeSummaryEngines() -> [String] {
     var engines: [String] = []
     #if FOUNDATION_MODELS
-    if case .available = SystemLanguageModel.default.availability {
+    if #available(macOS 26.0, *), case .available = SystemLanguageModel.default.availability {
         engines.append("apple-foundation")
     }
     #endif
@@ -203,17 +209,25 @@ func probeSummaryEngines() -> [String] {
     return engines
 }
 
-/// Build the summary engine for a `summaryStart` request, or throw (host falls
-/// back). For `apple-foundation` we degrade to `apple-nl` when the generative
-/// model is unavailable, so a macOS user always gets an on-device summary.
+/// Build the summary engine for a `summaryStart` request, or throw (the host
+/// surfaces the error). `apple-foundation` requires a real GENERATIVE model — if
+/// Foundation Models isn't compiled in, the OS is < macOS 26, or Apple
+/// Intelligence is unavailable, we THROW `unavailable` rather than silently
+/// degrading to the extractive `apple-nl` engine (which can't write a structured
+/// summary and would echo the prompt). The host turns that into a clear error.
 func makeSummaryEngine(_ req: HostRequest) throws -> SummaryEngine {
     switch req.engine {
     case "apple-foundation":
         #if FOUNDATION_MODELS
-        if let engine = try? AppleFoundationEngine() { return engine }
+        if #available(macOS 26.0, *) {
+            return try AppleFoundationEngine()
+        }
+        throw EngineError.unavailable("Apple Foundation Models requires macOS 26 or later.")
+        #else
+        throw EngineError.unavailable(
+            "Apple Foundation Models not compiled in (rebuild the helper with -DFOUNDATION_MODELS)."
+        )
         #endif
-        // Generative model unavailable -> extractive fallback (still on-device).
-        return AppleNaturalLanguageEngine()
     case "apple-nl":
         return AppleNaturalLanguageEngine()
     case "mlx":
