@@ -54,6 +54,15 @@ class WhisperLiveTranscriber:
     CLIP_THRESHOLD_DURATION_S = 25
     CLIP_TAIL_DURATION_S = 5
     MAX_TRANSCRIPT_LENGTH = 500
+    #: Auto-detect language LOCK guards. A noisy/short first window often detects
+    #: "en" with mediocre confidence; locking on that would force English on the
+    #: whole (e.g. Spanish) meeting — effectively translating it. So we only lock
+    #: on a CONFIDENT detection, and only once we've heard enough audio. As a
+    #: safety net, after FALLBACK seconds we accept the best guess so we always
+    #: start emitting (clear speech hits 0.9+ in ~2s, well before the fallback).
+    LANGUAGE_LOCK_MIN_PROB = 0.85
+    LANGUAGE_LOCK_MIN_DURATION_S = 2.0
+    LANGUAGE_LOCK_FALLBACK_S = 6.0
 
     def __init__(
         self,
@@ -140,9 +149,12 @@ class WhisperLiveTranscriber:
                 time.sleep(0.1)
                 continue
             try:
-                result = self._transcribe_audio(input_bytes.copy())
+                result = self._transcribe_audio(input_bytes.copy(), duration)
                 if result is None or self.language is None:
-                    self.timestamp_offset += duration
+                    # Language not locked yet: DON'T advance past this audio — let
+                    # the window grow so detection runs on more speech (reliable)
+                    # and no opening words are dropped. We re-decode the
+                    # accumulated buffer next tick until the language locks.
                     time.sleep(0.25)
                     continue
                 self._handle_output(result, duration)
@@ -165,7 +177,7 @@ class WhisperLiveTranscriber:
             input_bytes = self.frames_np[int(samples_take) :].copy()
         return input_bytes, input_bytes.shape[0] / self.RATE
 
-    def _transcribe_audio(self, input_sample: np.ndarray):
+    def _transcribe_audio(self, input_sample: np.ndarray, duration: float = 0.0):
         result, info = self._model.transcribe(
             input_sample,
             initial_prompt=None,
@@ -177,7 +189,12 @@ class WhisperLiveTranscriber:
         if self.language is None and info is not None:
             prob = float(getattr(info, "language_probability", 0.0) or 0.0)
             detected = getattr(info, "language", None)
-            if detected and prob > 0.5:
+            # Lock on a CONFIDENT detection over enough audio; or, as a safety net,
+            # accept the best plausible guess once we've waited long enough so we
+            # never stall. A low-confidence early "en" can no longer pin English.
+            confident = prob >= self.LANGUAGE_LOCK_MIN_PROB and duration >= self.LANGUAGE_LOCK_MIN_DURATION_S
+            fallback = duration >= self.LANGUAGE_LOCK_FALLBACK_S and prob > 0.5
+            if detected and (confident or fallback):
                 self.language = detected
                 if self._on_language is not None:
                     self._on_language(detected)

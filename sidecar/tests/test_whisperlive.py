@@ -51,6 +51,58 @@ class _FakeModel:
         return segs, _Info()
 
 
+class _LangModel:
+    """A model that reports a fixed detected language + probability (the input
+    audio is ignored — we only exercise the auto-detect LOCK gating)."""
+
+    def __init__(self, lang: str, prob: float):
+        self._lang = lang
+        self._prob = prob
+
+    def transcribe(self, audio, **kwargs):
+        return [], _Info(language=self._lang, language_probability=self._prob)
+
+
+# --- auto-detect language LOCK (don't pin English on a noisy first window) ----
+
+
+def _lang_transcriber(lang: str, prob: float, locked: list):
+    return WhisperLiveTranscriber(
+        model=_LangModel(lang, prob),
+        on_result=lambda r: None,
+        language=None,  # auto-detect
+        on_language=locked.append,
+        start=False,
+    )
+
+
+def test_language_lock_ignores_low_confidence_short_window():
+    """A mediocre 'en' guess on a short opening window must NOT lock (this is the
+    bug that translated, e.g., a Spanish meeting into English)."""
+    locked: list[str] = []
+    t = _lang_transcriber("en", 0.55, locked)
+    t._transcribe_audio(b"", duration=1.0)
+    assert t.language is None and locked == []
+
+
+def test_language_lock_on_confident_detection_over_enough_audio():
+    locked: list[str] = []
+    t = _lang_transcriber("es", 0.95, locked)
+    t._transcribe_audio(b"", duration=3.0)
+    assert t.language == "es" and locked == ["es"]
+
+
+def test_language_lock_fallback_after_enough_audio():
+    """Below the confident bar, but after enough audio we accept the best plausible
+    guess so the stream never stalls waiting for a perfect detection."""
+    locked: list[str] = []
+    t = _lang_transcriber("es", 0.6, locked)
+    t._transcribe_audio(b"", duration=1.0)  # too short -> no lock yet
+    assert t.language is None
+    t._transcribe_audio(b"", duration=7.0)  # enough audio -> fallback locks
+    assert t.language == "es" and locked == ["es"]
+
+
 # --- the segment-commit core --------------------------------------------------
 
 
