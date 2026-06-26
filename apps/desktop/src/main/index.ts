@@ -20,7 +20,6 @@ import {
   Tray,
 } from "electron";
 import { join } from "node:path";
-import { release as osRelease } from "node:os";
 import { fileURLToPath } from "node:url";
 import { existsSync, rmSync } from "node:fs";
 import {
@@ -57,9 +56,7 @@ import {
 import { createImportPipeline } from "./import/pipeline.js";
 import { ExportService } from "./export/index.js";
 import { registerExportIpc } from "./export/register.js";
-import { registerTranscriptionIpc } from "./transcription/register.js";
 import { SettingsStore } from "./settings/store.js";
-import { defaultCaptureCapabilityProbe } from "./capture/perapp.js";
 import { McpServerManager, makeMcpStatusPush, registerMcpIpc } from "./mcp/index.js";
 import {
   CalendarKeystore,
@@ -74,35 +71,16 @@ import {
   type CalendarServiceImpl,
 } from "./calendar/index.js";
 import type { OAuthHttp } from "./calendar/oauth.js";
-// PRD-6 Google Meet speaker-name attribution. The loopback WS server
-// (createExtensionWsServer) accepts the browser extension's {ts,name,speaking}
-// events ONLY while a meeting is recording, the PURE correlation engine
-// (correlateSpeakerNames) maps diarized `Speaker N` turns -> names after
-// diarization, and the name-applier (applySpeakerNames — REUSES the PRD-5
-// diarized-rewrite path) applies them; the IPC bridge (registerSpeakerNamesIpc)
-// surfaces status to the renderer, and the post-diarization hook
-// (subscribeSpeakerNamesCorrelation) drives correlate+apply on postProcessDone.
-// Every path is best-effort: an absent/broken extension degrades to generic
-// `Speaker N` labels with no crash. The Python sidecar is NOT involved.
-import {
-  createExtensionWsServer,
-  activeMeetingFromController,
-  correlateSpeakerNames,
-  applySpeakerNames,
-  registerSpeakerNamesIpc,
-  subscribeSpeakerNamesCorrelation,
-  type ExtensionWsServer,
-} from "./speakernames/index.js";
 // PRD-11 auto-record on meeting detection + menubar/tray. The PURE decision core
-// (decide) is wrapped by the engine, which polls the injectable native probe +
-// the browser in-call source (PRD-6 WS — no new socket) and applies start/stop
-// via the SAME PRD-3 lifecycle controller. The tray (Electron Tray/Menu) gives
-// quick controls + a recording-state icon + launch-at-login. Auto-record is OFF
-// by default (manual-only PRD-3) until the user opts in.
+// (decide) is wrapped by the engine, which polls the injectable native probe
+// (conferencing apps + mic) and applies start/stop via the SAME PRD-3 lifecycle
+// controller. The tray (Electron Tray/Menu) gives quick controls + a
+// recording-state icon + launch-at-login. Auto-record is OFF by default
+// (manual-only PRD-3) until the user opts in.
 import {
   createAutoRecordEngine,
   createNativeMeetingProbe,
-  browserCallSourceFromWsServer,
+  nullBrowserCallSource,
   registerAutoRecordIpc,
   createTray,
   createTrayElectron,
@@ -282,19 +260,11 @@ let disposeMcpIpc: (() => void) | null = null;
 // PRD-13 export + capture/privacy seam: the disposer for the export/privacy IPC
 // bridge and the settings store it (plus the audio + postprocess paths) read.
 let disposeExportIpc: (() => void) | null = null;
-// PRD-9 pluggable-transcription-engine IPC bridge disposer.
-let disposeTranscriptionIpc: (() => void) | null = null;
 let settingsStore: SettingsStore | null = null;
 // PRD-15 calendar seam: the disposer for the calendar IPC bridge + push, and
 // the service (fan-out/normalize/dedup/poll) it's bound to.
 let disposeCalendarIpc: (() => void) | null = null;
 let calendarService: CalendarServiceImpl | null = null;
-// PRD-6 speaker-names seam: the loopback extension WS server, its IPC bridge +
-// status-push disposer, and the disposer that unhooks the post-diarization
-// correlation pass. All null until the Build phase wires `wireSpeakerNames`.
-let extensionWsServer: ExtensionWsServer | null = null;
-let disposeSpeakerNamesIpc: (() => void) | null = null;
-let disposeSpeakerNamesCorrelation: (() => void) | null = null;
 // PRD-11 auto-record seam: the detection engine, its IPC bridge disposer, the
 // tray controller, and the engine's state-push -> tray subscription disposer.
 let autoRecordEngine: AutoRecordEngine | null = null;
@@ -472,9 +442,9 @@ export async function bootstrap(): Promise<void> {
     providerKeys: chatKeystore,
     hfKeystore,
     emitStatus: pushMeetingStatusToRenderer,
-    // PRD-13 audio-retention: after diarization consumes the WAVs, the
-    // `delete-after-processing` policy removes mic.wav/system.wav.
-    getAudioRetention: () => settingsStore!.getCaptureSettings().audioRetention,
+    // Privacy: audio NEVER persists. After post-processing consumes the WAVs
+    // (hi-fi re-transcription + diarization), mic.wav/system.wav are always
+    // removed — see the finalize() hook in postprocess/pipeline.ts.
     deleteAudioFiles: deleteMeetingAudioFiles,
   });
   disposePostProcessPipeline = () => postProcessPipeline.dispose();
@@ -526,37 +496,17 @@ export async function bootstrap(): Promise<void> {
   disposeAudioIpc = registerAudioIpc({
     supervisor,
     getScreenPermission: getScreenPermissionStatus,
-    // PRD-13 audio-retention: `never-save` => the orchestrator tells the sidecar
-    // not to persist the WAVs (stream-only).
-    getAudioRetention: () => settingsStore!.getCaptureSettings().audioRetention,
   });
 
-  // Export & interop + capture/privacy controls (PRD-13). The ExportService is
-  // READ-ONLY over the canonical transcript (it builds a model from the diarized
-  // transcript — else the live transcript — + summary and writes a NEW file).
-  // The privacy bridge persists the non-secret capture settings and re-applies
-  // the content-protection toggle to the live window(s) live; the per-app
-  // capability probe degrades to full loopback until the native macOS/Windows
-  // process-tap path is verified (see ./capture/perapp.ts).
+  // Export & interop (PRD-13). The ExportService is READ-ONLY over the canonical
+  // transcript (it builds a model from the diarized transcript — else the live
+  // transcript — + summary and writes a NEW file). Content protection stays ON
+  // by default; it's applied at window creation from the persisted setting.
   const exportService = new ExportService({
     store,
     getExportDir: () => settingsStore!.getExportDir(),
   });
-  disposeExportIpc = registerExportIpc({
-    exportService,
-    settings: settingsStore,
-    captureProbe: defaultCaptureCapabilityProbe(process.platform, osRelease()),
-    applyContentProtection: (enabled: boolean) => {
-      const win = mainWindow;
-      if (win && !win.isDestroyed()) win.setContentProtection(enabled);
-    },
-    getWindow: () => mainWindow,
-  });
-
-  // PRD-9 pluggable transcription engines: read/patch the engine/model/language
-  // settings + list the selectable engines for the Settings UI. The chosen engine
-  // is handed to the sidecar via the supervisor's extraEnv on the next spawn.
-  disposeTranscriptionIpc = registerTranscriptionIpc({ settings: settingsStore });
+  disposeExportIpc = registerExportIpc({ exportService });
 
   // In-call AI chat + provider abstraction (PRD-4). The keystore stores the BYOK
   // key encrypted via the OS keychain (safeStorage) and the non-secret provider
@@ -624,54 +574,11 @@ export async function bootstrap(): Promise<void> {
     getWindow: () => mainWindow,
   });
 
-  // Google Meet speaker-name attribution (PRD-6). GRACEFUL DEGRADATION is the #1
-  // invariant: every step below is best-effort, so a bind failure, an absent
-  // extension, or a correlation error is logged + swallowed and the meeting still
-  // completes with generic `Speaker N` labels.
-  //
-  //   1. construct the loopback-ONLY extension WS server. `activeMeeting` adapts
-  //      the PRD-3 `controller` so the server buffers {ts,name,speaking} events
-  //      ONLY while a meeting is recording and IGNORES them otherwise. start()
-  //      binds 127.0.0.1 only; a bind failure (e.g. port busy) leaves the server
-  //      inert (status stays `disconnected`) and must not block bootstrap.
-  //   2. register the status IPC + status push so the renderer indicator reflects
-  //      connect/capture state (and clearly says diarization works without it).
-  //   3. hook the post-diarization correlation pass: after `postProcessDone` for
-  //      a Google-Meet meeting, drain that meeting's buffered activity, run the
-  //      PURE `correlateSpeakerNames` over the freshly-written diarized
-  //      transcript, and apply via `applySpeakerNames` (REUSES the PRD-5
-  //      diarized-rewrite path; MANUAL renames win; the live transcript stays
-  //      byte-identical). Subscribes the SAME supervisor notification fan-out the
-  //      PRD-5 pipeline uses, filtered to postProcessDone.
-  extensionWsServer = createExtensionWsServer({
-    activeMeeting: activeMeetingFromController(controller),
-  });
-  // Bind in the background; a bind failure degrades silently (no listener =>
-  // the extension never connects => generic labels), never blocking the window.
-  void extensionWsServer.start().catch((err: unknown) => {
-    console.error("[loqui] speakernames WS server failed to start:", err);
-  });
-  disposeSpeakerNamesIpc = registerSpeakerNamesIpc({
-    server: extensionWsServer,
-    getWindow: () => mainWindow,
-  });
-  disposeSpeakerNamesCorrelation = subscribeSpeakerNamesCorrelation({
-    supervisor,
-    hook: {
-      server: extensionWsServer,
-      store,
-      correlate: correlateSpeakerNames,
-      apply: applySpeakerNames,
-    },
-    getMeeting: (id) => store?.getMeeting(id) ?? null,
-  });
-
   // Auto-record on meeting detection + menubar/tray (PRD-11). MANUAL-FIRST: the
   // engine reads the persisted policy (OFF by default) and only watches when the
-  // user opts in. It REUSES the PRD-3 `controller` for start/stop, the OS native
-  // probe for conferencing apps + mic, and the PRD-6 WS server's browser in-call
-  // signal (no new socket). The tray gives quick controls + a recording-state
-  // icon + launch-at-login; the main window stays available.
+  // user opts in. It REUSES the PRD-3 `controller` for start/stop and the OS
+  // native probe for conferencing apps + mic. The tray gives quick controls + a
+  // recording-state icon + launch-at-login; the main window stays available.
   const openMainWindow = (): void => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isMinimized()) mainWindow.restore();
@@ -691,7 +598,9 @@ export async function bootstrap(): Promise<void> {
     settings: settingsStore.getAutoRecordSettings(),
     lifecycle: controller,
     nativeProbe: createNativeMeetingProbe(process.platform),
-    browserSource: browserCallSourceFromWsServer(extensionWsServer),
+    // Browser in-call detection is retired with the Meet extension; native
+    // (conferencing-app + mic) detection remains.
+    browserSource: nullBrowserCallSource(),
   });
   disposeAutoRecordIpc = registerAutoRecordIpc({
     engine: autoRecordEngine,
@@ -870,12 +779,9 @@ async function shutdown(): Promise<void> {
   disposeMcpIpc = null;
   mcpManager?.dispose();
   mcpManager = null;
-  // PRD-13 export/privacy teardown.
+  // PRD-13 export teardown.
   disposeExportIpc?.();
   disposeExportIpc = null;
-  // PRD-9 transcription-engine IPC teardown.
-  disposeTranscriptionIpc?.();
-  disposeTranscriptionIpc = null;
   settingsStore = null;
   // PRD-15 calendar teardown (disposes the IPC bridge + push + service polling
   // once Build unit A wires it above).
@@ -902,18 +808,6 @@ async function shutdown(): Promise<void> {
   disposeUpdaterIpc = null;
   updaterManager?.dispose();
   updaterManager = null;
-  // PRD-6 speaker-names teardown (unhooks the correlation pass + IPC/status push
-  // and stops the loopback extension WS server once the Build phase wires them).
-  disposeSpeakerNamesCorrelation?.();
-  disposeSpeakerNamesCorrelation = null;
-  disposeSpeakerNamesIpc?.();
-  disposeSpeakerNamesIpc = null;
-  try {
-    await extensionWsServer?.stop();
-  } catch (err) {
-    console.error("[loqui] error stopping extension WS server:", err);
-  }
-  extensionWsServer = null;
   disposeStatusPush?.();
   disposeStatusPush = null;
   disposeTranscriptPush?.();

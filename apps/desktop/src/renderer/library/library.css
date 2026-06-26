@@ -164,7 +164,8 @@
 }
 
 .library__row {
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -189,16 +190,18 @@
 }
 
 /* Per-row delete: a hover-revealed trash at the trailing edge. It's a sibling of
-   the row button (not nested — no nested <button>), positioned over the row's
-   right padding. Reveal on row hover / when focused / mid-confirm. */
+   the row button (not nested — no nested <button>) and an in-flow flex item, so
+   it reserves a fixed trailing slot the row's meta never slides under (the row
+   is `flex:1; min-width:0`). Invisible (opacity 0) until row hover / focus /
+   mid-confirm — no layout shift since the slot is always occupied. No filled
+   background: it's a bare icon that simply tints red. */
 .library__row-item {
-  position: relative;
+  display: flex;
+  align-items: center;
 }
 .library__row-delete {
-  position: absolute;
-  top: 50%;
-  right: var(--space-3);
-  transform: translateY(-50%);
+  flex: 0 0 auto;
+  margin-right: var(--space-2);
   appearance: none;
   display: inline-flex;
   align-items: center;
@@ -209,13 +212,11 @@
   height: 28px;
   min-width: 28px;
   padding: 0 var(--space-2);
-  border-radius: var(--radius-md);
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
   transition:
     opacity var(--duration-fast) var(--ease-standard),
-    background var(--duration-fast) var(--ease-standard),
     color var(--duration-fast) var(--ease-standard);
 }
 .library__row-item:hover .library__row-delete,
@@ -224,16 +225,13 @@
   opacity: 1;
   pointer-events: auto;
 }
-.library__row-delete:hover:not(:disabled) {
-  background: var(--red-soft);
+.library__row-delete:hover:not(:disabled),
+.library__row-delete--confirm {
+  background: transparent;
   color: var(--red);
 }
 .library__row-delete:focus-visible {
   outline: none;
-  box-shadow: var(--shadow-focus);
-}
-.library__row-delete--confirm {
-  background: var(--red-soft);
   color: var(--red);
 }
 .library__row-delete-confirm-text {

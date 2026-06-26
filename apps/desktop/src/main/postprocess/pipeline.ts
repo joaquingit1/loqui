@@ -42,7 +42,6 @@ import {
   POSTPROCESS_REQUEST_EVENT,
   postProcessDoneSchema,
   postProcessRequestSchema,
-  type AudioRetentionPolicy,
   type Meeting,
   type Participant,
   type PostProcessDone,
@@ -85,16 +84,11 @@ export interface PostProcessPipelineDeps {
    */
   emitStatus?: (meeting: Meeting) => void;
   /**
-   * Read the current audio-retention policy (PRD-13). When it is
-   * `delete-after-processing`, the pipeline removes the per-source WAVs AFTER
-   * `postProcessDone` (i.e. once diarization has consumed them). Optional —
-   * absent => the legacy `keep` behavior (WAVs are never removed here).
-   */
-  getAudioRetention?: () => AudioRetentionPolicy;
-  /**
    * Remove a meeting's per-source WAVs (mic.wav/system.wav). Injected so the
    * pipeline stays testable without fs; production passes a fn that unlinks the
    * files under `<meetingDir>/audio/`. Best-effort — a missing file is a no-op.
+   * Called UNCONDITIONALLY after `postProcessDone` (privacy: audio never
+   * persists past processing).
    */
   deleteAudioFiles?: (meetingId: string) => void;
 }
@@ -127,7 +121,6 @@ export function createPostProcessPipeline(
   deps: PostProcessPipelineDeps,
 ): PostProcessPipeline {
   const { supervisor, store, providerKeys, hfKeystore, emitStatus } = deps;
-  const getAudioRetention = deps.getAudioRetention;
   const deleteAudioFiles = deps.deleteAudioFiles;
 
   /** Meetings stopped + awaiting their `audioFinalized` to dispatch. */
@@ -235,17 +228,14 @@ export function createPostProcessPipeline(
       });
       emitStatus?.(finalized);
 
-      // PRD-13 audio-retention: once diarization has consumed the WAVs (we are
-      // here only AFTER postProcessDone), the `delete-after-processing` policy
-      // removes mic.wav/system.wav. `keep` (default) and `never-save` (the WAVs
-      // were never written) take no action here. Best-effort — a delete failure
-      // must not flip the meeting out of `done`.
-      if (getAudioRetention?.() === "delete-after-processing") {
-        try {
-          deleteAudioFiles?.(meetingId);
-        } catch {
-          /* best-effort cleanup */
-        }
+      // Privacy: audio NEVER persists. We are here only AFTER postProcessDone —
+      // i.e. the hi-fi re-transcription + diarization have already consumed the
+      // WAVs — so always remove mic.wav/system.wav now. Best-effort: a delete
+      // failure must not flip the meeting out of `done`.
+      try {
+        deleteAudioFiles?.(meetingId);
+      } catch {
+        /* best-effort cleanup */
       }
     } catch {
       // Store failure: don't leave the meeting stuck in `processing`.

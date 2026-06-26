@@ -112,19 +112,6 @@ function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
       refresh: vi.fn(async () => []),
       onUpdated: () => () => {},
     },
-    // PRD-6 speaker-names bridge: the App mounts <SpeakerNamesStatus> under
-    // Settings; the fake returns the disconnected resting status.
-    speakerNames: {
-      status: vi.fn(async () => ({
-        state: "disconnected" as const,
-        meetingActive: false,
-        bufferedEvents: 0,
-        lastEventAt: null,
-        selectorVersion: "",
-        extensionVersion: "",
-      })),
-      onStatus: () => () => {},
-    },
     // PRD-11 auto-record bridge: a no-op fake; the current user-facing toggle is
     // in the tray; renderer Settings arrive with the UI rehaul. Returns the
     // disabled resting settings/state so any incidental read is well-formed.
@@ -136,44 +123,10 @@ function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
       dismissPending: vi.fn(async () => {}),
       onState: () => () => {},
     },
-    // PRD-13 export + privacy bridges: no-op fakes; the App under test does not
-    // exercise them directly (they are reached from the settings/library panels).
+    // PRD-13 export bridge: a no-op fake; the App under test does not exercise it
+    // directly (it is reached from the library/meeting panels).
     export: {
       exportMeeting: vi.fn(async () => ({}) as never),
-      pickExportDir: vi.fn(async () => null),
-    },
-    privacy: {
-      getCaptureSettings: vi.fn(async () => ({
-        contentProtection: true,
-        audioRetention: "keep" as const,
-        perAppAudioFilter: false,
-        exportDir: null,
-      })),
-      setCaptureSettings: vi.fn(async () => ({
-        contentProtection: true,
-        audioRetention: "keep" as const,
-        perAppAudioFilter: false,
-        exportDir: null,
-      })),
-      getCaptureCapability: vi.fn(async () => ({
-        supported: false,
-        mode: "full-loopback" as const,
-        reason: "",
-      })),
-    },
-    // PRD-9 transcription-engine bridge: a no-op fake; reached from the Settings panel.
-    transcription: {
-      getSettings: vi.fn(async () => ({
-        engine: "faster-whisper" as const,
-        modelSize: "small" as const,
-        language: null,
-      })),
-      setSettings: vi.fn(async () => ({
-        engine: "faster-whisper" as const,
-        modelSize: "small" as const,
-        language: null,
-      })),
-      getEngines: vi.fn(async () => []),
     },
     // PRD-8 updater bridge: a no-op fake; the App under test does not exercise it
     // directly (Settings + the restart prompt arrive with the UI rehaul).
@@ -256,10 +209,9 @@ describe("App", () => {
     fireEvent.click(screen.getByTestId("nav-meeting"));
     await waitFor(() => expect(screen.getByTestId("meeting-controls")).toBeTruthy());
 
-    // Settings tab → CalendarSettings + SpeakerNames indicator + MCP + Debug all mounted.
+    // Settings tab → CalendarSettings + MCP + Debug all mounted.
     fireEvent.click(screen.getByTestId("nav-settings"));
     await waitFor(() => expect(screen.getByTestId("calendar-settings")).toBeTruthy());
-    expect(screen.getByTestId("speakernames-status")).toBeTruthy();
     expect(screen.getByTestId("mcp-settings")).toBeTruthy();
     expect(screen.getByTestId("ping-button")).toBeTruthy();
 

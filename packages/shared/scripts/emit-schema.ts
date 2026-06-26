@@ -46,14 +46,6 @@ import {
   postProcessDoneSchema,
 } from "../src/postprocess.js";
 import {
-  speakerActivityEventSchema,
-  extensionMessageSchema,
-  speakerCorrelationParamsSchema,
-  speakerNameResolutionSchema,
-  speakerCorrelationResultSchema,
-  speakerNamesStatusSchema,
-} from "../src/speakernames.js";
-import {
   autoRecordSettingsSchema,
   updateAutoRecordSettingsSchema,
   detectionInputsSchema,
@@ -133,16 +125,6 @@ const schemas: Record<string, ZodTypeAny> = {
   Summary: summarySchema,
   PostProcessRequest: postProcessRequestSchema,
   PostProcessDone: postProcessDoneSchema,
-  // PRD-6 Google-Meet speaker-name attribution. Emitted so the (TS-only)
-  // extension <-> main wire + the pure correlation contract are fully visible.
-  // The Python sidecar is NOT involved in PRD-6; these are for documentation +
-  // cross-process TS parity, mirroring the other emitted contracts.
-  SpeakerActivityEvent: speakerActivityEventSchema,
-  ExtensionMessage: extensionMessageSchema,
-  SpeakerCorrelationParams: speakerCorrelationParamsSchema,
-  SpeakerNameResolution: speakerNameResolutionSchema,
-  SpeakerCorrelationResult: speakerCorrelationResultSchema,
-  SpeakerNamesStatus: speakerNamesStatusSchema,
   // PRD-11 auto-record + menubar/tray. Emitted so the (TS-only) detection
   // settings, the PURE decision-core inputs/outputs, the tray/auto-record runtime
   // state, and the browser in-call signal are fully visible as cross-process

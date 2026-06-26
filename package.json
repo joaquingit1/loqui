@@ -33,8 +33,7 @@
     "smoke:postprocess": "node scripts/smoke-postprocess.mjs",
     "smoke:import": "node scripts/smoke-import.mjs",
     "smoke:mcp": "node scripts/smoke-mcp.mjs",
-    "smoke:calendar": "node scripts/smoke-calendar.mjs",
-    "smoke:speakernames": "node scripts/smoke-speakernames.mjs"
+    "smoke:calendar": "node scripts/smoke-calendar.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

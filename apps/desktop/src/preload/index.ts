@@ -17,11 +17,8 @@ import type {
   AutoRecordSettings,
   AutoRecordState,
   UpdateAutoRecordSettings,
-  CaptureCapability,
-  CaptureSettings,
   ExportMeetingParams,
   ExportResult,
-  UpdateCaptureSettings,
   CalendarConnection,
   CalendarConnectResult,
   CalendarEvent,
@@ -56,14 +53,10 @@ import type {
   SetApiKeyParams,
   SetDiarizationBackendParams,
   SetHfTokenParams,
-  SpeakerNamesStatus,
   StartMeetingParams,
   StopMeetingParams,
   Summary,
   TranscriptSegment,
-  TranscriptionEngineInfo,
-  TranscriptionSettings,
-  UpdateTranscriptionSettings,
   UpdaterSettings,
   UpdaterState,
   UpdateUpdaterSettings,
@@ -98,16 +91,10 @@ export interface LoquiApi {
   mcp: LoquiMcpApi;
   /** Calendar integration + Home/Today view bridge (PRD-15). */
   calendar: LoquiCalendarApi;
-  /** Google Meet speaker-name attribution status bridge (PRD-6). */
-  speakerNames: LoquiSpeakerNamesApi;
   /** Auto-record on meeting detection + menubar/tray bridge (PRD-11). */
   autoRecord: LoquiAutoRecordApi;
   /** Export & interop bridge (PRD-13). */
   export: LoquiExportApi;
-  /** Capture / privacy controls bridge (PRD-13). */
-  privacy: LoquiPrivacyApi;
-  /** Pluggable transcription-engine bridge (PRD-9). */
-  transcription: LoquiTranscriptionApi;
   /** Packaging + custom GitHub auto-updater bridge (PRD-8). */
   updater: LoquiUpdaterApi;
 }
@@ -149,63 +136,6 @@ export interface LoquiUpdaterApi {
 export interface LoquiExportApi {
   /** Export one meeting in one format; resolves with the written path + size. */
   exportMeeting(params: ExportMeetingParams): Promise<ExportResult>;
-  /**
-   * Open the native folder-picker to choose + persist the export dir. Resolves
-   * to the chosen absolute path, or null when cancelled.
-   */
-  pickExportDir(): Promise<string | null>;
-}
-
-/**
- * Capture / privacy controls surface (PRD-13). Reads + patches the non-secret
- * capture settings (content-protection toggle, audio-retention policy, per-app
- * audio filter, export dir) and reports the per-app system-audio capability +
- * decision. No secrets here.
- */
-export interface LoquiPrivacyApi {
-  /** Read the persisted capture/privacy settings. */
-  getCaptureSettings(): Promise<CaptureSettings>;
-  /** Patch the capture/privacy settings; applies content-protection immediately. */
-  setCaptureSettings(patch: UpdateCaptureSettings): Promise<CaptureSettings>;
-  /** The per-app system-audio capability probe + resolved capture mode. */
-  getCaptureCapability(): Promise<CaptureCapability>;
-}
-
-/**
- * Pluggable transcription-engine surface (PRD-9). Reads + patches the persisted
- * engine/model/language settings and lists the selectable engines + their
- * availability on this OS/arch. The chosen engine takes effect for the NEXT
- * meeting (the sidecar reads it at launch). macOS-only engines are flagged so the
- * UI hides/disables them on Windows. No secrets here.
- */
-export interface LoquiTranscriptionApi {
-  /** Read the persisted transcription-engine settings. */
-  getSettings(): Promise<TranscriptionSettings>;
-  /** Patch the engine/model/language settings (takes effect next meeting). */
-  setSettings(patch: UpdateTranscriptionSettings): Promise<TranscriptionSettings>;
-  /** List the selectable engines + their availability on this OS/arch. */
-  getEngines(): Promise<TranscriptionEngineInfo[]>;
-}
-
-/**
- * Google Meet speaker-name attribution surface (PRD-6). Wraps the speaker-names
- * IPC channels so the renderer indicator never references channel names directly.
- * STATUS-ONLY + best-effort: this reports whether the browser extension is
- * connected and capturing names for the active meeting — it cannot start a
- * capture, write a name, or touch a transcript (correlation + name-apply run in
- * main after diarization, reusing the PRD-5 rewrite path). The feature degrades
- * gracefully: a `disconnected` status is normal and the meeting still completes
- * with generic `Speaker N` labels; the indicator messaging makes that clear.
- */
-export interface LoquiSpeakerNamesApi {
-  /** Current extension-connection / name-capture status. */
-  status(): Promise<SpeakerNamesStatus>;
-  /**
-   * Subscribe to extension status changes (connect/disconnect, capture
-   * start/stop). The callback fires with the full current status. Returns an
-   * unsubscribe fn.
-   */
-  onStatus(cb: (status: SpeakerNamesStatus) => void): () => void;
 }
 
 /**
@@ -552,15 +482,6 @@ const calendar: LoquiCalendarApi = {
   },
 };
 
-const speakerNames: LoquiSpeakerNamesApi = {
-  status: (): Promise<SpeakerNamesStatus> => ipcRenderer.invoke(IPC.speakerNamesStatus),
-  onStatus: (cb: (status: SpeakerNamesStatus) => void): (() => void) => {
-    const listener = (_e: unknown, status: SpeakerNamesStatus): void => cb(status);
-    ipcRenderer.on(IPC.speakerNamesStatusChanged, listener);
-    return () => ipcRenderer.removeListener(IPC.speakerNamesStatusChanged, listener);
-  },
-};
-
 const autoRecord: LoquiAutoRecordApi = {
   getSettings: (): Promise<AutoRecordSettings> =>
     ipcRenderer.invoke(IPC.autoRecordGetSettings),
@@ -579,25 +500,6 @@ const autoRecord: LoquiAutoRecordApi = {
 const exportApi: LoquiExportApi = {
   exportMeeting: (params: ExportMeetingParams): Promise<ExportResult> =>
     ipcRenderer.invoke(IPC.exportMeeting, params),
-  pickExportDir: (): Promise<string | null> => ipcRenderer.invoke(IPC.exportPickDir),
-};
-
-const transcription: LoquiTranscriptionApi = {
-  getSettings: (): Promise<TranscriptionSettings> =>
-    ipcRenderer.invoke(IPC.getTranscriptionSettings),
-  setSettings: (patch: UpdateTranscriptionSettings): Promise<TranscriptionSettings> =>
-    ipcRenderer.invoke(IPC.setTranscriptionSettings, patch),
-  getEngines: (): Promise<TranscriptionEngineInfo[]> =>
-    ipcRenderer.invoke(IPC.getTranscriptionEngines),
-};
-
-const privacy: LoquiPrivacyApi = {
-  getCaptureSettings: (): Promise<CaptureSettings> =>
-    ipcRenderer.invoke(IPC.getCaptureSettings),
-  setCaptureSettings: (patch: UpdateCaptureSettings): Promise<CaptureSettings> =>
-    ipcRenderer.invoke(IPC.setCaptureSettings, patch),
-  getCaptureCapability: (): Promise<CaptureCapability> =>
-    ipcRenderer.invoke(IPC.getCaptureCapability),
 };
 
 const updater: LoquiUpdaterApi = {
@@ -633,11 +535,8 @@ const api: LoquiApi = {
   postprocess,
   mcp,
   calendar,
-  speakerNames,
   autoRecord,
   export: exportApi,
-  privacy,
-  transcription,
   updater,
 };
 

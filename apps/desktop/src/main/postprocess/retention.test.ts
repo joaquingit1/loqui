@@ -1,20 +1,16 @@
 /**
- * PRD-13 audio-retention tests for the post-processing pipeline (hermetic).
+ * Audio non-persistence tests for the post-processing pipeline (hermetic).
  *
- * Asserts the `delete-after-processing` policy: the per-source WAVs are removed
- * AFTER `postProcessDone` (i.e. once diarization has consumed them), and ONLY
- * for that policy — `keep` and `never-save` never trigger the delete here.
+ * Privacy guarantee: audio NEVER persists. The per-source WAVs are removed
+ * UNCONDITIONALLY after `postProcessDone` (i.e. once the hi-fi re-transcription
+ * + diarization have consumed them). A delete failure is best-effort and must
+ * not flip the meeting out of `done`.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  AudioRetentionPolicy,
-  Meeting,
-  PostProcessDone,
-  ProviderConfig,
-} from "@loqui/shared";
+import type { Meeting, PostProcessDone, ProviderConfig } from "@loqui/shared";
 import { createPostProcessPipeline } from "./pipeline.js";
 
 let dir: string;
@@ -103,7 +99,7 @@ const done: PostProcessDone = {
   note: "",
 };
 
-function runFinalize(retention: AudioRetentionPolicy): string[] {
+function runFinalize(): string[] {
   const deleted: string[] = [];
   const supervisor = makeSupervisor();
   const pipeline = createPostProcessPipeline({
@@ -111,7 +107,6 @@ function runFinalize(retention: AudioRetentionPolicy): string[] {
     store: makeStore(meeting("m1")),
     providerKeys: keys,
     hfKeystore: hf,
-    getAudioRetention: () => retention,
     deleteAudioFiles: (meetingId) => deleted.push(meetingId),
   });
   pipeline.onMeetingProcessing(meeting("m1"));
@@ -121,17 +116,9 @@ function runFinalize(retention: AudioRetentionPolicy): string[] {
   return deleted;
 }
 
-describe("audio retention in the pipeline finalize", () => {
-  it("delete-after-processing removes the WAVs after postProcessDone", () => {
-    expect(runFinalize("delete-after-processing")).toEqual(["m1"]);
-  });
-
-  it("keep never removes the WAVs", () => {
-    expect(runFinalize("keep")).toEqual([]);
-  });
-
-  it("never-save never triggers a delete here (the WAVs were never written)", () => {
-    expect(runFinalize("never-save")).toEqual([]);
+describe("audio non-persistence in the pipeline finalize", () => {
+  it("ALWAYS removes the WAVs after postProcessDone (audio never persists)", () => {
+    expect(runFinalize()).toEqual(["m1"]);
   });
 
   it("a delete failure does not flip the meeting out of done", () => {
@@ -142,7 +129,6 @@ describe("audio retention in the pipeline finalize", () => {
       store,
       providerKeys: keys,
       hfKeystore: hf,
-      getAudioRetention: () => "delete-after-processing",
       deleteAudioFiles: () => {
         throw new Error("disk busy");
       },
