@@ -36,6 +36,13 @@ export interface SummaryViewProps {
   regenerating?: boolean;
   /** Fired when the user clicks Regenerate (after the bridge call is sent). */
   onRegenerate?: () => void;
+  /**
+   * Live summary text streamed from the sidecar WHILE the summary generates
+   * (PRD-2 streamed-summary UX). When non-empty and no parsed `summary.json` has
+   * loaded yet, it is rendered as a live preview; once the parsed summary
+   * arrives (reloadKey bump on "done") the structured sections replace it.
+   */
+  streamingText?: string;
 }
 
 type LoadState =
@@ -50,6 +57,7 @@ export function SummaryView({
   reloadKey,
   regenerating = false,
   onRegenerate,
+  streamingText = "",
 }: SummaryViewProps): JSX.Element {
   const bridge =
     api ?? (typeof window !== "undefined" ? window.loqui?.postprocess : undefined);
@@ -86,6 +94,10 @@ export function SummaryView({
 
   const summary = load.kind === "loaded" ? load.summary : null;
   const canRegenerate = Boolean(bridge?.regenerateSummary);
+  // While the summary generates (no parsed summary.json yet), show the live
+  // streamed text as the preview in place of the loading/absent hints.
+  const showStreaming =
+    (load.kind === "loading" || load.kind === "absent") && streamingText.trim().length > 0;
 
   return (
     <section className="summary" data-testid="summary-view" aria-labelledby="summary-title">
@@ -114,7 +126,14 @@ export function SummaryView({
         )}
       </div>
 
-      {load.kind === "loading" && (
+      {showStreaming && (
+        <div className="summary__streaming" data-testid="summary-streaming" aria-live="polite">
+          <p className="summary__stream-text">{streamingText}</p>
+          <span className="summary__stream-caret" aria-hidden="true" />
+        </div>
+      )}
+
+      {!showStreaming && load.kind === "loading" && (
         <p className="summary__hint" data-testid="summary-loading">
           Loading summary…
         </p>
@@ -126,7 +145,7 @@ export function SummaryView({
         </p>
       )}
 
-      {load.kind === "absent" && (
+      {!showStreaming && load.kind === "absent" && (
         <p className="summary__hint" data-testid="summary-absent">
           No summary yet. It is generated after the meeting is processed.
         </p>

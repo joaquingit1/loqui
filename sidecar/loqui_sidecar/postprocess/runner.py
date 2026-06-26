@@ -60,6 +60,7 @@ from .types import (
     JOB_KIND_TRANSCRIPTION,
     JOB_UPDATE_EVENT,
     POSTPROCESS_DONE_EVENT,
+    SUMMARY_TOKEN_EVENT,
     DiarizationBackend,
     DiarizationResult,
     DiarizedTranscript,
@@ -289,7 +290,24 @@ def run_postprocess(
     try:
         config: ProviderConfig = request.config
         provider = selector(config)
-        summary = summarize(meeting_id, provider, config, api_key=request.api_key, reader=reader)
+
+        def _on_summary_delta(delta: str) -> None:
+            # Forward each provider delta as a live ``summaryToken`` so the
+            # renderer can stream the summary as it generates (the final parsed
+            # summary.json is still the source of truth on the "done" jobUpdate).
+            emit(
+                SUMMARY_TOKEN_EVENT,
+                {"jobId": sum_id, "meetingId": meeting_id, "delta": delta},
+            )
+
+        summary = summarize(
+            meeting_id,
+            provider,
+            config,
+            api_key=request.api_key,
+            reader=reader,
+            on_delta=_on_summary_delta,
+        )
         summary.generated_at = datetime.now(timezone.utc).isoformat()
         from .writers import write_summary
 

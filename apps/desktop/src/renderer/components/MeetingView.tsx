@@ -1,33 +1,20 @@
 /**
- * Meeting view (PRD-3): opens one meeting and renders its `transcript.live.md`
- * (read via `window.loqui.library.getTranscript`, READ-ONLY), with an inline,
- * persisted title rename.
+ * MeetingView — thin wrapper that opens one meeting (loaded by id from the
+ * Library/recents) and renders it through the shared {@link MeetingDoc}, the ONE
+ * finished-meeting surface used everywhere (a just-finished meeting renders the
+ * exact same component). Kept as a named export so the Library + App import
+ * sites + tests have a stable entry point.
  *
- * This is a READER of the transcript — it never writes the file (the
- * append-only TranscriptWriter in main owns that). Rename goes through the
- * `renameMeeting` IPC, which persists to meta.json + the index; on success the
- * returned, fully-validated Meeting is lifted back to the parent so the Library
- * row updates without a re-list.
- *
- * Talks ONLY to the typed `window.loqui.library` bridge — never to IPC channels
- * or Node globals.
+ * READ-ONLY over the transcript (the AI never edits it) — see {@link MeetingDoc}.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type JSX } from "react";
 import type { Meeting } from "@loqui/shared";
 import type {
   LoquiChatApi,
   LoquiExportApi,
   LoquiLibraryApi,
 } from "../../preload/index.js";
-import { ExportMenu } from "./ExportMenu.js";
-import { Icon } from "./Icon.js";
-import { displayTitle, formatDuration, platformLabel } from "../library/grouping.js";
-import { SummaryView } from "./SummaryView.js";
-import { DiarizedTranscript } from "./DiarizedTranscript.js";
-import { ChatPanel } from "./ChatPanel.js";
-import { ProcessingStatus } from "./ProcessingStatus.js";
-import { useJobProgress, allJobsTerminal } from "../summary/index.js";
-import "../library/library.css";
+import { MeetingDoc } from "./MeetingDoc.js";
 
 export interface MeetingViewProps {
   /** The meeting to display. */
@@ -36,11 +23,7 @@ export interface MeetingViewProps {
   api?: Pick<LoquiLibraryApi, "getTranscript" | "renameMeeting">;
   /** Export bridge (PRD-13). Injectable for tests; defaults to window.loqui.export. */
   exportApi?: Pick<LoquiExportApi, "exportMeeting">;
-  /**
-   * Chat bridge (PRD-4). Injectable for tests; defaults to window.loqui.chat.
-   * Powers the read-only "Ask about this meeting" panel below the summary —
-   * grounded in this meeting's transcript, the AI never edits it.
-   */
+  /** Chat bridge (PRD-4). Injectable for tests; defaults to window.loqui.chat. */
   chatApi?: LoquiChatApi;
   /** Navigate back to the Library list. */
   onBack?: () => void;
@@ -48,270 +31,6 @@ export interface MeetingViewProps {
   onRenamed?: (meeting: Meeting) => void;
 }
 
-type LoadState =
-  | { kind: "loading" }
-  | { kind: "loaded"; text: string }
-  | { kind: "error"; message: string };
-
-export function MeetingView({
-  meeting,
-  api,
-  exportApi,
-  chatApi,
-  onBack,
-  onRenamed,
-}: MeetingViewProps): JSX.Element {
-  const library = (api ?? window.loqui?.library) as MeetingViewProps["api"] | undefined;
-  const [load, setLoad] = useState<LoadState>({ kind: "loading" });
-
-  // PRD-5 post-processing: live job progress (diarization + summary). When a
-  // job completes, bump reload keys so the Summary + DiarizedTranscript views
-  // refetch the freshly written derived files. Regenerating tracks a
-  // summary-only re-run so the Summary view's button reflects the in-flight
-  // state and refetches on completion.
-  const [summaryReload, setSummaryReload] = useState(0);
-  const [diarizedReload, setDiarizedReload] = useState(0);
-  // PRD-2 two-tier: when the high-accuracy re-transcription job finishes, the
-  // store now serves the accurate transcript.hifi text, so refetch it.
-  const [transcriptReload, setTranscriptReload] = useState(0);
-  const [regenerating, setRegenerating] = useState(false);
-  const { jobs } = useJobProgress({
-    onEvent: (event) => {
-      if (event.kind === "summary" && (event.state === "done" || event.state === "error")) {
-        setSummaryReload((n) => n + 1);
-        setRegenerating(false);
-      }
-      if (event.kind === "diarization" && (event.state === "done" || event.state === "error")) {
-        setDiarizedReload((n) => n + 1);
-      }
-      if (event.kind === "transcription" && event.state === "done") {
-        setTranscriptReload((n) => n + 1);
-      }
-    },
-  });
-  const processing = meeting.status === "processing";
-  const postReady = meeting.status === "done" || meeting.status === "processing";
-
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(meeting.title);
-  const [renameError, setRenameError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  // Load the transcript whenever the target meeting changes.
-  useEffect(() => {
-    let cancelled = false;
-    setLoad({ kind: "loading" });
-    if (!library?.getTranscript) {
-      setLoad({ kind: "loaded", text: "" });
-      return;
-    }
-    library
-      .getTranscript({ id: meeting.id, variant: "live" })
-      .then((text) => {
-        if (!cancelled) setLoad({ kind: "loaded", text });
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setLoad({ kind: "error", message: err instanceof Error ? err.message : String(err) });
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [library, meeting.id, transcriptReload]);
-
-  // Keep the rename draft in sync when the underlying meeting changes (and we're not mid-edit).
-  useEffect(() => {
-    if (!editing) setDraft(meeting.title);
-  }, [meeting.title, editing]);
-
-  const startEditing = useCallback(() => {
-    setDraft(meeting.title);
-    setRenameError(null);
-    setEditing(true);
-  }, [meeting.title]);
-
-  useEffect(() => {
-    if (editing) inputRef.current?.focus();
-  }, [editing]);
-
-  const cancelEditing = useCallback(() => {
-    setEditing(false);
-    setRenameError(null);
-    setDraft(meeting.title);
-  }, [meeting.title]);
-
-  const commitRename = useCallback(async () => {
-    const title = draft.trim();
-    if (!library?.renameMeeting) {
-      setEditing(false);
-      return;
-    }
-    if (title === meeting.title) {
-      setEditing(false);
-      return;
-    }
-    setSaving(true);
-    setRenameError(null);
-    try {
-      const updated = await library.renameMeeting({ id: meeting.id, title });
-      onRenamed?.(updated);
-      setEditing(false);
-    } catch (err: unknown) {
-      setRenameError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
-  }, [draft, library, meeting.id, meeting.title, onRenamed]);
-
-  const onKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        void commitRename();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        cancelEditing();
-      }
-    },
-    [commitRename, cancelEditing],
-  );
-
-  const duration = formatDuration(meeting);
-
-  return (
-    <section className="panel meeting-view" data-testid="meeting-view" data-meeting-id={meeting.id}>
-      <div className="meeting-view__top">
-        {onBack && (
-          <button
-            type="button"
-            className="meeting-view__back"
-            data-testid="meeting-back"
-            onClick={onBack}
-          >
-            <Icon name="chevron-left" size={16} aria-hidden="true" />
-            Library
-          </button>
-        )}
-
-        {editing ? (
-          <div className="meeting-view__rename" data-testid="meeting-rename">
-            <input
-              ref={inputRef}
-              className="meeting-view__rename-input"
-              data-testid="meeting-rename-input"
-              value={draft}
-              disabled={saving}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={onKeyDown}
-              aria-label="Meeting title"
-            />
-            <button
-              type="button"
-              className="btn meeting-view__rename-save"
-              data-testid="meeting-rename-save"
-              disabled={saving}
-              onClick={() => void commitRename()}
-            >
-              Save
-            </button>
-            <button
-              type="button"
-              className="meeting-view__rename-cancel"
-              data-testid="meeting-rename-cancel"
-              disabled={saving}
-              onClick={cancelEditing}
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <h2 className="meeting-view__title" data-testid="meeting-title">
-            <span>{displayTitle(meeting)}</span>
-            <button
-              type="button"
-              className="meeting-view__rename-trigger"
-              data-testid="meeting-rename-trigger"
-              onClick={startEditing}
-              aria-label="Rename meeting"
-            >
-              Rename
-            </button>
-          </h2>
-        )}
-      </div>
-
-      {renameError && (
-        <p className="meeting-view__error" data-testid="meeting-rename-error" role="alert">
-          Rename failed: {renameError}
-        </p>
-      )}
-
-      {/* One muted line — platform · duration (DESIGN-SYSTEM §12.5: drop the
-          "STATUS Done" stat and collapse the trio; status surfaces by exception
-          via the processing/error indicators below, not a label). */}
-      <p className="meeting-view__meta" data-testid="meeting-meta" data-status={meeting.status}>
-        <span>{platformLabel(meeting.platform)}</span>
-        {duration && (
-          <>
-            <span className="meeting-view__meta-sep" aria-hidden="true">
-              ·
-            </span>
-            <span>{duration}</span>
-          </>
-        )}
-      </p>
-
-      {/* PRD-13: export this meeting (Markdown/Obsidian/SRT/VTT/JSON/PDF/DOCX).
-          READ-ONLY — building an export never mutates transcript.live.md. */}
-      <ExportMenu meetingId={meeting.id} api={exportApi} />
-
-      <div className="meeting-view__transcript" data-testid="meeting-transcript">
-        {load.kind === "loading" && (
-          <p className="meeting-view__hint" data-testid="meeting-transcript-loading">
-            Loading transcript…
-          </p>
-        )}
-        {load.kind === "error" && (
-          <p className="meeting-view__error" data-testid="meeting-transcript-error" role="alert">
-            Could not load transcript: {load.message}
-          </p>
-        )}
-        {load.kind === "loaded" &&
-          (load.text.trim().length === 0 ? (
-            <p className="meeting-view__hint" data-testid="meeting-transcript-empty">
-              No transcript yet.
-            </p>
-          ) : (
-            <pre className="meeting-view__transcript-text" data-testid="meeting-transcript-text">
-              {load.text}
-            </pre>
-          ))}
-      </div>
-
-      {processing && (
-        // Post-meeting diarization + summary are still running (PRD-5).
-        <ProcessingStatus jobs={jobs} active={!allJobsTerminal(jobs)} />
-      )}
-
-      {postReady && (
-        <>
-          <SummaryView
-            meetingId={meeting.id}
-            reloadKey={summaryReload}
-            regenerating={regenerating}
-            onRegenerate={() => setRegenerating(true)}
-          />
-          <DiarizedTranscript meetingId={meeting.id} reloadKey={diarizedReload} />
-        </>
-      )}
-
-      {/* PRD-4 chat-below: ask the AI about THIS meeting, grounded in its
-          transcript. READ-ONLY — the AI never edits the transcript. */}
-      <div className="meeting-view__chat" data-testid="meeting-chat">
-        <ChatPanel meetingId={meeting.id} api={chatApi} />
-      </div>
-    </section>
-  );
+export function MeetingView(props: MeetingViewProps): JSX.Element {
+  return <MeetingDoc {...props} />;
 }

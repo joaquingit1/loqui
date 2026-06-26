@@ -252,11 +252,14 @@ describe("MeetingControls", () => {
 
     expect(cap.stopAll).toHaveBeenCalled();
     expect(api.library.stopMeeting).toHaveBeenCalledWith({ id: ID });
+    // The page STAYS put and becomes the finished document (no library round-trip);
+    // while processing it shows the summary-centric doc with the summary streaming in.
     await waitFor(() =>
-      expect(screen.getByTestId("recording-status").getAttribute("data-phase")).toBe(
+      expect(screen.getByTestId("meeting-controls").getAttribute("data-phase")).toBe(
         "processing",
       ),
     );
+    expect(screen.getByTestId("meeting-view")).toBeTruthy();
   });
 
   it("transitions to done on a server status push and offers a new meeting", async () => {
@@ -273,10 +276,12 @@ describe("MeetingControls", () => {
     await waitFor(() =>
       expect(screen.getByTestId("meeting-controls").getAttribute("data-phase")).toBe("done"),
     );
-    expect(screen.getByTestId("meeting-done").textContent).toContain("Standup");
-    // dismiss returns to idle.
-    fireEvent.click(screen.getByTestId("meeting-dismiss"));
-    expect(screen.getByTestId("meeting-controls").getAttribute("data-phase")).toBe("idle");
+    // The finished meeting renders INLINE as the summary-centric document — the
+    // same MeetingDoc used in the library — not a "go to your library" hero.
+    expect(screen.getByTestId("meeting-view")).toBeTruthy();
+    expect(screen.getByTestId("meeting-title").textContent).toContain("Standup");
+    // A quiet "New meeting" affordance is offered (the page no longer dead-ends).
+    expect(screen.getByTestId("meeting-new")).toBeTruthy();
   });
 
   it("surfaces a capture/permission error per-source while recording", async () => {

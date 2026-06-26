@@ -46,6 +46,7 @@ import {
   HfKeystore,
   createPostProcessPipeline,
   forwardJobUpdates,
+  forwardSummaryTokens,
   registerPostProcessIpc,
 } from "./postprocess/index.js";
 import {
@@ -273,6 +274,7 @@ let disposeChatIpc: (() => void) | null = null;
 let disposeChatStreamPush: (() => void) | null = null;
 let disposePostProcessIpc: (() => void) | null = null;
 let disposeJobUpdatePush: (() => void) | null = null;
+let disposeSummaryStreamPush: (() => void) | null = null;
 let disposePostProcessPipeline: (() => void) | null = null;
 let disposeImportPipeline: (() => void) | null = null;
 let mcpManager: McpServerManager | null = null;
@@ -477,6 +479,7 @@ export async function bootstrap(): Promise<void> {
   });
   disposePostProcessPipeline = () => postProcessPipeline.dispose();
   disposeJobUpdatePush = forwardJobUpdates(supervisor, () => mainWindow);
+  disposeSummaryStreamPush = forwardSummaryTokens(supervisor, () => mainWindow);
   disposePostProcessIpc = registerPostProcessIpc({
     store,
     hfKeystore,
@@ -857,6 +860,8 @@ async function shutdown(): Promise<void> {
   disposePostProcessIpc = null;
   disposeJobUpdatePush?.();
   disposeJobUpdatePush = null;
+  disposeSummaryStreamPush?.();
+  disposeSummaryStreamPush = null;
   disposePostProcessPipeline?.();
   disposePostProcessPipeline = null;
   disposeImportPipeline?.();

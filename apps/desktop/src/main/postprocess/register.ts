@@ -30,6 +30,7 @@ import {
   regenerateSummaryParamsSchema,
   renameSpeakerParamsSchema,
   setHfTokenParamsSchema,
+  summaryTokenSchema,
   type DiarizedSegment,
   type DiarizedTranscript,
   type DiarizationBackendStatus,
@@ -218,6 +219,30 @@ export function forwardJobUpdates(
     const win = getWindow();
     if (win && !win.isDestroyed()) {
       win.webContents.send(IPC.postProcessJob, parsed.data);
+    }
+  });
+}
+
+/**
+ * Relay the sidecar's `summaryToken` WS notifications (the live summary stream)
+ * to the renderer on {@link IPC.summaryStream}. Mirrors {@link forwardJobUpdates}
+ * and {@link import("../chat/register.js").forwardChatStream}: filter to
+ * {@link EVENT.summaryToken}, validate ({@link summaryTokenSchema}; drop malformed),
+ * and push to the live window. The renderer folds the deltas into the live
+ * summary text while the summary job runs, then reads the parsed summary.json on
+ * the summary `jobUpdate` "done".
+ */
+export function forwardSummaryTokens(
+  supervisor: { onNotification(cb: (event: string, data: unknown) => void): () => void },
+  getWindow: () => BrowserWindow | null,
+): () => void {
+  return supervisor.onNotification((event: string, data: unknown) => {
+    if (event !== EVENT.summaryToken) return;
+    const parsed = summaryTokenSchema.safeParse(data);
+    if (!parsed.success) return; // drop malformed tokens, never forward.
+    const win = getWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(IPC.summaryStream, parsed.data);
     }
   });
 }

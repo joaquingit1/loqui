@@ -48,12 +48,20 @@ export interface ChatPanelProps {
   meetingId?: string | null;
   /** Chat bridge. Injectable for tests; defaults to window.loqui.chat. */
   api?: LoquiChatApi;
+  /**
+   * Drop the glass-card chrome (no `.panel`) so the chat reads as a docked
+   * composer INSIDE a document (the finished-meeting page), not a card-over-card.
+   * The in-call live view keeps the default card.
+   */
+  bare?: boolean;
+  /** Header label. Defaults to "Ask about this meeting"; the doc uses "Continue chat". */
+  title?: string;
 }
 
 /** Distance from the bottom (px) still considered "at the bottom" for auto-scroll. */
 const STICK_THRESHOLD_PX = 24;
 
-export function ChatPanel({ meetingId, api }: ChatPanelProps): JSX.Element {
+export function ChatPanel({ meetingId, api, bare = false, title }: ChatPanelProps): JSX.Element {
   const chat = api ?? (typeof window !== "undefined" ? window.loqui?.chat : undefined);
 
   // The active provider settings drive the indicator + each send. Loaded from
@@ -140,14 +148,14 @@ export function ChatPanel({ meetingId, api }: ChatPanelProps): JSX.Element {
 
   return (
     <section
-      className="panel chat"
+      className={bare ? "chat chat--bare" : "panel chat"}
       aria-labelledby="chat-title"
       data-testid="chat-panel"
       data-busy={state.busy ? "true" : "false"}
     >
       <div className="chat__bar">
         <h2 className="panel__title" id="chat-title">
-          Ask about this meeting
+          {title ?? "Ask about this meeting"}
         </h2>
         <button
           type="button"

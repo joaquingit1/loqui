@@ -148,6 +148,14 @@ export const IPC = {
    */
   postProcessJob: "loqui:postprocess:job",
   /**
+   * push (main -> renderer): one {@link import("@loqui/shared").SummaryToken} —
+   * a live summary text delta forwarded from the sidecar's `summaryToken` WS
+   * notifications, so the renderer can STREAM the summary as it generates. The
+   * renderer subscribes via `window.loqui.postprocess.onSummaryToken` and reads
+   * the final parsed summary on the summary `jobUpdate` "done".
+   */
+  summaryStream: "loqui:postprocess:summaryStream",
+  /**
    * invoke: read a meeting's AI summary (payload
    * {@link import("@loqui/shared").GetSummaryParams}; -> Summary | null).
    * READ-ONLY; null when no summary has been generated.

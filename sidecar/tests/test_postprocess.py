@@ -48,6 +48,7 @@ from loqui_sidecar.postprocess import (
     JOB_KIND_SUMMARY,
     JOB_UPDATE_EVENT,
     POSTPROCESS_DONE_EVENT,
+    SUMMARY_TOKEN_EVENT,
     SPEAKER_LABEL_PREFIX,
     SPEAKER_YOU_LABEL,
     FakeDiarizer,
@@ -161,8 +162,14 @@ def test_full_run_emits_diarization_then_summary_then_done(data_dir):
 
     run_postprocess(_request("m1"), emit, diarizer=FakeDiarizer())
 
-    kinds = [(e, d.get("kind"), d.get("state")) for e, d in events]
-    # Sequence: diarization running+done, summary running+done, then done.
+    # The summary now STREAMS: ``summaryToken`` deltas are interleaved between the
+    # summary running+done jobUpdates. Assert the jobUpdate/terminal SKELETON
+    # (ignoring the token stream), then check the tokens separately below.
+    kinds = [
+        (e, d.get("kind"), d.get("state"))
+        for e, d in events
+        if e != SUMMARY_TOKEN_EVENT
+    ]
     assert kinds == [
         (JOB_UPDATE_EVENT, JOB_KIND_DIARIZATION, "running"),
         (JOB_UPDATE_EVENT, JOB_KIND_DIARIZATION, "done"),
@@ -175,6 +182,19 @@ def test_full_run_emits_diarization_then_summary_then_done(data_dir):
         if e == JOB_UPDATE_EVENT:
             assert d["jobId"]
             assert 0.0 <= d["progress"] <= 1.0
+
+    # The streamed summary tokens arrive WHILE the summary job runs (after its
+    # "running" jobUpdate, before its "done"), each tagged with the meeting + job.
+    flat = [e for e, _ in events]
+    tokens = [(i, d) for i, (e, d) in enumerate(events) if e == SUMMARY_TOKEN_EVENT]
+    assert tokens, "expected the summary to stream at least one token"
+    for _i, d in tokens:
+        assert d["meetingId"] == "m1"
+        assert d["jobId"] == "m1:summary"
+        assert "delta" in d
+    # Tokens fall before the terminal postProcessDone.
+    done_idx = flat.index(POSTPROCESS_DONE_EVENT)
+    assert all(i < done_idx for i, _ in tokens)
 
 
 def test_full_run_writes_diarized_transcript(data_dir):

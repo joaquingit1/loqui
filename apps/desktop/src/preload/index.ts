@@ -38,6 +38,7 @@ import type {
   Health,
   HfTokenStatus,
   JobEvent,
+  SummaryToken,
   ListMeetingsQuery,
   McpConfigSnippet,
   McpStatus,
@@ -300,6 +301,12 @@ export interface LoquiPostProcessApi {
    * "summary") with its state/progress. Returns an unsubscribe fn.
    */
   onJob(cb: (job: JobEvent) => void): () => void;
+  /**
+   * Subscribe to the LIVE summary token stream. The callback fires once per
+   * {@link SummaryToken} (meetingId + delta) while the summary job generates, so
+   * the UI can stream the summary text in real time. Returns an unsubscribe fn.
+   */
+  onSummaryToken(cb: (token: SummaryToken) => void): () => void;
   /** Read a meeting's AI summary, or null if not yet generated. */
   getSummary(params: GetSummaryParams): Promise<Summary | null>;
   /** Read a meeting's diarized transcript, or null if not yet diarized. */
@@ -481,6 +488,11 @@ const postprocess: LoquiPostProcessApi = {
     const listener = (_e: unknown, job: JobEvent): void => cb(job);
     ipcRenderer.on(IPC.postProcessJob, listener);
     return () => ipcRenderer.removeListener(IPC.postProcessJob, listener);
+  },
+  onSummaryToken: (cb: (token: SummaryToken) => void): (() => void) => {
+    const listener = (_e: unknown, token: SummaryToken): void => cb(token);
+    ipcRenderer.on(IPC.summaryStream, listener);
+    return () => ipcRenderer.removeListener(IPC.summaryStream, listener);
   },
   getSummary: (params: GetSummaryParams): Promise<Summary | null> =>
     ipcRenderer.invoke(IPC.getSummary, params),

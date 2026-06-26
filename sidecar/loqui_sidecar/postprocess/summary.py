@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Optional
+from typing import Callable, Optional
 
 from ..providers.handler import CONTEXT_CHAR_BUDGET, build_context_message
 from ..providers.types import (
@@ -216,6 +216,7 @@ def summarize(
     *,
     api_key: Optional[str] = None,
     reader: Optional[TranscriptReader] = None,
+    on_delta: Optional[Callable[[str], None]] = None,
 ) -> Summary:
     """Generate a structured :class:`Summary` for a meeting via ``provider``.
 
@@ -226,6 +227,11 @@ def summarize(
     :class:`ChatProviderError` on a provider failure (the runner maps it to a
     ``jobUpdate`` error + a skipped summary stage). NEVER logs ``api_key`` and
     NEVER writes the transcript.
+
+    ``on_delta`` (optional) is called with each text delta as the provider
+    streams, so the runner can forward a live ``summaryToken`` to the renderer
+    (the streamed summary UX). It never affects the parsed result and a raising
+    sink is swallowed so streaming can never break summary generation.
 
     The provider is asked for a JSON envelope (:data:`SUMMARY_INSTRUCTION`);
     :func:`_parse_summary` maps it onto the structured :class:`Summary` fields
@@ -239,6 +245,11 @@ def summarize(
         for delta in provider.stream_chat(messages, config, api_key):
             if delta:
                 assembled.append(delta)
+                if on_delta is not None:
+                    try:
+                        on_delta(delta)
+                    except Exception:  # noqa: BLE001 - a streaming sink must never break summary.
+                        logger.warning("summary on_delta sink raised", exc_info=True)
     except ChatProviderError:
         raise
     except Exception as exc:  # noqa: BLE001 - normalize to the provider-error code.

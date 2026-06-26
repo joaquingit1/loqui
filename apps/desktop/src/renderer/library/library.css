@@ -540,3 +540,197 @@
   padding-top: var(--space-6);
   box-shadow: inset 0 1px 0 var(--panel-border);
 }
+
+/* ── MeetingDoc — the flat, summary-centric finished-meeting document ──────────
+   No card/panel wrapper: a document on the paper canvas. The summary is the
+   centerpiece; the transcript is tucked behind a toggle; chat docks at the
+   bottom behind a faint hairline. */
+.mdoc {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.mdoc__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.mdoc__back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-1);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+.mdoc__back:hover {
+  background: var(--accent-tint);
+  color: var(--text);
+}
+
+.mdoc__title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-title);
+  font-weight: var(--weight-regular);
+  letter-spacing: -0.012em;
+  line-height: 1.15;
+}
+.mdoc__rename-trigger {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--accent-ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-caption);
+  cursor: pointer;
+  padding: 2px var(--space-1);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+.mdoc__title:hover .mdoc__rename-trigger,
+.mdoc__rename-trigger:focus-visible {
+  opacity: 1;
+}
+.mdoc__rename-trigger:hover {
+  text-decoration: underline;
+}
+
+.mdoc__rename {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.mdoc__rename-input {
+  flex: 1 1 auto;
+  appearance: none;
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: var(--text-heading);
+  font-weight: var(--weight-regular);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+}
+.mdoc__rename-input:focus {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+.mdoc__rename-cancel {
+  appearance: none;
+  border: 0;
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--text-label);
+  height: 34px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.mdoc__rename-cancel:hover {
+  background: var(--accent-tint);
+}
+
+.mdoc__meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.mdoc__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--text-faint);
+}
+.mdoc__meta-sep {
+  color: var(--text-faint);
+}
+.mdoc__error {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--red);
+}
+
+/* The transcript drawer — closed by default; the summary leads. */
+.mdoc__transcript {
+  border-radius: var(--radius-md);
+}
+.mdoc__transcript-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  list-style: none;
+  width: fit-content;
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  color: var(--text-dim);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+.mdoc__transcript-toggle:hover {
+  background: var(--accent-tint);
+  color: var(--text);
+}
+.mdoc__transcript-toggle::-webkit-details-marker {
+  display: none;
+}
+.mdoc__transcript-toggle::before {
+  content: "›";
+  display: inline-block;
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+.mdoc__transcript[open] .mdoc__transcript-toggle::before {
+  transform: rotate(90deg);
+}
+.mdoc__transcript-body {
+  margin-top: var(--space-3);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  max-height: 460px;
+  overflow-y: auto;
+}
+.mdoc__transcript-text {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  line-height: 1.7;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.mdoc__hint {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--text-faint);
+}
+
+/* Chat docks at the bottom behind a faint hairline — "continue chat". */
+.mdoc__chat {
+  margin-top: var(--space-2);
+  padding-top: var(--space-6);
+  box-shadow: inset 0 1px 0 var(--panel-border);
+}

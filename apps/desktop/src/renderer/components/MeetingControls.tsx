@@ -29,9 +29,8 @@ import { Icon } from "./Icon.js";
 import { Kbd, modKeyLabel } from "../shortcuts/index.js";
 import { LiveTranscript } from "./LiveTranscript.js";
 import { ChatPanel } from "./ChatPanel.js";
-import { ProcessingStatus } from "./ProcessingStatus.js";
+import { MeetingDoc } from "./MeetingDoc.js";
 import { RecordingStatus } from "./RecordingStatus.js";
-import { useJobProgress, allJobsTerminal } from "../summary/index.js";
 import {
   isRecordingPhase,
   useElapsed,
@@ -121,11 +120,6 @@ export function MeetingControls({
   const { phase, meeting, error } = controller;
   const recording = isRecordingPhase(phase);
   const live = recording || phase === "stopping";
-
-  // PRD-5 post-processing progress: once the meeting stops, main hands the WAVs
-  // to the sidecar which diarizes + summarizes as background jobs. Surface that
-  // progress during the "processing" phase so the user sees the pipeline run.
-  const { jobs } = useJobProgress();
 
   const elapsed = useElapsed({
     startedAt: meeting?.startedAt ?? null,
@@ -258,28 +252,33 @@ export function MeetingControls({
     );
   }
 
-  // ---- PROCESSING: the meeting has stopped; show the pipeline + a quiet recap --
-  if (phase === "processing") {
+  // ---- PROCESSING / DONE: the meeting stays on THIS page and becomes the
+  // finished document (no library round-trip). MeetingDoc shows the summary
+  // streaming in live while processing, then the finished summary-centric doc.
+  if ((phase === "processing" || phase === "done") && meeting?.id) {
     return (
       <section
-        className="meeting meeting--processing"
+        className={`meeting meeting--${phase}`}
         aria-labelledby="meeting-title"
         data-testid="meeting-controls"
         data-phase={phase}
       >
         <h2 className="visually-hidden" id="meeting-title">
-          Processing
+          {phase === "processing" ? "Processing" : "Meeting"}
         </h2>
-        <RecordingStatus phase={phase} elapsedSeconds={elapsed} error={error} />
-        <ProcessingStatus jobs={jobs} active={!allJobsTerminal(jobs)} />
-        {meeting?.id && (
-          <>
-            <LiveTranscript api={loqui} meetingId={meeting.id} />
-            <div className="meeting__ask">
-              <ChatPanel meetingId={meeting.id} />
-            </div>
-          </>
-        )}
+        <div className="meeting__doc-bar">
+          <button
+            type="button"
+            className="meeting__ghost"
+            data-testid="meeting-new"
+            onClick={onStart}
+            disabled={startDisabled}
+          >
+            <Icon name="mic" size={16} aria-hidden="true" />
+            New meeting
+          </button>
+        </div>
+        <MeetingDoc meeting={meeting} api={loqui?.library} />
       </section>
     );
   }
@@ -301,11 +300,7 @@ export function MeetingControls({
               : "Ready when you are"}
         </h2>
 
-        {phase === "done" && meeting ? (
-          <p className="meeting__hero-note" data-testid="meeting-done">
-            Saved “{meeting.title || "Untitled meeting"}”. Find it in your library.
-          </p>
-        ) : phase === "error" ? (
+        {phase === "error" ? (
           <RecordingStatus phase={phase} elapsedSeconds={elapsed} error={error} />
         ) : (
           <p className="meeting__hero-note">

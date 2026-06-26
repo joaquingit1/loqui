@@ -163,6 +163,45 @@
   font-size: var(--text-body-lg);
   line-height: 1.55;
 }
+
+/* The live summary preview while it generates (PRD-2 streamed summary). The
+   text grows token-by-token; a soft blinking caret signals it's still writing. */
+.summary__streaming {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+}
+.summary__stream-text {
+  margin: 0;
+  font-size: var(--text-body-lg);
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.summary__stream-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-bottom: 0.15em;
+  background: var(--accent);
+  border-radius: 1px;
+  animation: summary-caret-blink 1.05s steps(2, start) infinite;
+}
+@keyframes summary-caret-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .summary__stream-caret {
+    animation: none;
+  }
+}
 .summary__list {
   margin: 0;
   padding-left: var(--space-5);

@@ -26,4 +26,9 @@ export {
   type UseJobProgressOptions,
   type UseJobProgressResult,
 } from "./useJobProgress.js";
+export {
+  useSummaryStream,
+  type UseSummaryStreamOptions,
+  type UseSummaryStreamResult,
+} from "./useSummaryStream.js";
 export { HfTokenSettings, PYANNOTE_TERMS_URL, type HfTokenSettingsProps } from "./HfTokenSettings.js";

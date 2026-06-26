@@ -13,6 +13,7 @@ import { audioSourceSchema } from "./audio.js";
 export const EVENT = {
   transcriptSegment: "transcriptSegment",
   jobUpdate: "jobUpdate",
+  summaryToken: "summaryToken",
 } as const;
 
 /**
@@ -62,3 +63,25 @@ export const jobUpdateSchema = z.object({
   error: z.string().nullable().default(null).optional(),
 });
 export type JobUpdate = z.infer<typeof jobUpdateSchema>;
+
+/**
+ * The WS-notification `event` string the sidecar emits while the SUMMARY job
+ * generates, so the renderer can stream the summary text live (mirror of
+ * {@link import("./chat.js").CHAT_TOKEN_EVENT} for the post-process path). The
+ * provider's deltas are forwarded one-per-`summaryToken`; the final structured
+ * `summary.json` is still written + read on the summary `jobUpdate` "done".
+ */
+export const SUMMARY_TOKEN_EVENT = EVENT.summaryToken;
+
+/**
+ * One streamed summary text delta (sidecar -> main -> renderer). `meetingId`
+ * correlates the stream to the meeting whose summary is generating; `jobId`
+ * mirrors the summary `jobUpdate` jobId (`<meetingId>:summary`); `delta` is the
+ * incremental text to append to the live summary render.
+ */
+export const summaryTokenSchema = z.object({
+  jobId: z.string().min(1),
+  meetingId: z.string().default(""),
+  delta: z.string().default(""),
+});
+export type SummaryToken = z.infer<typeof summaryTokenSchema>;

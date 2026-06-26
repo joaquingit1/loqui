@@ -31,6 +31,9 @@ POSTPROCESS_REQUEST_EVENT = "postProcess"
 POSTPROCESS_DONE_EVENT = "postProcessDone"
 #: sidecar -> main: long-running job progress (mirror of @loqui/shared EVENT.jobUpdate).
 JOB_UPDATE_EVENT = "jobUpdate"
+#: sidecar -> main: one streamed summary text delta while the summary job runs
+#: (mirror of @loqui/shared EVENT.summaryToken / SUMMARY_TOKEN_EVENT).
+SUMMARY_TOKEN_EVENT = "summaryToken"
 
 #: JobUpdate ``kind`` values produced by this pipeline (mirror of @loqui/shared jobKind).
 JOB_KIND_TRANSCRIPTION = "transcription"

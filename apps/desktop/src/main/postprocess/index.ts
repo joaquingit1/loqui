@@ -23,6 +23,7 @@ export {
 export {
   registerPostProcessIpc,
   forwardJobUpdates,
+  forwardSummaryTokens,
   type PostProcessIpcDeps,
 } from "./register.js";
 export { HfKeystore, type SafeStorageLike } from "./hf-keystore.js";

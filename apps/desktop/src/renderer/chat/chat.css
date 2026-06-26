@@ -10,6 +10,18 @@
   gap: 12px;
 }
 
+/* Bare variant: no glass-card chrome — the chat reads as a docked composer
+   inside a document (the finished-meeting page), not a card. The composer keeps
+   its own pill styling, so this only strips the OUTER panel wrapper. */
+.chat--bare {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+}
+
 .chat__bar {
   display: flex;
   align-items: center;

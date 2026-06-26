@@ -71,6 +71,28 @@ describe("SummaryView", () => {
     expect(screen.queryByTestId("summary-tldr")).toBeNull();
   });
 
+  it("renders the streamed summary text live while it generates (no summary yet)", async () => {
+    const api = makeApi({ getSummary: vi.fn(async () => null) });
+    render(
+      <SummaryView meetingId="m1" api={api} streamingText="The team agreed to ship" />,
+    );
+    // While generating (no parsed summary.json yet), the live stream replaces the
+    // absent hint as the preview.
+    await waitFor(() => expect(screen.getByTestId("summary-streaming")).toBeTruthy());
+    expect(screen.getByTestId("summary-streaming").textContent).toContain(
+      "The team agreed to ship",
+    );
+    expect(screen.queryByTestId("summary-absent")).toBeNull();
+  });
+
+  it("prefers the parsed summary over the stream once it has loaded", async () => {
+    const api = makeApi(); // returns the full SUMMARY
+    render(<SummaryView meetingId="m1" api={api} streamingText="partial stream…" />);
+    await waitFor(() => expect(screen.getByTestId("summary-tldr")).toBeTruthy());
+    // The structured sections win; the streaming preview is gone.
+    expect(screen.queryByTestId("summary-streaming")).toBeNull();
+  });
+
   it("surfaces a load error", async () => {
     const api = makeApi({
       getSummary: vi.fn(async () => {
