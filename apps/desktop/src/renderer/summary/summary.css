@@ -69,6 +69,11 @@
   background: var(--border-strong);
   overflow: hidden;
 }
+/* The single consolidated processing bar (PRD-2): a touch taller, full width. */
+.postproc__bar--solo {
+  height: 8px;
+  margin-top: var(--space-2);
+}
 .postproc__bar-fill {
   height: 100%;
   background: var(--accent);

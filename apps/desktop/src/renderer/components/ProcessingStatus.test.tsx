@@ -22,39 +22,38 @@ const job = (over: Partial<JobEvent>): JobEvent => ({
 });
 
 describe("ProcessingStatus (presentational)", () => {
-  it("renders a row per post-processing job kind with state + percent", () => {
+  it("renders ONE consolidated progress bar (no per-job breakdown)", () => {
     const jobs: JobProgressMap = {
       diarization: job({ kind: "diarization", state: "running", progress: 0.4 }),
       summary: job({ kind: "summary", state: "queued", progress: 0 }),
     };
-    render(<ProcessingStatus jobs={jobs} />);
+    render(<ProcessingStatus jobs={jobs} active />);
 
     expect(screen.getByTestId("processing-status")).toBeTruthy();
-    const diar = screen.getByTestId("processing-job-diarization");
-    expect(diar.getAttribute("data-state")).toBe("running");
-    expect(diar.getAttribute("data-progress")).toBe("40");
-    expect(screen.getByTestId("processing-job-state-diarization").textContent).toContain("40%");
-
-    expect(screen.getByTestId("processing-job-summary").getAttribute("data-state")).toBe("queued");
+    // A single progressbar, with a numeric value in range — no separate
+    // diarization/summary rows.
+    const bar = screen.getByTestId("processing-bar");
+    expect(bar.getAttribute("role")).toBe("progressbar");
+    const now = Number(bar.getAttribute("aria-valuenow"));
+    expect(now).toBeGreaterThanOrEqual(0);
+    expect(now).toBeLessThanOrEqual(100);
+    expect(screen.queryByTestId("processing-job-diarization")).toBeNull();
+    expect(screen.queryByTestId("processing-job-summary")).toBeNull();
   });
 
-  it("shows a done job at 100% and an error job with its message", () => {
+  it("snaps to 100% when no longer active (with a reported job)", () => {
+    const jobs: JobProgressMap = { summary: job({ kind: "summary", state: "done", progress: 1 }) };
+    render(<ProcessingStatus jobs={jobs} active={false} />);
+    const bar = screen.getByTestId("processing-bar");
+    expect(bar.getAttribute("aria-valuenow")).toBe("100");
+  });
+
+  it("surfaces a hard error instead of a cheerful bar", () => {
     const jobs: JobProgressMap = {
-      diarization: job({ state: "done", progress: 1 }),
       summary: job({ kind: "summary", state: "error", progress: 0.5, error: "provider failed" }),
     };
-    render(<ProcessingStatus jobs={jobs} />);
-    expect(screen.getByTestId("processing-job-diarization").getAttribute("data-state")).toBe("done");
-    expect(screen.getByTestId("processing-job-state-summary").textContent).toContain("Failed");
-    expect(screen.getByTestId("processing-job-error-summary").textContent).toContain(
-      "provider failed",
-    );
-  });
-
-  it("renders waiting placeholders while active with no jobs reported", () => {
-    render(<ProcessingStatus jobs={{}} active />);
-    expect(screen.getByTestId("processing-status")).toBeTruthy();
-    expect(screen.getByTestId("processing-job-state-diarization").textContent).toContain("Waiting");
+    render(<ProcessingStatus jobs={jobs} active />);
+    expect(screen.getByTestId("processing-error").textContent).toContain("provider failed");
   });
 
   it("renders nothing when inactive and no jobs reported", () => {
@@ -94,19 +93,17 @@ describe("useJobProgress + ProcessingStatus (reflects JobUpdate stream)", () => 
     expect(result.current.jobs.diarization?.state).toBe("done");
   });
 
-  it("ProcessingStatus updates as the hook receives JobUpdate events", () => {
+  it("ProcessingStatus surfaces a job error from the hook stream", () => {
     const bridge = makeBridge();
     function Harness(): JSX.Element {
       const { jobs } = useJobProgress({ api: bridge.api });
-      return <ProcessingStatus jobs={jobs} />;
+      return <ProcessingStatus jobs={jobs} active />;
     }
     render(<Harness />);
-    bridge.emit(job({ kind: "diarization", state: "running", progress: 0.6 }));
-    expect(screen.getByTestId("processing-job-diarization").getAttribute("data-progress")).toBe(
-      "60",
-    );
-    bridge.emit(job({ kind: "summary", state: "done", progress: 1 }));
-    expect(screen.getByTestId("processing-job-summary").getAttribute("data-state")).toBe("done");
+    // The single bar renders regardless of which job is running (no per-job rows).
+    expect(screen.getByTestId("processing-bar")).toBeTruthy();
+    bridge.emit(job({ kind: "summary", state: "error", progress: 0.5, error: "provider failed" }));
+    expect(screen.getByTestId("processing-error").textContent).toContain("provider failed");
   });
 
   it("reduceJob is a pure accumulator (sanity)", () => {
