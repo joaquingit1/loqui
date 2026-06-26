@@ -25,6 +25,8 @@ function meeting(overrides: Partial<Meeting> & { id: string; createdAt: string }
     kind: "meeting",
     participants: [],
     modelVersions: {},
+    calendarAttendees: [],
+    titleEdited: false,
     updatedAt: overrides.createdAt,
     ...overrides,
   };

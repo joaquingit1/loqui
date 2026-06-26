@@ -54,6 +54,27 @@ export const meetingSchema = z.object({
   /** What kind of recording this is (PRD-12). Defaults to `"meeting"`. */
   kind: meetingKindSchema,
   participants: z.array(participantSchema).default([]),
+  /**
+   * Invited participants from the calendar event this meeting was launched from
+   * (Home "Join & record"). Names (+ optional email) primed into the AI summary's
+   * CALENDAR MEETING CONTEXT so it can use real names instead of "Speaker N".
+   * Empty for manual / auto-record meetings. Additive + defaulted.
+   */
+  calendarAttendees: z
+    .array(
+      z.object({
+        name: z.string().default(""),
+        email: z.string().nullable().default(null),
+      }),
+    )
+    .default([]),
+  /**
+   * True once the USER has manually renamed the meeting. Guards the AI title:
+   * post-processing adopts the summary's generated title as the meeting title
+   * ONLY while this is false, so a user rename is never overwritten. Additive +
+   * defaulted (older meta.json parses forward as "not user-titled").
+   */
+  titleEdited: z.boolean().default(false),
   /** Map of pipeline-stage -> model identifier used to produce that stage. */
   modelVersions: z.record(z.string(), z.string()).default({}),
   createdAt: z.string().datetime({ offset: true }),

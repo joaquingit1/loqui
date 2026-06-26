@@ -23,6 +23,8 @@ const MEETING: Meeting = {
   kind: "meeting",
   participants: [],
   modelVersions: {},
+  calendarAttendees: [],
+  titleEdited: false,
   createdAt: "2026-06-24T14:00:00",
   updatedAt: "2026-06-24T14:30:00",
 };

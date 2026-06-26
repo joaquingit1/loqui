@@ -87,6 +87,19 @@ export const startMeetingParamsSchema = z
      * stream); it still flows through the SAME lifecycle + transcription path.
      */
     kind: meetingKindSchema.optional(),
+    /**
+     * Invited participants from the calendar event this meeting is launched from
+     * (Home "Join & record"). Stored on the Meeting + primed into the AI summary
+     * so it uses real names. Absent for manual / auto-record starts.
+     */
+    calendarAttendees: z
+      .array(
+        z.object({
+          name: z.string().default(""),
+          email: z.string().nullable().default(null),
+        }),
+      )
+      .optional(),
   })
   .default({});
 export type StartMeetingParams = z.infer<typeof startMeetingParamsSchema>;

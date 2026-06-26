@@ -143,12 +143,16 @@ export function formatTimecode(seconds: number): string {
 
 /** Whether a summary has any renderable content at all. */
 export function summaryHasContent(s: {
+  title?: string;
+  overview?: string;
   tldr: string;
   decisions: string[];
   actionItems: { text: string }[];
   topics: string[];
 }): boolean {
   return (
+    (s.overview?.trim().length ?? 0) > 0 ||
+    (s.title?.trim().length ?? 0) > 0 ||
     s.tldr.trim().length > 0 ||
     s.decisions.some((d) => d.trim().length > 0) ||
     s.actionItems.some((a) => a.text.trim().length > 0) ||

@@ -76,8 +76,9 @@ describe("buildIndexText", () => {
   const summary: Summary = {
     meetingId: "m1",
     version: 1,
-    tldr: "We shipped the thing.",
-    decisions: ["Use pyannote 3.1"],
+    title: "",
+    overview: "",
+    tldr: "We shipped the thing.",    decisions: ["Use pyannote 3.1"],
     actionItems: [
       { text: "Write tests", owner: "Alex" },
       { text: "Deploy", owner: null },

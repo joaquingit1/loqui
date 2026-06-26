@@ -20,6 +20,7 @@ import { useCallback, useEffect, useState, type JSX } from "react";
 import type { Summary } from "@loqui/shared";
 import type { LoquiPostProcessApi } from "../../preload/index.js";
 import { summaryHasContent } from "../summary/index.js";
+import { Markdown } from "./Markdown.js";
 import "../summary/summary.css";
 
 export interface SummaryViewProps {
@@ -170,7 +171,17 @@ export function SummaryView({
         </p>
       )}
 
-      {summary && summaryHasContent(summary) && (
+      {/* New default: the summary is a markdown DOCUMENT (themed overview). The
+          AI title rides on the meeting header (set at finalize), so it's not
+          repeated here. Legacy summaries (no overview) fall back to the four
+          structured sections below. */}
+      {summary && summary.overview.trim().length > 0 && (
+        <div className="summary__body" data-testid="summary-overview">
+          <Markdown className="summary__md">{summary.overview}</Markdown>
+        </div>
+      )}
+
+      {summary && summary.overview.trim().length === 0 && summaryHasContent(summary) && (
         <div className="summary__body">
           {summary.tldr.trim().length > 0 && (
             <div className="summary__section" data-testid="summary-tldr">

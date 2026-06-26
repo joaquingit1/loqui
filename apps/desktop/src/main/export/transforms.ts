@@ -180,6 +180,12 @@ function frontmatter(model: ExportModel): string {
 function summarySectionMd(model: ExportModel): string {
   const s = model.summary;
   if (!s) return "";
+  // New default: the summary is already markdown (themed overview). Emit it under
+  // the Summary heading; the title rides on the document H1 (the meeting title).
+  if (s.overview && s.overview.trim() !== "") {
+    return ["## Summary", "", s.overview.trim(), ""].join("\n");
+  }
+  // Legacy summaries: render the structured fields.
   const parts: string[] = ["## Summary", ""];
   if (s.tldr.trim() !== "") {
     parts.push("### TL;DR", "", s.tldr.trim(), "");

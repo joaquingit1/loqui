@@ -420,3 +420,40 @@
   color: var(--accent);
   word-break: break-all;
 }
+
+/* ── Markdown summary overview (the notetaker document) ──────────────────── */
+.summary__md {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--text);
+  line-height: 1.6;
+}
+.summary__md .md__h {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--text);
+  letter-spacing: 0.01em;
+}
+.summary__md .md__h:first-child {
+  margin-top: 0;
+}
+.summary__md .md__p {
+  margin: 0;
+  color: var(--text-dim);
+}
+.summary__md .md__ul {
+  margin: 0;
+  padding-left: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.summary__md .md__ul li {
+  color: var(--text-dim);
+}
+.summary__md strong {
+  color: var(--text);
+  font-weight: var(--weight-semibold);
+}

@@ -74,6 +74,8 @@ function meeting(id: string, patch: Partial<Meeting> = {}): Meeting {
     kind: "meeting",
     participants: [],
     modelVersions: {},
+    calendarAttendees: [],
+    titleEdited: false,
     createdAt: now,
     updatedAt: now,
     ...patch,
@@ -158,7 +160,7 @@ const baseDiarized = (id: string): DiarizedTranscript => ({
 
 describe("registerPostProcessIpc — read handlers", () => {
   it("getSummary delegates to the store reader", () => {
-    const summary = { meetingId: "m1", version: 1, tldr: "x", decisions: [], actionItems: [], topics: [], provider: "fake", model: "", generatedAt: "" } as Summary;
+    const summary = { meetingId: "m1", version: 1, title: "", overview: "", tldr: "x", decisions: [], actionItems: [], topics: [], provider: "fake", model: "", generatedAt: "" } as Summary;
     const store = makeStore({ summary });
     registerPostProcessIpc({ store, hfKeystore: makeHfKeystore(), pipeline: makePipeline() });
     const h = handlers.handle.get(IPC.getSummary)!;

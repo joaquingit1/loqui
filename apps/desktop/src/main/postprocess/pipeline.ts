@@ -141,8 +141,19 @@ export function createPostProcessPipeline(
     // + summary). Never logged, never sent to the renderer.
     const hfToken = hfKeystore.getHfToken();
     const diarizationBackend = hfKeystore.getDiarizationBackend();
+    // CALENDAR MEETING CONTEXT for the summary: the scheduled title/platform/time
+    // + the invited participants stored on the meeting (when it was launched from
+    // a calendar event). Empty for manual / auto-record meetings.
+    const meeting = store.getMeeting(meetingId);
+    const meetingContext = {
+      title: meeting?.title ?? "",
+      platform: meeting?.platform ?? "",
+      startedAt: meeting?.startedAt ?? "",
+      attendees: meeting?.calendarAttendees ?? [],
+    };
     return postProcessRequestSchema.parse({
       meetingId,
+      meetingContext,
       providerConfig: {
         provider: config.provider,
         model: config.model,
@@ -219,12 +230,19 @@ export function createPostProcessPipeline(
           : done.summaryProvider;
       }
 
+      // Adopt the AI-generated title as the meeting title — but ONLY when the
+      // user hasn't manually renamed it (titleEdited), so a user title is never
+      // clobbered by a (re)generated summary.
+      const titlePatch =
+        done.title.trim() && !current.titleEdited ? { title: done.title.trim() } : {};
+
       // processing -> done (the meeting ALWAYS completes; degraded/skipped stages
       // are reflected in meta, not in the terminal status).
       const finalized = store.updateMeeting(meetingId, {
         status: "done",
         participants,
         modelVersions,
+        ...titlePatch,
       });
       emitStatus?.(finalized);
 

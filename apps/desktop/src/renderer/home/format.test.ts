@@ -142,4 +142,30 @@ describe("home/format", () => {
     const noTitle: CalendarEvent = { ...base, title: "", platform: null };
     expect(eventStartParams(noTitle)).toEqual({});
   });
+
+  it("carries calendar attendees into the start params (for the AI summary)", () => {
+    const ev: CalendarEvent = {
+      id: "e",
+      title: "Q2 Budget",
+      platform: "google-meet",
+      startsAt: NOW.toISOString(),
+      endsAt: NOW.toISOString(),
+      attendees: [
+        { name: "Sarah Lee", email: "sarah@x.com" },
+        { name: "John Park", email: null },
+      ],
+      source: "google",
+      calendarAccount: "me",
+      meetingId: null,
+      joinUrl: null,
+    };
+    expect(eventStartParams(ev)).toEqual({
+      title: "Q2 Budget",
+      platform: "google-meet",
+      calendarAttendees: [
+        { name: "Sarah Lee", email: "sarah@x.com" },
+        { name: "John Park", email: null },
+      ],
+    });
+  });
 });

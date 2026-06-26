@@ -125,13 +125,41 @@ ACTION_ITEMS_TEMPLATE = "Extract the action items (with owners) from:\n\n{transc
 
 
 def test_default_flow_uses_builtin_instruction(data_dir):
-    """No template -> the built-in SUMMARY_INSTRUCTION + <transcript> context
-    (byte-identical to pre-PRD-10 behavior)."""
+    """No template -> a SYSTEM message carrying the notetaker prompt + a USER turn
+    carrying the read-only <transcript> and the "write the notes" ask."""
     _seed(data_dir, "m1")
     reader = FsTranscriptReader()
     messages = build_summary_messages("m1", ProviderConfig(provider="fake"), reader)
-    assert messages[0].role == "system" and "<transcript>" in messages[0].content
-    assert messages[-1].content == SUMMARY_INSTRUCTION
+    assert messages[0].role == "system"
+    assert messages[0].content == SUMMARY_INSTRUCTION  # == NOTETAKER_PROMPT
+    assert "<transcript>" not in messages[0].content
+    assert messages[-1].role == "user" and "<transcript>" in messages[-1].content
+
+
+def test_calendar_context_block_injects_participant_names(data_dir):
+    """When a MeetingContext with attendees is passed, the system message carries a
+    CALENDAR MEETING CONTEXT block with the participant names (so the prompt can
+    use real names instead of Speaker N)."""
+    from loqui_sidecar.postprocess.request import Attendee, MeetingContext
+
+    _seed(data_dir, "m1")
+    ctx = MeetingContext(
+        title="Q2 Budget",
+        platform="google-meet",
+        started_at="2026-06-26T15:00:00Z",
+        attendees=[Attendee(name="Sarah Lee"), Attendee(name="John Park")],
+    )
+    messages = build_summary_messages("m1", ProviderConfig(provider="fake"), FsTranscriptReader(), ctx)
+    system = messages[0].content
+    assert "CALENDAR MEETING CONTEXT:" in system
+    assert "Sarah Lee" in system and "John Park" in system
+    assert "Q2 Budget" in system
+
+    # No context -> no block. (The prompt itself mentions "CALENDAR MEETING
+    # CONTEXT" without a colon; the injected block header has the colon.)
+    plain = build_summary_messages("m1", ProviderConfig(provider="fake"), FsTranscriptReader())
+    assert "CALENDAR MEETING CONTEXT:" not in plain[0].content
+    assert "Sarah Lee" not in plain[0].content
 
 
 def test_template_with_placeholder_owns_the_prompt(data_dir):
@@ -270,7 +298,9 @@ class _EchoProvider:
     name = "echo"
 
     def stream_chat(self, messages, config, api_key=None):  # type: ignore[no-untyped-def]
-        yield "• Use ONLY the transcript as ground truth.\n• Summarize the meeting."
+        # A degraded extractive engine reproduces the notetaker instruction text
+        # instead of summarizing — the echo guard must reject this.
+        yield "You are an expert meeting notetaker. One idea = one bullet."
 
 
 def test_echoed_prompt_is_rejected_as_failed_summary(data_dir):

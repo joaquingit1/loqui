@@ -53,6 +53,8 @@ function meeting(id: string): Meeting {
     kind: "meeting",
     participants: [],
     modelVersions: {},
+    calendarAttendees: [],
+    titleEdited: false,
     createdAt: now,
     updatedAt: now,
   };
@@ -95,6 +97,7 @@ const done: PostProcessDone = {
   diarizationBackend: "fake",
   summaryProvider: "fake",
   summaryModel: "fake",
+  title: "",
   indexText: "hello",
   note: "",
 };

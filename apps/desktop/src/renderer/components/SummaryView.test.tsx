@@ -16,8 +16,9 @@ afterEach(cleanup);
 const SUMMARY: Summary = {
   meetingId: "m1",
   version: 1,
-  tldr: "We agreed to ship the beta on Friday.",
-  decisions: ["Ship the beta Friday", "Freeze scope today"],
+  title: "",
+  overview: "",
+  tldr: "We agreed to ship the beta on Friday.",  decisions: ["Ship the beta Friday", "Freeze scope today"],
   actionItems: [
     { text: "Write the release notes", owner: "Alex" },
     { text: "Set up the staging env", owner: null },
@@ -62,6 +63,29 @@ describe("SummaryView", () => {
 
     expect(screen.getByTestId("summary-provider").textContent).toContain("anthropic");
     expect(api.getSummary).toHaveBeenCalledWith({ meetingId: "m1" });
+  });
+
+  it("renders the markdown overview document (new default) instead of the legacy cards", async () => {
+    const overviewSummary: Summary = {
+      ...SUMMARY,
+      title: "Sarah and John Plan Q2 Budget",
+      overview: "## Budget\n- Q2 budget is **finalized** at $1.2M.\n\n## Next steps\n- Sarah sends the deck Friday.",
+      tldr: "",
+      decisions: [],
+      actionItems: [],
+      topics: [],
+    };
+    const api = makeApi({ getSummary: vi.fn(async () => overviewSummary) });
+    render(<SummaryView meetingId="m1" api={api} />);
+
+    await waitFor(() => expect(screen.getByTestId("summary-overview")).toBeTruthy());
+    const body = screen.getByTestId("summary-overview");
+    expect(body.querySelector("h3")?.textContent).toBe("Budget");
+    expect(body.textContent).toContain("Q2 budget is finalized at $1.2M.");
+    expect(body.querySelector("strong")?.textContent).toBe("finalized");
+    // The legacy four-card sections are NOT rendered for a markdown summary.
+    expect(screen.queryByTestId("summary-tldr")).toBeNull();
+    expect(screen.queryByTestId("summary-decisions")).toBeNull();
   });
 
   it("shows an absent hint when no summary exists yet", async () => {

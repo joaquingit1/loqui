@@ -39,6 +39,10 @@
           "type": "string",
           "default": ""
         },
+        "title": {
+          "type": "string",
+          "default": ""
+        },
         "indexText": {
           "type": "string",
           "default": ""

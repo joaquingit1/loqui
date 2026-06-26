@@ -44,8 +44,9 @@ function seedMeeting(opts: { withDiarized: boolean }): string {
   const summary: Summary = {
     meetingId: meeting.id,
     version: 1,
-    tldr: "Quick smoke of the export path.",
-    decisions: ["Export works"],
+    title: "",
+    overview: "",
+    tldr: "Quick smoke of the export path.",    decisions: ["Export works"],
     actionItems: [{ text: "Ship it", owner: "QA" }],
     topics: ["export"],
     provider: "fake",

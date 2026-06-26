@@ -159,13 +159,26 @@ export const summarySchema = z.object({
   meetingId: z.string(),
   /** Schema/version tag (parallels {@link diarizedTranscriptSchema.version}). */
   version: z.number().int().default(1),
-  /** A short overview paragraph. */
+  /**
+   * The AI-generated headline (≤ ~10 words). Becomes the meeting's display title
+   * when the user hasn't manually renamed it (see Meeting.titleEdited). Empty for
+   * legacy summaries written before this field existed.
+   */
+  title: z.string().default(""),
+  /**
+   * The meeting notes as GitHub-flavored markdown: themed sections (`## Header`)
+   * of self-contained bullet paragraphs. This is the centerpiece the renderer
+   * displays. Empty for legacy summaries (which used the tldr/decisions/topics
+   * fields below); the renderer falls back to those when `overview` is empty.
+   */
+  overview: z.string().default(""),
+  /** A short overview paragraph. LEGACY (pre-markdown summaries + JSON templates). */
   tldr: z.string().default(""),
-  /** Key decisions reached. */
+  /** Key decisions reached. LEGACY. */
   decisions: z.array(z.string()).default([]),
-  /** Action items, with an owner when one could be inferred. */
+  /** Action items, with an owner when one could be inferred. LEGACY. */
   actionItems: z.array(actionItemSchema).default([]),
-  /** Topics discussed. */
+  /** Topics discussed. LEGACY. */
   topics: z.array(z.string()).default([]),
   /** Which provider/model produced the summary (active-provider indicator). */
   provider: z.string().default(""),
@@ -264,8 +277,32 @@ export const postProcessRequestSchema = z.object({
    * skips gracefully when the audio was not persisted (no WAVs on disk).
    */
   reTranscribe: z.boolean().default(false),
+  /**
+   * Optional CALENDAR MEETING CONTEXT for the summary step (main -> sidecar). When
+   * the meeting was launched from a calendar event, this carries the scheduled
+   * title, platform, start time, and the invited participants' names — so the
+   * notetaker prompt can use real names instead of "Speaker N". Empty/defaulted
+   * for manual or auto-record meetings (the summary then degrades to Speaker-N).
+   * READ-ONLY priming context — never grants a transcript write path.
+   */
+  meetingContext: z
+    .object({
+      title: z.string().default(""),
+      platform: z.string().default(""),
+      startedAt: z.string().default(""),
+      attendees: z
+        .array(
+          z.object({
+            name: z.string().default(""),
+            email: z.string().nullable().default(null),
+          }),
+        )
+        .default([]),
+    })
+    .default({}),
 });
 export type PostProcessRequest = z.infer<typeof postProcessRequestSchema>;
+export type MeetingContext = PostProcessRequest["meetingContext"];
 
 // --- WS postProcessDone notification (sidecar -> main) ------------------------
 
@@ -301,6 +338,12 @@ export const postProcessDoneSchema = z.object({
   diarizationBackend: z.string().default(""),
   summaryProvider: z.string().default(""),
   summaryModel: z.string().default(""),
+  /**
+   * The AI-generated meeting title (from the summary). MAIN adopts it as the
+   * meeting's display title when the user hasn't manually renamed it
+   * (Meeting.titleEdited === false). Empty when no summary/title was produced.
+   */
+  title: z.string().default(""),
   /**
    * Searchable text MAIN should fold into the FTS index for this meeting: the
    * diarized transcript text + the summary text (concatenated by the sidecar).

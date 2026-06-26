@@ -29,6 +29,8 @@ const MEETING: Meeting = {
   kind: "meeting",
   participants: [],
   modelVersions: {},
+  calendarAttendees: [],
+  titleEdited: false,
   createdAt: "2026-06-24T15:00:00.000Z",
   updatedAt: "2026-06-24T15:30:00.000Z",
 };
@@ -73,8 +75,9 @@ const DIARIZED: DiarizedTranscript = {
 const SUMMARY: Summary = {
   meetingId: MEETING.id,
   version: 1,
-  tldr: "The team aligned on the Q3 roadmap.",
-  decisions: ["Ship export by July", "Default content protection on"],
+  title: "",
+  overview: "",
+  tldr: "The team aligned on the Q3 roadmap.",  decisions: ["Ship export by July", "Default content protection on"],
   actionItems: [
     { text: "Draft the export PRD", owner: "Alex" },
     { text: "Review privacy defaults", owner: null },

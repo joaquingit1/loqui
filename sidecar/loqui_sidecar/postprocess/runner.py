@@ -178,6 +178,7 @@ def run_postprocess(
     diar_backend = ""
     summary_provider = ""
     summary_model = ""
+    summary_title = ""
     index_parts: list[str] = []
     notes: list[str] = []
 
@@ -307,6 +308,7 @@ def run_postprocess(
             api_key=request.api_key,
             reader=reader,
             on_delta=_on_summary_delta,
+            context=request.meeting_context,
         )
         summary.generated_at = datetime.now(timezone.utc).isoformat()
         from .writers import write_summary
@@ -315,9 +317,14 @@ def run_postprocess(
         summary_stage = "done"
         summary_provider = summary.provider
         summary_model = summary.model
-        # Fold the structured summary into the searchable index, mirroring the
-        # main-side buildIndexText (render.ts) so a re-index after a rename
-        # reproduces the same searchable text.
+        summary_title = summary.title
+        # Fold the summary into the searchable index. The default markdown summary
+        # uses title + overview; the legacy fields are appended too (empty for the
+        # markdown path) so a custom-template JSON summary still indexes fully.
+        if summary.title:
+            index_parts.append(summary.title)
+        if summary.overview:
+            index_parts.append(summary.overview)
         if summary.tldr:
             index_parts.append(summary.tldr)
         index_parts.extend(d for d in summary.decisions if d)
@@ -368,6 +375,7 @@ def run_postprocess(
             "diarizationBackend": diar_backend,
             "summaryProvider": summary_provider,
             "summaryModel": summary_model,
+            "title": summary_title,
             "indexText": " ".join(p for p in index_parts if p).strip(),
             "note": " ".join(notes).strip(),
         },

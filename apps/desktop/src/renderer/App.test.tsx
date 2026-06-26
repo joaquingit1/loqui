@@ -24,6 +24,8 @@ const RECENT_A: Meeting = {
   kind: "meeting",
   participants: [],
   modelVersions: {},
+  calendarAttendees: [],
+  titleEdited: false,
   createdAt: "2026-06-23T14:00:00",
   updatedAt: "2026-06-23T14:30:00",
 };

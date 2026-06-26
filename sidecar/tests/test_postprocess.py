@@ -245,8 +245,10 @@ def test_full_run_writes_summary(data_dir):
     assert summary["generatedAt"]  # stamped by the runner
     # The fake provider emits a "context" marker iff the read-only transcript
     # reached it as grounding context — proves the summary is transcript-grounded.
-    assert "context" in summary["tldr"]
-    assert "no-context" not in summary["tldr"]
+    # The default summary is now a markdown document, so the (non-JSON) fake
+    # output lands in `overview`.
+    assert "context" in summary["overview"]
+    assert "no-context" not in summary["overview"]
 
 
 def test_full_run_done_payload_carries_speakers_and_stages(data_dir):
@@ -647,15 +649,33 @@ def test_parse_summary_json_in_code_fence_and_prose():
     assert s.topics == ["x"]
 
 
-def test_parse_summary_falls_back_to_raw_text_when_not_json():
-    """Non-JSON prose (e.g. the fake provider) degrades to a raw-text TL;DR so
-    the summary stays non-empty + searchable; structured fields stay empty."""
+def test_parse_summary_markdown_title_and_overview():
+    """The default notetaker output is a markdown document: the leading `# Title`
+    becomes `title` and the rest becomes the markdown `overview`."""
+    from loqui_sidecar.postprocess.summary import _parse_summary
+
+    text = "# Sarah and John Plan Q2 Budget\n\n## Budget\n- Finalized at $1.2M.\n\n## Next steps\n- Sarah sends the deck."
+    s = _parse_summary(text, meeting_id="m1", provider="anthropic", model="claude")
+    assert s.title == "Sarah and John Plan Q2 Budget"
+    assert "## Budget" in s.overview and "Finalized at $1.2M." in s.overview
+    # The leading `# Title` line is stripped out of the overview body (but the
+    # `##` section headers remain — they're part of the document).
+    assert "# Sarah and John Plan Q2 Budget" not in s.overview
+    assert s.overview.startswith("## Budget")
+    # Legacy structured fields stay empty for the markdown path.
+    assert s.tldr == "" and s.decisions == [] and s.action_items == [] and s.topics == []
+
+
+def test_parse_summary_falls_back_to_overview_when_no_title():
+    """Non-JSON prose with no leading `# Title` keeps an empty title and puts the
+    whole text in `overview` so the summary stays non-empty + searchable."""
     from loqui_sidecar.postprocess.summary import _parse_summary
 
     text = "[fake] context reply to: Summarize the meeting"
     s = _parse_summary(text, meeting_id="m1", provider="fake", model="fake")
-    assert s.tldr == text
-    assert s.decisions == [] and s.action_items == [] and s.topics == []
+    assert s.title == ""
+    assert s.overview == text
+    assert s.tldr == "" and s.decisions == [] and s.action_items == [] and s.topics == []
 
 
 def test_full_run_summary_structured_fields_searchable_in_index(data_dir):

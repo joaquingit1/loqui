@@ -222,9 +222,15 @@ describe("HomeView", () => {
     fireEvent.click(screen.getByTestId("home-join-t1"));
 
     expect(openExternal).toHaveBeenCalledWith("https://meet.example/abc");
+    // The event's invited participants ride along so the AI summary can name them.
     expect(onStartMeeting).toHaveBeenCalledWith({
       title: "Standup",
       platform: "google-meet",
+      calendarAttendees: [
+        { name: "Alex", email: "alex@x.com" },
+        { name: "Sam", email: "sam@x.com" },
+        { name: "Jo", email: "jo@x.com" },
+      ],
     });
   });
 

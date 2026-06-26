@@ -76,6 +76,46 @@
         "reTranscribe": {
           "type": "boolean",
           "default": false
+        },
+        "meetingContext": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "default": ""
+            },
+            "platform": {
+              "type": "string",
+              "default": ""
+            },
+            "startedAt": {
+              "type": "string",
+              "default": ""
+            },
+            "attendees": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "default": ""
+                  },
+                  "email": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "default": null
+                  }
+                },
+                "additionalProperties": false
+              },
+              "default": []
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
         }
       },
       "required": [

@@ -197,10 +197,14 @@ class Summary:
 
     meeting_id: str
     version: int = 1
-    tldr: str = ""
-    decisions: list[str] = field(default_factory=list)
-    action_items: list[ActionItem] = field(default_factory=list)
-    topics: list[str] = field(default_factory=list)
+    #: AI-generated headline (becomes the meeting title when not user-renamed).
+    title: str = ""
+    #: The meeting notes as markdown (themed sections + bullets) — the centerpiece.
+    overview: str = ""
+    tldr: str = ""  # LEGACY (pre-markdown summaries + JSON templates)
+    decisions: list[str] = field(default_factory=list)  # LEGACY
+    action_items: list[ActionItem] = field(default_factory=list)  # LEGACY
+    topics: list[str] = field(default_factory=list)  # LEGACY
     provider: str = ""
     model: str = ""
     generated_at: str = ""
@@ -209,6 +213,8 @@ class Summary:
         return {
             "meetingId": self.meeting_id,
             "version": self.version,
+            "title": self.title,
+            "overview": self.overview,
             "tldr": self.tldr,
             "decisions": list(self.decisions),
             "actionItems": [a.to_wire() for a in self.action_items],

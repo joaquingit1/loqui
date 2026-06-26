@@ -9,12 +9,59 @@ are used transiently and NEVER persisted or logged.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from ..providers.types import ProviderConfig
 
 DIARIZATION_BACKENDS = {"auto", "sherpa", "pyannote"}
+
+
+@dataclass(frozen=True)
+class Attendee:
+    """One invited calendar participant (mirror of the TS context attendee)."""
+
+    name: str = ""
+    email: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class MeetingContext:
+    """Optional CALENDAR MEETING CONTEXT for the summary step (mirror of the TS
+    ``PostProcessRequest.meetingContext``). Present when the meeting was launched
+    from a calendar event; primes the notetaker prompt with the scheduled title,
+    platform, start time, and invited participant names so it can use real names
+    instead of "Speaker N". All fields default empty (manual / auto-record).
+    """
+
+    title: str = ""
+    platform: str = ""
+    started_at: str = ""
+    attendees: list[Attendee] = field(default_factory=list)
+
+    @classmethod
+    def from_wire(cls, obj: Optional[dict]) -> "MeetingContext":
+        if not isinstance(obj, dict):
+            return cls()
+        raw_attendees = obj.get("attendees")
+        attendees: list[Attendee] = []
+        if isinstance(raw_attendees, list):
+            for a in raw_attendees:
+                if isinstance(a, dict):
+                    name = str(a.get("name", "")).strip()
+                    raw_email = a.get("email")
+                    email = str(raw_email).strip() if isinstance(raw_email, str) and raw_email.strip() else None
+                    if name or email:
+                        attendees.append(Attendee(name=name, email=email))
+        return cls(
+            title=str(obj.get("title", "")).strip(),
+            platform=str(obj.get("platform", "")).strip(),
+            started_at=str(obj.get("startedAt", "")).strip(),
+            attendees=attendees,
+        )
+
+    def has_content(self) -> bool:
+        return bool(self.title or self.platform or self.started_at or self.attendees)
 
 
 @dataclass(frozen=True)
@@ -36,6 +83,7 @@ class PostProcessRequest:
     regenerate_summary: bool = False
     rediarize: bool = False
     re_transcribe: bool = False
+    meeting_context: MeetingContext = field(default_factory=MeetingContext)
 
     @classmethod
     def from_wire(cls, obj: dict) -> "PostProcessRequest":
@@ -51,4 +99,5 @@ class PostProcessRequest:
             regenerate_summary=bool(obj.get("regenerateSummary", False)),
             rediarize=bool(obj.get("rediarize", False)),
             re_transcribe=bool(obj.get("reTranscribe", False)),
+            meeting_context=MeetingContext.from_wire(obj.get("meetingContext")),
         )

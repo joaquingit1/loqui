@@ -159,5 +159,11 @@ export function eventStartParams(event: CalendarEvent): StartMeetingParams {
   return {
     title: event.title || undefined,
     platform: event.platform ?? undefined,
+    // Carry the invited participants so the AI summary can use real names
+    // instead of "Speaker N" (only known when launched from a calendar event).
+    calendarAttendees:
+      event.attendees.length > 0
+        ? event.attendees.map((a) => ({ name: a.name, email: a.email }))
+        : undefined,
   };
 }

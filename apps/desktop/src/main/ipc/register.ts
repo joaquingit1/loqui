@@ -141,7 +141,9 @@ export function registerIpcHandlers(deps: IpcDeps): () => void {
     IPC.renameMeeting,
     (_e: IpcMainInvokeEvent, params: RenameMeetingParams): Meeting => {
       const { id, title } = renameMeetingParamsSchema.parse(params);
-      return store.updateMeeting(id, { title });
+      // Mark the title user-owned so a later (re)generated summary never
+      // overwrites it (see postprocess finalize's AI-title adoption).
+      return store.updateMeeting(id, { title, titleEdited: true });
     },
   );
 

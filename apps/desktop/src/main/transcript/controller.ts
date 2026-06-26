@@ -177,6 +177,9 @@ export function createMeetingController(
         // PRD-12: a voice memo is mic-only (the renderer suppresses the system
         // stream) but otherwise reuses the SAME lifecycle. Defaults to "meeting".
         kind: fields.kind ?? "meeting",
+        // Calendar attendees (when launched from a calendar event) — persisted so
+        // the post-meeting AI summary can name real participants.
+        ...(fields.calendarAttendees ? { calendarAttendees: fields.calendarAttendees } : {}),
       });
       const meeting = store.updateMeeting(created.id, {
         status: "recording",
