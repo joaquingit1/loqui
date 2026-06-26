@@ -300,6 +300,39 @@ class FasterWhisperBackend:
         detected = lang or getattr(info, "language", None)
         return out, detected
 
+    def transcribe_raw(
+        self,
+        audio,
+        *,
+        language: Optional[str] = None,
+        task: str = "transcribe",
+        vad_filter: Optional[bool] = None,
+        vad_parameters: Optional[dict] = None,
+        initial_prompt: Optional[str] = None,
+    ):
+        """Raw faster-whisper ``transcribe`` returning ``(segments, info)``.
+
+        The seam the WhisperLive live pipeline drives: ``audio`` is a float32
+        numpy array (16 kHz mono), and the return is faster-whisper's native
+        ``(segments_iterable, TranscriptionInfo)``. Greedy + repeatable
+        (``beam_size`` from construction, no temperature fallback) for low live
+        latency; uses faster-whisper's built-in Silero ``vad_filter``.
+        """
+        if not self._loaded:
+            self.load()
+        return self._model.transcribe(
+            audio,
+            language=language if language is not None else self._language,
+            task=task,
+            beam_size=self._beam_size,
+            temperature=0.0,
+            vad_filter=self._vad_filter if vad_filter is None else vad_filter,
+            vad_parameters=vad_parameters,
+            initial_prompt=initial_prompt,
+            condition_on_previous_text=False,
+            word_timestamps=False,
+        )
+
     # -- /health surface ------------------------------------------------------
 
     @property

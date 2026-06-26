@@ -33,6 +33,13 @@ DEFAULT_DATA_DIR_NAME = "Loqui"
 MEETINGS_DIR_NAME = "meetings"
 MEETING_LIVE_TRANSCRIPT_FILE = "transcript.live.md"
 MEETING_TRANSCRIPT_FILE = "transcript.jsonl"
+#: High-accuracy re-transcription files (mirror of @loqui/shared
+#: MEETING_HIFI_TRANSCRIPT_{MD,JSONL}_FILE). When present they are the CLEAN
+#: canonical transcript; the AI summary/chat grounding PREFERS them over the
+#: flawed live transcript (mirror of the desktop store's getTranscript precedence)
+#: so a poor live transcript can never poison the summary.
+MEETING_HIFI_TRANSCRIPT_MD_FILE = "transcript.hifi.md"
+MEETING_HIFI_TRANSCRIPT_JSONL_FILE = "transcript.hifi.jsonl"
 
 #: A meeting id must be a safe path segment (mirror of the TS store's SAFE_ID) so
 #: an adversarial id from the renderer cannot escape the meetings dir.
@@ -47,12 +54,33 @@ def data_root() -> Path:
     return Path.home() / DEFAULT_DATA_DIR_NAME
 
 
-def meeting_transcript_path(meeting_id: str, variant: str = "live") -> Path:
-    """Absolute path to a meeting's transcript file for ``variant`` (no I/O)."""
+def _meeting_dir(meeting_id: str) -> Path:
     if not _SAFE_ID.match(meeting_id) or meeting_id in (".", ".."):
         raise ValueError(f"invalid meeting id {meeting_id!r}")
+    return data_root() / MEETINGS_DIR_NAME / meeting_id
+
+
+def meeting_transcript_path(meeting_id: str, variant: str = "live") -> Path:
+    """Absolute path to a meeting's transcript file for ``variant`` (no I/O)."""
     name = MEETING_TRANSCRIPT_FILE if variant == "structured" else MEETING_LIVE_TRANSCRIPT_FILE
-    return data_root() / MEETINGS_DIR_NAME / meeting_id / name
+    return _meeting_dir(meeting_id) / name
+
+
+def resolve_transcript_path(meeting_id: str, variant: str = "live") -> Path:
+    """The transcript file to READ for ``variant``, PREFERRING the clean
+    high-accuracy ``transcript.hifi.*`` when present, else the live file.
+
+    Mirrors the desktop store's ``getTranscript`` precedence so the summary/chat
+    grounding uses the clean canonical transcript — a flawed live transcript can
+    no longer poison the summary.
+    """
+    hifi_name = (
+        MEETING_HIFI_TRANSCRIPT_JSONL_FILE
+        if variant == "structured"
+        else MEETING_HIFI_TRANSCRIPT_MD_FILE
+    )
+    hifi = _meeting_dir(meeting_id) / hifi_name
+    return hifi if hifi.exists() else meeting_transcript_path(meeting_id, variant)
 
 
 class FsTranscriptReader:
@@ -64,7 +92,7 @@ class FsTranscriptReader:
     """
 
     def read(self, meeting_id: str, variant: str = "live") -> str:
-        path = meeting_transcript_path(meeting_id, variant)
+        path = resolve_transcript_path(meeting_id, variant)
         try:
             # READ-ONLY: "r" mode, no write counterpart anywhere in this class.
             return path.read_text(encoding="utf-8")

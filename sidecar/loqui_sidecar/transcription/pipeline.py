@@ -707,6 +707,15 @@ def make_pipeline_factory(config: Optional[PipelineConfig] = None):
 
     def factory(meeting_id, source, emit, backend, transcription_config):
         lang = getattr(transcription_config, "language", None)
+        # PRD-2: the real faster-whisper backend drives the WhisperLive live
+        # engine (it exposes ``transcribe_raw``); the hermetic fake + native
+        # helper backends (no ``transcribe_raw``) keep the streaming pipeline.
+        if hasattr(backend, "transcribe_raw"):
+            from .whisperlive_pipeline import WhisperLiveTranscriptionPipeline
+
+            return WhisperLiveTranscriptionPipeline(
+                meeting_id, source, emit, backend, config=cfg, language=lang
+            )
         return StreamingTranscriptionPipeline(
             meeting_id,
             source,
