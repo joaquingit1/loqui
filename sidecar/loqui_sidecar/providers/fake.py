@@ -42,9 +42,13 @@ class FakeChatProvider:
         config: ProviderConfig,
         api_key: Optional[str] = None,
     ) -> Iterator[str]:
-        # The handler prepends a system message carrying the read-only transcript
-        # context; surface a deterministic marker so tests can assert it arrived.
-        has_context = any(m.role == "system" and m.content for m in messages)
+        # Surface a deterministic marker so tests can assert the read-only
+        # transcript actually reached the provider. Key on the `<transcript>`
+        # marker in ANY message (chat puts it in the system grounding message;
+        # the summary puts it in the user turn) — NOT merely "a system message
+        # exists", since the handler also adds a language directive system message
+        # even when there is no transcript.
+        has_context = any("<transcript>" in (m.content or "") for m in messages)
         last_user = next(
             (m.content for m in reversed(messages) if m.role == "user"),
             "",

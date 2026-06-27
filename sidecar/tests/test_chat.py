@@ -172,11 +172,35 @@ def test_streamed_reply_reflects_transcript_grounding(data_dir):
 
 def test_no_transcript_means_no_context_message(data_dir):
     """A meeting with no transcript yet still streams (the fake reports
-    "no-context"); the handler simply prepends no system message."""
+    "no-context"); the handler injects only a language directive, no transcript."""
     events, emit = _collect_emit()
     handle_chat(_request("brand-new", "hi"), emit)
     text = "".join(d["delta"] for e, d in events if e == CHAT_TOKEN_EVENT)
     assert "no-context" in text
+
+
+def test_chat_reply_language_directive_names_the_language(data_dir):
+    """The handler tells the model to reply in the user's language, named
+    explicitly when detectable — so the small on-device model doesn't default to
+    English when the user writes in (e.g.) Spanish."""
+    _seed_transcript(data_dir, "m1")
+    captured: dict = {}
+
+    class _Capture:
+        name = "cap"
+
+        def stream_chat(self, messages, config, api_key=None):  # noqa: ARG002
+            captured["messages"] = list(messages)
+            yield "ok"
+
+    events, emit = _collect_emit()
+    q = (
+        "hola necesito que me digas en español cuáles son las tareas más "
+        "importantes que tenemos para la semana que viene por favor"
+    )
+    handle_chat(_request("m1", q), emit, selector=lambda cfg: _Capture())
+    system = " ".join(m.content for m in captured["messages"] if m.role == "system")
+    assert "Always reply in Spanish" in system
     assert any(e == CHAT_DONE_EVENT for e, _ in events)
 
 

@@ -36,6 +36,7 @@ from __future__ import annotations
 import logging
 from typing import Callable, Optional
 
+from ..lang import detect_language
 from .fake import FakeChatProvider, fake_chat_enabled
 from .transcript import default_transcript_reader
 from .types import (
@@ -181,9 +182,31 @@ def handle_chat(
     chat_id = request.chat_id
     try:
         context = build_context_message(reader, request.meeting_id)
+        # Reply in the user's language. Name it EXPLICITLY when we can tell it (a
+        # small on-device model follows "reply in Spanish" far more reliably than
+        # a generic rule, which it ignored — defaulting to English). Detect from
+        # the latest user message; fall back to the meeting transcript (which sets
+        # the expected language for a short question); else the generic rule.
+        last_user = next(
+            (m.content for m in reversed(request.messages) if m.role == "user" and m.content),
+            "",
+        )
+        lang = detect_language(last_user) or detect_language(reader.read(request.meeting_id, "live"))
+        directive = (
+            f"Always reply in {lang}. Never switch to another language."
+            if lang
+            else (
+                "Always reply in the SAME LANGUAGE the user writes their message in; "
+                "never default to English."
+            )
+        )
         messages: list[ChatMessage] = []
         if context is not None:
-            messages.append(context)
+            # Merge the directive into the single grounding system message (keeps
+            # one system turn — also what lands on the native model's instructions).
+            messages.append(ChatMessage(role="system", content=context.content + "\n\n" + directive))
+        else:
+            messages.append(ChatMessage(role="system", content=directive))
         messages.extend(request.messages)
 
         provider = selector(request.config)
