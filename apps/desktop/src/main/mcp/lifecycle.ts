@@ -44,9 +44,21 @@ export type McpSpawnFn = (
   options: { env?: NodeJS.ProcessEnv; stdio: "ignore" },
 ) => ChildProcess;
 
-/** Default spawn: detached stdio ignored (the managed server logs to its own stderr). */
+/**
+ * Default spawn: run the bundled `loqui-mcp` .js under THIS app's runtime —
+ * Electron-as-Node (`process.execPath` + `ELECTRON_RUN_AS_NODE=1`) — rather than
+ * exec'ing the .js directly. Two reasons it must NOT be a direct exec:
+ *   - the built `.js` isn't marked executable, so a direct spawn fails (EACCES);
+ *   - it loads the app's native `better-sqlite3`, which is built for ELECTRON's
+ *     ABI — running under the system `node` crashes on a NODE_MODULE_VERSION
+ *     mismatch. Electron-as-Node matches the ABI and needs no separate node.
+ * stdio is ignored (the managed server logs to its own stderr).
+ */
 export const defaultMcpSpawn: McpSpawnFn = (command, args, options) =>
-  nodeSpawn(command, args, { stdio: options.stdio, ...(options.env ? { env: options.env } : {}) });
+  nodeSpawn(process.execPath, [command, ...args], {
+    stdio: options.stdio,
+    env: { ...(options.env ?? process.env), ELECTRON_RUN_AS_NODE: "1" },
+  });
 
 export interface McpServerManagerDeps {
   /** Spawner for the `loqui-mcp` child; defaults to {@link defaultMcpSpawn}. */
