@@ -26,6 +26,8 @@ from loqui_sidecar.postprocess import (
 from loqui_sidecar.postprocess.summary import (
     SUMMARY_INSTRUCTION,
     TEMPLATE_PLACEHOLDER,
+    _looks_like_prompt_echo,
+    _strip_speaker_labels,
     build_summary_messages,
     summarize,
 )
@@ -176,11 +178,12 @@ def test_default_flow_names_the_transcript_language_explicitly():
     assert "in English" in sys_en
 
 
-def test_default_flow_relabels_speakers_and_explains_them():
-    """The default summary grounding relabels the user-centric "You said:"/"They
-    said:" prefixes into [ME]/[OTHER] tags (in the <transcript> user turn) and adds
-    the SPEAKER ATTRIBUTION legend to the system message — so the model attributes
-    what the user said vs what was said to them."""
+def test_default_flow_does_not_inject_speaker_legend_or_relabel():
+    """The default summary grounding does NOT inject [ME]/[OTHER] tags or a speaker
+    legend — on the small on-device model that pushed it to COPY the transcript
+    verbatim and echo the labels. The system is just the notetaker prompt (+ the
+    language directive); the transcript keeps its ORIGINAL "You said:"/"They said:"
+    labels. (Chat keeps the [ME]/[OTHER] legend — strong models handle it.)"""
     reader = _FakeReader(
         "[00:00:00] You said: hola que tal\n"
         "[00:00:05] They said: todo bien gracias por la actualización del proyecto\n"
@@ -188,13 +191,50 @@ def test_default_flow_relabels_speakers_and_explains_them():
     messages = build_summary_messages("m1", ProviderConfig(provider="fake"), reader)
 
     system = messages[0].content
-    assert "SPEAKER ATTRIBUTION" in system
     # NOTETAKER_PROMPT still leads (the existing startswith assertion must hold).
     assert system.startswith(SUMMARY_INSTRUCTION)
+    # NO [ME]/[OTHER] legend in the summary system message.
+    assert "SPEAKER ATTRIBUTION" not in system and "[ME]" not in system
 
     user = messages[-1].content
-    assert "[ME]" in user and "[OTHER]" in user
-    assert "You said:" not in user and "They said:" not in user
+    # The transcript keeps its ORIGINAL labels (NOT relabeled to [ME]/[OTHER]).
+    assert "You said:" in user and "They said:" in user
+    assert "[ME]" not in user and "[OTHER]" not in user
+
+
+def test_echo_detection_catches_transcript_echo_but_not_real_summary():
+    """A transcript echo (speaker-label / timestamped lines) is rejected; a clean
+    abstractive markdown summary is not."""
+    echo = (
+        "# Resumen\n"
+        "- [ME] dijo: hola que tal\n"
+        "- [OTHER] said: todo bien gracias\n"
+        "- [00:00:12] You said: seguimos la semana que viene\n"
+    )
+    assert _looks_like_prompt_echo(echo) is True
+
+    good = (
+        "# Planificación de lanzamiento\n\n"
+        "## Objetivo\n- Estimar el lanzamiento del módulo para fin de septiembre.\n"
+        "## Seguimiento\n- Revisar el progreso semanalmente con el equipo.\n"
+    )
+    assert _looks_like_prompt_echo(good) is False
+
+
+def test_strip_speaker_labels_removes_internal_tokens():
+    """As a last resort, leaked speaker labels are stripped from the summary."""
+    leaked = (
+        "- [ME] said: cerramos el viernes\n"
+        "- [OTHER]: yo escribo el runbook\n"
+        "- You said: revisamos el presupuesto\n"
+        "- Punto normal sin etiqueta\n"
+    )
+    out = _strip_speaker_labels(leaked)
+    assert "[ME]" not in out and "[OTHER]" not in out
+    assert "You said:" not in out
+    # The actual content survives.
+    assert "cerramos el viernes" in out
+    assert "Punto normal sin etiqueta" in out
 
 
 def test_calendar_context_block_injects_participant_names(data_dir):

@@ -258,7 +258,7 @@ export function HomeView({
               <p className="home__overline">Upcoming</p>
               <ul className="home__rows home__rows--peek">
                 {upcomingPeek.map((event) => (
-                  <UpcomingRow key={event.id} event={event} />
+                  <UpcomingRow key={event.id} event={event} onJoinAndRecord={onJoinAndRecord} />
                 ))}
               </ul>
             </div>
@@ -358,19 +358,23 @@ interface EventRowProps {
 function EventRow({ event, now, onJoinAndRecord }: EventRowProps): JSX.Element {
   const attendees = summarizeAttendees(event.attendees);
   return (
-    <li className="home__row" data-testid={`home-event-${event.id}`}>
-      <span className="home__row-icon" aria-hidden="true">
-        <Icon name={calendarPlatformIcon(event.platform)} size={18} />
+    <li className="home__event" data-testid={`home-event-${event.id}`}>
+      <span className="home__event-when">
+        <time className="home__event-time" dateTime={event.startsAt}>
+          {formatEventTime(event.startsAt)}
+        </time>
+        <span className="home__event-rel" data-testid={`home-event-rel-${event.id}`}>
+          {formatRelativeStart(event.startsAt, now)}
+        </span>
       </span>
-      <span className="home__row-main">
-        <span className="home__row-title">{event.title || "Untitled meeting"}</span>
-        <span className="home__row-meta">
-          <span className="home__row-time">{formatEventTime(event.startsAt)}</span>
-          <span className="home__row-rel" data-testid={`home-event-rel-${event.id}`}>
-            {formatRelativeStart(event.startsAt, now)}
+      <span className="home__event-body">
+        <span className="home__event-title">{event.title || "Untitled meeting"}</span>
+        <span className="home__event-meta">
+          <span className="home__event-platform">
+            <Icon name={calendarPlatformIcon(event.platform)} size={14} />
+            {calendarPlatformLabel(event.platform)}
           </span>
-          <span className="home__row-platform">{calendarPlatformLabel(event.platform)}</span>
-          {attendees && <span className="home__row-attendees">{attendees}</span>}
+          {attendees && <span className="home__event-people">{attendees}</span>}
         </span>
       </span>
       <button
@@ -387,22 +391,35 @@ function EventRow({ event, now, onJoinAndRecord }: EventRowProps): JSX.Element {
 
 interface UpcomingRowProps {
   event: CalendarEvent;
+  onJoinAndRecord: (event: CalendarEvent) => void;
 }
 
-function UpcomingRow({ event }: UpcomingRowProps): JSX.Element {
+function UpcomingRow({ event, onJoinAndRecord }: UpcomingRowProps): JSX.Element {
   return (
-    <li className="home__row home__row--peek" data-testid={`home-upcoming-${event.id}`}>
-      <span className="home__row-icon" aria-hidden="true">
-        <Icon name={calendarPlatformIcon(event.platform)} size={18} />
+    <li className="home__event home__event--peek" data-testid={`home-upcoming-${event.id}`}>
+      <span className="home__event-when">
+        <span className="home__event-day">{formatEventDay(event.startsAt)}</span>
+        <time className="home__event-time" dateTime={event.startsAt}>
+          {formatEventTime(event.startsAt)}
+        </time>
       </span>
-      <span className="home__row-main">
-        <span className="home__row-title">{event.title || "Untitled meeting"}</span>
-        <span className="home__row-meta">
-          <span className="home__row-day">{formatEventDay(event.startsAt)}</span>
-          <span className="home__row-time">{formatEventTime(event.startsAt)}</span>
-          <span className="home__row-platform">{calendarPlatformLabel(event.platform)}</span>
+      <span className="home__event-body">
+        <span className="home__event-title">{event.title || "Untitled meeting"}</span>
+        <span className="home__event-meta">
+          <span className="home__event-platform">
+            <Icon name={calendarPlatformIcon(event.platform)} size={14} />
+            {calendarPlatformLabel(event.platform)}
+          </span>
         </span>
       </span>
+      <button
+        type="button"
+        className="btn btn--join"
+        data-testid={`home-join-${event.id}`}
+        onClick={() => onJoinAndRecord(event)}
+      >
+        {event.joinUrl ? "Join & record" : "Record"}
+      </button>
     </li>
   );
 }

@@ -287,7 +287,7 @@ export function createCaptureController(deps: CaptureControllerDeps): CaptureCon
           /abort|starting capture|not allowed|permission|denied/i.test(raw));
       const message = needsScreenPermission
         ? "Can’t capture system audio yet — macOS needs Screen Recording permission. " +
-          "Open System Settings → Privacy & Security → Screen Recording, enable Loqui (or Electron in dev), then restart. " +
+          "Open System Settings → Privacy & Security → Screen Recording, enable Loqui, then restart. " +
           "Your microphone is still being recorded."
         : raw;
       // Best-effort: if we already told main to start, tell it to stop.

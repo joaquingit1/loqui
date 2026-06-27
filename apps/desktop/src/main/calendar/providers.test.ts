@@ -320,10 +320,13 @@ describe("real provider connect (OAuth via injected http, no network)", () => {
     expect(out.account).toBe("me@gmail.com");
   });
 
-  it("Google falls back to the bundled public client id when the env is unset", async () => {
-    // Google ships a bundled public client id, so it's configured out of the box;
-    // an empty/unset LOQUI_GOOGLE_CLIENT_ID must NOT block the flow.
+  it("Google uses the build-baked public client id when the runtime env is unset", async () => {
+    // Google ships a bundled public client id baked in at build time (the
+    // LOQUI_GOOGLE_CLIENT_ID_BAKED define; see electron.vite.config.ts), so it's
+    // configured out of the box — an empty/unset runtime LOQUI_GOOGLE_CLIENT_ID
+    // override must NOT block the flow. Simulate the bake via the BAKED env.
     vi.stubEnv("LOQUI_GOOGLE_CLIENT_ID", "");
+    vi.stubEnv("LOQUI_GOOGLE_CLIENT_ID_BAKED", "baked-public.apps.googleusercontent.com");
     let openedUrl = "";
     const openExternal = (url: string): Promise<void> => {
       openedUrl = url;
@@ -343,8 +346,41 @@ describe("real provider connect (OAuth via injected http, no network)", () => {
     const p = new GoogleProvider({ http: jsonHttp({ email: "me@gmail.com" }), oauthHttp, openExternal });
     const out = await p.connect();
     expect(out.tokens.accessToken).toBe("AT");
-    // The authorize URL carries the bundled client id (not empty).
-    expect(new URL(openedUrl).searchParams.get("client_id")).toContain("apps.googleusercontent.com");
+    // The authorize URL carries the baked-in client id (not empty).
+    expect(new URL(openedUrl).searchParams.get("client_id")).toBe(
+      "baked-public.apps.googleusercontent.com",
+    );
+  });
+
+  it("Google sends the build-baked client secret at token exchange when env is unset", async () => {
+    // Google "Desktop app" clients reject the PKCE-only exchange with
+    // invalid_client; the baked (non-confidential) secret must be sent so the
+    // out-of-the-box flow completes without a runtime LOQUI_GOOGLE_CLIENT_SECRET.
+    vi.stubEnv("LOQUI_GOOGLE_CLIENT_ID", "");
+    vi.stubEnv("LOQUI_GOOGLE_CLIENT_SECRET", "");
+    vi.stubEnv("LOQUI_GOOGLE_CLIENT_ID_BAKED", "baked-public.apps.googleusercontent.com");
+    vi.stubEnv("LOQUI_GOOGLE_CLIENT_SECRET_BAKED", "BAKED-SECRET");
+    let exchangeBody = "";
+    const openExternal = (url: string): Promise<void> => {
+      const u = new URL(url);
+      const state = u.searchParams.get("state")!;
+      const redirectUri = u.searchParams.get("redirect_uri")!;
+      void fetch(`${redirectUri}?code=AUTHCODE&state=${state}`).catch(() => {});
+      return Promise.resolve();
+    };
+    const oauthHttp: OAuthHttp = (_url, init) => {
+      exchangeBody = String(init?.body ?? "");
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ access_token: "AT", refresh_token: "RT", expires_in: 3600, scope: "s" }),
+        text: () => Promise.resolve("{}"),
+      });
+    };
+    const p = new GoogleProvider({ http: jsonHttp({ email: "me@gmail.com" }), oauthHttp, openExternal });
+    await p.connect();
+    // A non-empty client_secret rode along with the code exchange.
+    expect(new URLSearchParams(exchangeBody).get("client_secret")).toBeTruthy();
   });
 
   it("connect fails fast with an actionable message when no client id is configured", async () => {

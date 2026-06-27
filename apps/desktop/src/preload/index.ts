@@ -93,6 +93,28 @@ export interface LoquiApi {
   export: LoquiExportApi;
   /** Packaging + custom GitHub auto-updater bridge (PRD-8). */
   updater: LoquiUpdaterApi;
+  /** "Meeting Detected" popup bridge (used by the notification window's renderer). */
+  notifications: LoquiNotificationsApi;
+  /**
+   * Subscribe to a main-pushed "start a recording with these params" request,
+   * fired when the user clicks "Join & Record" in the meeting popup. Drives the
+   * SAME unified start+capture flow as Home / ⌘N. Returns an unsubscribe fn.
+   */
+  onStartRequest(cb: (params: StartMeetingParams) => void): () => void;
+}
+
+/**
+ * Notification-window surface: the frameless "Meeting Detected" popup receives
+ * the imminent meeting and acts on it. The popup never starts a recording itself
+ * (capture lives in the main window) — `join` hands off to main.
+ */
+export interface LoquiNotificationsApi {
+  /** Subscribe to "a meeting is imminent" pushes. Returns an unsubscribe fn. */
+  onMeetingDetected(cb: (event: CalendarEvent) => void): () => void;
+  /** "Join & Record" the imminent meeting by id (main opens the link + starts it). */
+  join(eventId: string): Promise<void>;
+  /** Dismiss the popup. */
+  dismiss(): Promise<void>;
 }
 
 /**
@@ -478,6 +500,16 @@ const updater: LoquiUpdaterApi = {
   },
 };
 
+const notifications: LoquiNotificationsApi = {
+  onMeetingDetected: (cb: (event: CalendarEvent) => void): (() => void) => {
+    const listener = (_e: unknown, event: CalendarEvent): void => cb(event);
+    ipcRenderer.on(IPC.notificationMeetingDetected, listener);
+    return () => ipcRenderer.removeListener(IPC.notificationMeetingDetected, listener);
+  },
+  join: (eventId: string): Promise<void> => ipcRenderer.invoke(IPC.notificationJoin, eventId),
+  dismiss: (): Promise<void> => ipcRenderer.invoke(IPC.notificationDismiss),
+};
+
 const api: LoquiApi = {
   ping: () => ipcRenderer.invoke(IPC.ping),
   getSidecarHealth: () => ipcRenderer.invoke(IPC.getSidecarHealth),
@@ -499,6 +531,12 @@ const api: LoquiApi = {
   autoRecord,
   export: exportApi,
   updater,
+  notifications,
+  onStartRequest: (cb: (params: StartMeetingParams) => void): (() => void) => {
+    const listener = (_e: unknown, params: StartMeetingParams): void => cb(params);
+    ipcRenderer.on(IPC.meetingStartRequest, listener);
+    return () => ipcRenderer.removeListener(IPC.meetingStartRequest, listener);
+  },
 };
 
 contextBridge.exposeInMainWorld("loqui", api);

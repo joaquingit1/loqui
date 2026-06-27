@@ -71,6 +71,12 @@ dev = [
     "pytest>=8.3.0",
     "ruff>=0.8.0",
     "black>=24.10.0",
+    # Packaging (PRD-8): PyInstaller freezes the sidecar into a self-contained
+    # onedir tree (no Python/uv on the user's machine) — see
+    # apps/desktop/scripts/build-runtime.mjs, which runs `uv run pyinstaller`.
+    # Kept in the `dev` group (uv's default sync/run group) so CI's plain
+    # `uv sync` installs it and the release build can find it with no extra flag.
+    "pyinstaller>=6.0.0",
 ]
 # PRD-5 diarization (OPTIONAL — NOT in the default sync). pyannote.audio 3.1 is
 # the offline speaker-diarization backend (MIT, CPU-capable; Sortformer is

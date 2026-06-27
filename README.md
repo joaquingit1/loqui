@@ -29,7 +29,8 @@ Record your meetings, transcribe them in real time, chat with the live transcrip
 - [AI providers](#ai-providers)
 - [Privacy & local-first](#privacy--local-first)
 - [Tech stack](#tech-stack)
-- [Getting started](#getting-started)
+- [Install (macOS)](#install-macos)
+- [Build from source](#build-from-source)
 - [Project structure](#project-structure)
 - [Testing](#testing)
 - [Roadmap](#roadmap)
@@ -155,7 +156,20 @@ API keys are stored in the OS keychain (Electron `safeStorage`) and injected out
 | Contracts | `packages/shared` — zod schemas + emitted JSON Schema (single source of truth) |
 | Tooling | pnpm workspaces · [uv](https://docs.astral.sh/uv/) for Python · Vitest · Pytest · Playwright |
 
-## Getting started
+## Install (macOS)
+
+> **v1 is Apple Silicon (arm64) only.** Intel Macs and Windows are on the roadmap for a later release.
+
+1. Download the latest **`Loqui-<version>-arm64-mac.dmg`** from the [**Releases** page](https://github.com/joaquingit1/loqui/releases/latest).
+2. Open the `.dmg` and drag **Loqui** into your **Applications** folder.
+3. **First launch (unsigned app).** Loqui is open-source and ships **unsigned** (no paid Apple Developer certificate), so macOS will warn that *"Loqui can't be opened because the developer cannot be verified."* This is expected. To allow it:
+   - Open **System Settings → Privacy & Security**, scroll to the **Security** section, and click **"Open Anyway"** next to the Loqui notice — then confirm.
+   - (You only do this once. Loqui's self-updater re-approves future versions automatically.)
+4. On first recording, grant **Screen Recording** (to capture system/"They" audio) and **Microphone** (your "You" audio) permissions when prompted. The transcription model downloads on first use.
+
+Signing/notarization (which removes the Gatekeeper prompt entirely) is a planned, update-safe addition — see [`SIGNING.md`](SIGNING.md).
+
+## Build from source
 
 > **Prerequisites:** Node ≥ 20 (with `corepack`), pnpm ≥ 9, Python ≥ 3.11, and [uv](https://docs.astral.sh/uv/).
 

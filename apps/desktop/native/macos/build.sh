@@ -23,8 +23,16 @@ if [[ "${OSTYPE:-}" != darwin* ]]; then
 fi
 
 FLAGS=()
+UNIVERSAL=0
 for arg in "$@"; do
   case "$arg" in
+    --universal)
+      # Build a fat arm64+x86_64 binary so ONE bundled helper works on both Apple
+      # Silicon and Intel Macs (release packaging). FoundationModels is arm64-only
+      # at runtime; it still COMPILES for x86_64 (@available guards it), so Intel
+      # falls back cleanly. Output lands in .build/apple/Products/Release/; we copy
+      # it to the canonical .build/release/ path below.
+      UNIVERSAL=1 ;;
     --whisperkit)
       echo "Enabling WhisperKit path. Uncomment the WhisperKit dependency in Package.swift first."
       FLAGS+=(-Xswiftc -DWHISPERKIT) ;;
@@ -39,7 +47,14 @@ for arg in "$@"; do
   esac
 done
 
-swift build -c release "${FLAGS[@]}"
 BIN="$PWD/.build/release/loqui-asr-helper"
+if [[ "$UNIVERSAL" == "1" ]]; then
+  swift build -c release --arch arm64 --arch x86_64 "${FLAGS[@]}"
+  mkdir -p "$PWD/.build/release"
+  cp -f "$PWD/.build/apple/Products/Release/loqui-asr-helper" "$BIN"
+else
+  swift build -c release "${FLAGS[@]}"
+fi
 echo "Built: $BIN"
+file "$BIN" || true
 echo "Run the sidecar with: export LOQUI_ASR_HELPER_BIN=\"$BIN\""

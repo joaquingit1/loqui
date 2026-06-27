@@ -36,6 +36,13 @@ export interface CalendarSettingsProps {
 
 const PROVIDERS: readonly CalendarProviderId[] = ["google", "microsoft", "zoom"];
 
+/**
+ * Providers not yet available to connect — shown dimmed with a quiet "Coming
+ * soon" label instead of a Connect button. The backend providers stay registered
+ * (only this UI gates them), so re-enabling one is just deleting it from here.
+ */
+const COMING_SOON: ReadonlySet<CalendarProviderId> = new Set(["microsoft", "zoom"]);
+
 /** Read-only scope explainer copy per provider — surfaces exactly what's accessed. */
 const PROVIDER_SCOPE: Record<CalendarProviderId, string> = {
   google: "Read-only access to your Google Calendar events (calendar.events.readonly).",
@@ -146,32 +153,40 @@ export function CalendarSettings({
         {PROVIDERS.map((provider) => {
           const accounts = connections.filter((c) => c.provider === provider);
           const isBusy = busy === provider;
+          const comingSoon = COMING_SOON.has(provider);
           return (
             <li
               key={provider}
-              className="calendar-settings__row"
+              className={`calendar-settings__row${comingSoon ? " calendar-settings__row--soon" : ""}`}
               data-testid={`calendar-provider-${provider}`}
               data-connected={accounts.length > 0 ? "true" : "false"}
+              data-coming-soon={comingSoon ? "true" : undefined}
             >
               <div className="calendar-settings__row-head">
                 <span className="calendar-settings__row-name">
                   {calendarProviderLabel(provider)}
                 </span>
-                {accounts.length === 0 && (
-                  <button
-                    type="button"
-                    className="btn"
-                    data-testid={`calendar-connect-${provider}`}
-                    disabled={isBusy}
-                    onClick={() => onConnect(provider)}
-                  >
-                    {isBusy ? "Connecting…" : "Connect"}
-                  </button>
+                {comingSoon ? (
+                  <span className="calendar-settings__soon" data-testid={`calendar-soon-${provider}`}>
+                    Coming soon
+                  </span>
+                ) : (
+                  accounts.length === 0 && (
+                    <button
+                      type="button"
+                      className="btn"
+                      data-testid={`calendar-connect-${provider}`}
+                      disabled={isBusy}
+                      onClick={() => onConnect(provider)}
+                    >
+                      {isBusy ? "Connecting…" : "Connect"}
+                    </button>
+                  )
                 )}
               </div>
               <p className="calendar-settings__scope">{PROVIDER_SCOPE[provider]}</p>
 
-              {accounts.length > 0 && (
+              {!comingSoon && accounts.length > 0 && (
                 <ul className="calendar-settings__accounts">
                   {accounts.map((conn) => (
                     <li

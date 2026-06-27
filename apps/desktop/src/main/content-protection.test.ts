@@ -1,6 +1,7 @@
 /**
  * PRD-13 content-protection test: createWindow applies
- * BrowserWindow.setContentProtection with the configured flag (ON by default).
+ * BrowserWindow.setContentProtection with the configured flag (OFF by default —
+ * Loqui windows are screenshot-able by default; content protection is opt-in).
  *
  * `electron` is mocked so a fake BrowserWindow records the setContentProtection
  * call — no Electron runtime, no real window. This is the most-feasible seam to
@@ -36,17 +37,17 @@ vi.mock("electron", () => ({
 const { createWindow } = await import("./index.js");
 
 describe("createWindow content protection (PRD-13)", () => {
-  it("enables content protection by default", () => {
+  it("disables content protection by default (screenshots work)", () => {
     FakeBrowserWindow.instances = [];
     createWindow();
     const win = FakeBrowserWindow.instances.at(-1)!;
-    expect(win.contentProtectionCalls).toEqual([true]);
+    expect(win.contentProtectionCalls).toEqual([false]);
   });
 
-  it("disables content protection when the setting is off", () => {
+  it("enables content protection when the setting is on", () => {
     FakeBrowserWindow.instances = [];
-    createWindow({ contentProtection: false });
+    createWindow({ contentProtection: true });
     const win = FakeBrowserWindow.instances.at(-1)!;
-    expect(win.contentProtectionCalls).toEqual([false]);
+    expect(win.contentProtectionCalls).toEqual([true]);
   });
 });

@@ -18,3 +18,9 @@ export {
   type McpServerManagerDeps,
   type McpSpawnFn,
 } from "./lifecycle.js";
+export {
+  buildLoquiMcpEntry,
+  ensureClaudeCodeRegistration,
+  type LoquiMcpStdioEntry,
+  type RegistrationResult,
+} from "./client-config.js";

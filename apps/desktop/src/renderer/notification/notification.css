@@ -1,0 +1,100 @@
+/**
+ * "Meeting Detected" popup styles. The window body is transparent (macOS
+ * vibrancy / a warm backstop elsewhere) so only this glass card shows, with a
+ * small gutter for its soft shadow. Design-system tokens only; per the no-stray-
+ * outlines rule the dismiss is a quiet icon button and only "Join & Record" is a
+ * filled accent CTA.
+ */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  cursor: default;
+  user-select: none;
+}
+
+.notif {
+  position: fixed;
+  /* Fill the window (rounded corners reveal the transparent window behind them).
+     No gutter + no drop-shadow → nothing square or "outlined" renders around it. */
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  /* Solid panel (not translucent glass) so the desktop never shows through; a
+     slight rest fade that returns to full opacity on hover. */
+  background: var(--panel);
+  opacity: 0.9;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.notif:hover {
+  opacity: 1;
+}
+
+.notif__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* A small filled status dot (design-system idiom), not a ring. */
+.notif__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: 0 0 auto;
+}
+
+.notif__eyebrow {
+  font-size: var(--text-label);
+  font-weight: var(--weight-semibold);
+  color: var(--text);
+}
+
+/* Quiet icon button: no fill, no ring — just the glyph, dims→ink on hover. */
+.notif__dismiss {
+  margin-left: auto;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 2px;
+  display: inline-flex;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.notif__dismiss:hover {
+  color: var(--text);
+}
+
+.notif__dismiss:focus-visible {
+  outline: none;
+  color: var(--text);
+}
+
+.notif__title {
+  margin: 0;
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-medium);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notif__rel {
+  font-weight: var(--weight-regular);
+  color: var(--text-dim);
+}
+
+.notif__join {
+  margin-top: auto;
+  width: 100%;
+}

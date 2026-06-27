@@ -32,6 +32,14 @@ import {
 import { SidecarSupervisor } from "./sidecar/supervisor.js";
 import { openStore, meetingAudioDir, type MeetingStore } from "./store/index.js";
 import { IPC } from "../shared/ipc.js";
+import { buildLoquiMenu } from "./branding/appMenu.js";
+import { trayImage } from "./branding/trayIcon.js";
+import { createNotificationPresenter, type NotificationPresenter } from "./notification/window.js";
+import { registerNotificationIpc } from "./notification/register.js";
+import {
+  createMeetingNotificationScheduler,
+  type MeetingNotificationScheduler,
+} from "./notification/scheduler.js";
 import {
   pushMeetingStatus,
   pushSidecarStatus,
@@ -57,7 +65,13 @@ import { createImportPipeline } from "./import/pipeline.js";
 import { ExportService } from "./export/index.js";
 import { registerExportIpc } from "./export/register.js";
 import { SettingsStore } from "./settings/store.js";
-import { McpServerManager } from "./mcp/index.js";
+import {
+  McpServerManager,
+  buildLoquiMcpEntry,
+  ensureClaudeCodeRegistration,
+  resolveDataRoot,
+  resolveMcpBinPath,
+} from "./mcp/index.js";
 import {
   CalendarKeystore,
   FakeCalendarProvider,
@@ -146,7 +160,7 @@ export function createWindow(opts?: { contentProtection?: boolean }): BrowserWin
   // default). Cross-platform in Electron (macOS NSWindow sharingType; Windows
   // SetWindowDisplayAffinity). Applied at creation; the privacy toggle re-applies
   // it live via setContentProtection.
-  win.setContentProtection(opts?.contentProtection ?? true);
+  win.setContentProtection(opts?.contentProtection ?? false);
   win.once("ready-to-show", () => win.show());
   loadRenderer(win);
   return win;
@@ -275,6 +289,13 @@ let disposeTraySync: (() => void) | null = null;
 // the first-launch check can push state to a live renderer.
 let updaterManager: UpdaterManager | null = null;
 let disposeUpdaterIpc: (() => void) | null = null;
+// "Meeting Detected" popup seam: the always-on-top popup window presenter, its
+// IPC bridge disposer, the pure scheduler that fires ~1 min pre-meeting, and the
+// calendar `onUpdated` subscription that feeds the scheduler.
+let notificationPresenter: NotificationPresenter | null = null;
+let disposeNotificationIpc: (() => void) | null = null;
+let notificationScheduler: MeetingNotificationScheduler | null = null;
+let disposeCalendarNotify: (() => void) | null = null;
 
 function applyRunInBackground(enabled: boolean): void {
   if (enabled) app.dock?.hide();
@@ -287,6 +308,12 @@ function applyRunInBackground(enabled: boolean): void {
  * shutdown on app quit.
  */
 export async function bootstrap(): Promise<void> {
+  // Brand the app as "Loqui" everywhere the OS reads the app name — the macOS app
+  // menu, the About panel, "Hide/Quit Loqui", and (in dev) the userData dir. Must
+  // run before `whenReady`. The packaged build already names the bundle "Loqui"
+  // (productName), so this mainly fixes dev + the About panel; harmless packaged.
+  app.setName("Loqui");
+
   // Single-instance: a second launch must NOT start a competing app + sidecar.
   // Multiple instances fighting over the sidecar/loopback ports is exactly what
   // leaves the transcription engine stuck "connecting". If we can't get the
@@ -319,6 +346,23 @@ export async function bootstrap(): Promise<void> {
   });
 
   await app.whenReady();
+
+  // Loqui branding: a correctly-titled app menu (the default reads "Electron"),
+  // the About panel, and — in DEV only — the Dock icon (the packaged app gets its
+  // icon from the .app bundle; build/ isn't shipped into Resources).
+  Menu.setApplicationMenu(buildLoquiMenu());
+  app.setAboutPanelOptions({
+    applicationName: "Loqui",
+    applicationVersion: app.getVersion(),
+    copyright: "Copyright © 2026 Joaquin Castellano and contributors",
+  });
+  if (!app.isPackaged) {
+    try {
+      app.dock?.setIcon(join(__dirname, "../../build/icon.png"));
+    } catch {
+      /* dev-only nicety — ignore if the icon hasn't been generated yet */
+    }
+  }
 
   // PRD-8: resolve dev-vs-packaged paths once (bundled sidecar/MCP binaries, the
   // OS helper scripts, install/relaunch/staging). In dev `isPackaged` is false so
@@ -536,6 +580,26 @@ export async function bootstrap(): Promise<void> {
     console.error("[loqui] MCP server failed to start:", err);
   }
 
+  // Auto-register the server with Claude Code (user scope, ~/.claude.json) so a
+  // fresh `claude` session sees the user's meetings WITHOUT manual setup — like a
+  // hosted connector. A stdio entry that runs `loqui-mcp` under THIS Electron
+  // binary as Node (ELECTRON_RUN_AS_NODE) → works with the GUI quit AND loads the
+  // Electron-ABI better-sqlite3 (plain node would crash). Re-run every launch so a
+  // moved/updated app path self-heals. Best-effort: never blocks bootstrap.
+  try {
+    const result = ensureClaudeCodeRegistration({
+      entry: buildLoquiMcpEntry({
+        execPath: process.execPath,
+        binPath: appPaths.bundledMcpBin() ?? resolveMcpBinPath(),
+        dataRoot: resolveDataRoot(),
+      }),
+      log: (msg) => console.error("[loqui]", msg),
+    });
+    if (result !== "unchanged") console.error(`[loqui] MCP client registration: ${result}`);
+  } catch (err) {
+    console.error("[loqui] MCP client registration failed:", err);
+  }
+
   // Calendar integration + Home/Today view (PRD-15). FOUNDATION SEAM — Build
   // unit A implements `createCalendarService` (the service that fans out over
   // connected accounts via injectable CalendarProviders, normalizes + merges +
@@ -575,6 +639,41 @@ export async function bootstrap(): Promise<void> {
     getWindow: () => mainWindow,
   });
 
+  // "Meeting Detected" desktop popup: a frameless, always-on-top window that
+  // fires ~1 min before a scheduled calendar meeting with a "Join & Record"
+  // button — visible even when the main window is minimized. The pure scheduler
+  // watches the calendar event feed; a fire shows the popup. "Join & Record"
+  // (notification/register.ts) opens the link + drives the main window's start.
+  notificationPresenter = createNotificationPresenter();
+  disposeNotificationIpc = registerNotificationIpc({
+    presenter: notificationPresenter,
+    getMainWindow: () => mainWindow,
+  });
+  const notifyLog = process.env["LOQUI_DEBUG_NOTIFY"]
+    ? (msg: string): void => console.error("[loqui][notify]", msg)
+    : undefined;
+  notificationScheduler = createMeetingNotificationScheduler({
+    onFire: (event) => notificationPresenter?.show(event),
+    // Don't alert while a recording is already running (only one at a time).
+    isActive: () => controller.getActiveMeeting() !== null,
+    log: notifyLog,
+  });
+  disposeCalendarNotify = calendarService.onUpdated((events) => {
+    notifyLog?.(`onUpdated → scheduler: ${events.length} event(s)`);
+    notificationScheduler?.update(events);
+  });
+  // Seed from the current upcoming set so an imminent meeting at launch still
+  // fires before the first poll-driven `onUpdated` (best-effort).
+  void calendarService
+    .listUpcoming({ withinHours: 24 * 7, limit: 200 })
+    .then((events) => {
+      notifyLog?.(`seed → scheduler: ${events.length} upcoming event(s)`);
+      notificationScheduler?.update(events);
+    })
+    .catch(() => {
+      /* best-effort seed; onUpdated will deliver the set shortly */
+    });
+
   // Auto-record on meeting detection + menubar/tray (PRD-11). MANUAL-FIRST: the
   // engine reads the persisted policy (OFF by default) and only watches when the
   // user opts in. It REUSES the PRD-3 `controller` for start/stop and the OS
@@ -588,7 +687,7 @@ export async function bootstrap(): Promise<void> {
       return;
     }
     mainWindow = createWindow({
-      contentProtection: settingsStore?.getCaptureSettings().contentProtection ?? true,
+      contentProtection: settingsStore?.getCaptureSettings().contentProtection ?? false,
     });
     mainWindow.on("closed", () => {
       mainWindow = null;
@@ -616,7 +715,15 @@ export async function bootstrap(): Promise<void> {
   // engine state change (and once now). Recent meetings come straight from the
   // store (newest-first, capped). Start/stop go through the SAME controller the
   // manual IPC path uses; openMeeting surfaces + focuses the window.
-  const trayElectron = createTrayElectron({ Tray, Menu, nativeImage, app });
+  const trayElectron = createTrayElectron({
+    Tray,
+    Menu,
+    nativeImage,
+    app,
+    // The Loqui mark in the menubar (was empty → invisible). Same image for every
+    // state; the recording state is conveyed by the tooltip + menu, not a tint.
+    resolveIcon: () => trayImage(),
+  });
   const recentMeetings = (): { id: string; title: string }[] => {
     try {
       return (store?.listMeetings({ limit: 5 }) ?? []).map((m) => ({
@@ -733,7 +840,7 @@ export async function bootstrap(): Promise<void> {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createWindow({
-        contentProtection: settingsStore?.getCaptureSettings().contentProtection ?? true,
+        contentProtection: settingsStore?.getCaptureSettings().contentProtection ?? false,
       });
       mainWindow.on("closed", () => {
         mainWindow = null;
@@ -784,6 +891,16 @@ async function shutdown(): Promise<void> {
   settingsStore = null;
   // PRD-15 calendar teardown (disposes the IPC bridge + push + service polling
   // once Build unit A wires it above).
+  // "Meeting Detected" popup teardown: drop the calendar subscription, the IPC
+  // bridge, the scheduler's timers, and the popup window.
+  disposeCalendarNotify?.();
+  disposeCalendarNotify = null;
+  disposeNotificationIpc?.();
+  disposeNotificationIpc = null;
+  notificationScheduler?.dispose();
+  notificationScheduler = null;
+  notificationPresenter?.dispose();
+  notificationPresenter = null;
   disposeCalendarIpc?.();
   disposeCalendarIpc = null;
   calendarService?.dispose();

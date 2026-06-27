@@ -19,6 +19,7 @@
  * error, exactly like the Meeting model.
  */
 import { z } from "zod";
+import type { StartMeetingParams } from "./library.js";
 
 /**
  * Which connected account a calendar event came from. The three cloud providers
@@ -59,6 +60,13 @@ export const calendarEventSchema = z.object({
   title: z.string().default(""),
   startsAt: z.string().datetime({ offset: true }),
   endsAt: z.string().datetime({ offset: true }),
+  /**
+   * True for date-only "all-day" events (Google `start.date` / Graph `isAllDay`).
+   * Such events have no real start time, so the meeting-notification scheduler
+   * skips them (they'd otherwise "start" at local midnight). Defaults false so
+   * older cached events + timed events parse forward as timed.
+   */
+  allDay: z.boolean().default(false),
   platform: calendarPlatformSchema.default(null),
   joinUrl: z.string().nullable().default(null),
   attendees: z.array(calendarAttendeeSchema).default([]),
@@ -124,3 +132,22 @@ export const calendarConnectionSchema = z.object({
   lastSyncAt: z.string().datetime({ offset: true }).nullable().default(null),
 });
 export type CalendarConnection = z.infer<typeof calendarConnectionSchema>;
+
+/**
+ * Map a calendar event → {@link StartMeetingParams} for a "join & record" start.
+ * The SINGLE source so Home (renderer) and the meeting-notification "Join &
+ * Record" handler (main) prefill a recording identically. The calendar + Meeting
+ * platform enums share values; `null` becomes `undefined` so the lifecycle
+ * defaults it. Carries the invited participants so the AI summary can use real
+ * names instead of "Speaker N". Pure — no IO.
+ */
+export function eventStartParams(event: CalendarEvent): StartMeetingParams {
+  return {
+    title: event.title || undefined,
+    platform: event.platform ?? undefined,
+    calendarAttendees:
+      event.attendees.length > 0
+        ? event.attendees.map((a) => ({ name: a.name, email: a.email }))
+        : undefined,
+  };
+}

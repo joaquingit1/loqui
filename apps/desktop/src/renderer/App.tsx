@@ -197,6 +197,15 @@ export function App({
     setView("meeting");
   }, []);
 
+  // "Join & Record" from the "Meeting Detected" popup (a main-process push) drives
+  // the SAME unified start+capture flow as Home / ⌘N — main has already opened the
+  // join link + surfaced this window.
+  useEffect(() => {
+    const loqui = api ?? (typeof window !== "undefined" ? window.loqui : undefined);
+    if (!loqui?.onStartRequest) return;
+    return loqui.onStartRequest((params) => requestStart(params));
+  }, [api, requestStart]);
+
   // Open a past meeting's detail (summary + chat-below) from a RECENTS row.
   const onOpenMeeting = useCallback((meeting: Meeting) => {
     setSelectedMeeting(meeting);

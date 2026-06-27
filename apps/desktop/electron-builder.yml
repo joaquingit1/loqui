@@ -19,7 +19,7 @@
 
 appId: app.loqui.desktop
 productName: Loqui
-copyright: Copyright © 2026 Loqui contributors
+copyright: Copyright © 2026 Joaquin Castellano and contributors
 
 # electron-vite emits the app into out/{main,preload,renderer}; package those.
 directories:
@@ -34,6 +34,11 @@ files:
 # script stages the PyInstaller/onedir trees under build/runtime/{sidecar,mcp}
 # before electron-builder runs.
 extraResources:
+  # The macOS native helper (Apple Speech ASR + Apple Foundation Models summaries).
+  # main/index.ts points LOQUI_ASR_HELPER_BIN at <Resources>/native/loqui-asr-helper.
+  # Built (arm64) by `pnpm build:helper` before electron-builder runs.
+  - from: native/macos/.build/release/loqui-asr-helper
+    to: native/loqui-asr-helper
   - from: ../../build-helpers
     to: build-helpers
     filter:
@@ -48,37 +53,23 @@ extraResources:
     filter:
       - "**/*"
 
-# macOS: per-arch zipped .app (the update channel) + an optional DMG.
+# macOS: a zipped .app (the update channel) + an optional DMG. v1 ships Apple
+# Silicon (arm64) ONLY — the PyInstaller sidecar + Swift helper are arch-specific
+# and can't cross-compile, so x64 (and Windows) are deferred to a later release
+# that adds the matching CI runners.
 mac:
   category: public.app-category.productivity
   target:
     - target: zip
       arch:
         - arm64
-        - x64
     - target: dmg
       arch:
         - arm64
-        - x64
   # Unsigned: do not auto-discover an identity (keep the build cert-free).
   identity: null
   # Harden the runtime later when notarizing; harmless unsigned.
   hardenedRuntime: false
-
-# Windows: a portable zip (the update channel) + an optional NSIS installer.
-win:
-  target:
-    - target: zip
-      arch:
-        - x64
-    - target: nsis
-      arch:
-        - x64
-
-nsis:
-  oneClick: false
-  perMachine: false
-  allowToChangeInstallationDirectory: true
 
 # Artifact names embed the version + arch so the release `version.json` URLs are
 # stable + predictable (the generator composes them from the tag + these names).

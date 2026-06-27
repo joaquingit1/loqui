@@ -348,6 +348,29 @@ export const IPC = {
    * progress, ready, and errors.
    */
   updaterStateChanged: "loqui:updater:stateChanged",
+
+  // --- "Meeting Detected" desktop popup (fires ~1 min before a calendar event) ---
+  /**
+   * push (main -> the NOTIFICATION window's renderer): a meeting is imminent.
+   * Payload is a {@link import("@loqui/shared").CalendarEvent}. The frameless
+   * always-on-top popup subscribes via `window.loqui.notifications.onMeetingDetected`.
+   */
+  notificationMeetingDetected: "loqui:notification:meetingDetected",
+  /**
+   * invoke (popup -> main): the user clicked "Join & Record" (payload: the event
+   * id). Main opens the join link, brings the main window forward, and asks it to
+   * start a recording prefilled from the event; the popup hides.
+   */
+  notificationJoin: "loqui:notification:join",
+  /** invoke (popup -> main): the user dismissed the popup — hide the window. */
+  notificationDismiss: "loqui:notification:dismiss",
+  /**
+   * push (main -> the MAIN window's renderer): start a recording with these
+   * {@link import("@loqui/shared").StartMeetingParams}. Lets the popup's "Join &
+   * Record" drive the SAME unified start+capture flow as Home/⌘N. The App
+   * subscribes via `window.loqui.onStartRequest`.
+   */
+  meetingStartRequest: "loqui:meeting:startRequest",
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

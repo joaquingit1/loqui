@@ -25,10 +25,10 @@ afterEach(() => {
 });
 
 describe("SettingsStore", () => {
-  it("returns the defaults when no file exists (content protection ON)", () => {
+  it("returns the defaults when no file exists (content protection OFF so screenshots work)", () => {
     const s = new SettingsStore();
     const settings = s.getCaptureSettings();
-    expect(settings.contentProtection).toBe(true);
+    expect(settings.contentProtection).toBe(false);
     expect(settings.audioRetention).toBe("keep");
     expect(settings.perAppAudioFilter).toBe(false);
     expect(settings.exportDir).toBeNull();
@@ -55,7 +55,7 @@ describe("SettingsStore", () => {
     );
     const settings = new SettingsStore().getCaptureSettings();
     expect(settings.audioRetention).toBe("never-save");
-    expect(settings.contentProtection).toBe(true); // defaulted
+    expect(settings.contentProtection).toBe(false); // defaulted (OFF)
     expect(settings.perAppAudioFilter).toBe(false); // defaulted
   });
 
@@ -69,7 +69,7 @@ describe("SettingsStore", () => {
   it("survives a corrupt settings file (falls back to defaults)", () => {
     writeFileSync(join(tmp, "app-settings.json"), "{ not json", "utf8");
     expect(() => new SettingsStore().getCaptureSettings()).not.toThrow();
-    expect(new SettingsStore().getCaptureSettings().contentProtection).toBe(true);
+    expect(new SettingsStore().getCaptureSettings().contentProtection).toBe(false);
   });
 });
 

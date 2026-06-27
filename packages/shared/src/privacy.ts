@@ -47,8 +47,14 @@ export type AudioRetentionPolicy = z.infer<typeof audioRetentionPolicySchema>;
  * additive + defaulted so old configs load forward.
  */
 export const captureSettingsSchema = z.object({
-  /** Exclude the window(s) from screen capture/recording. ON BY DEFAULT. */
-  contentProtection: z.boolean().default(true),
+  /**
+   * Exclude the window(s) from screen capture/recording. OFF BY DEFAULT so the
+   * user can screenshot/share Loqui normally (the previous ON default made the
+   * window invisible to screenshots, which was surprising and there's no toggle
+   * UI to flip it). Re-enable per-window via setContentProtection if a privacy
+   * toggle returns.
+   */
+  contentProtection: z.boolean().default(false),
   /** WAV retention policy; default keeps the audio (re-diarization friendly). */
   audioRetention: audioRetentionPolicySchema,
   /**

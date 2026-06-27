@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -65,6 +66,17 @@ def _resolve_schema_dir() -> Path:
         if not path.is_dir():
             raise SchemaError(f"{SCHEMA_DIR_ENV}={override!r} is not a directory")
         return path
+
+    # Packaged (PyInstaller): the emitted schemas are bundled under <_MEIPASS>/schema
+    # (see build-runtime.mjs --add-data). There is no repo tree to walk in the .app.
+    if getattr(sys, "frozen", False):
+        bundled = Path(getattr(sys, "_MEIPASS", "")) / "schema"
+        if bundled.is_dir():
+            return bundled
+        raise SchemaError(
+            "frozen build is missing the bundled schema/ dir — "
+            "build-runtime.mjs must --add-data the emitted schemas"
+        )
 
     here = Path(__file__).resolve()
     for parent in here.parents:

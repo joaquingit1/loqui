@@ -24,9 +24,7 @@ from typing import Callable, Optional
 
 from ..providers.handler import (
     CONTEXT_CHAR_BUDGET,
-    SPEAKER_LEGEND,
     build_context_message,
-    relabel_speakers,
 )
 from ..providers.types import (
     ChatMessage,
@@ -241,22 +239,63 @@ _ECHO_MARKERS = (
 )
 
 
+#: A line that is (the start of) a transcript utterance rather than summary prose:
+#: an optional bullet, an optional [hh:mm:ss] timestamp, then a speaker label.
+_SPEAKER_LINE = re.compile(
+    r"^\s*(?:[•\-\*]\s*)?(?:\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s*)?"
+    r"(?:\[ME\]|\[OTHER\]|You said|They said|User:)",
+    re.IGNORECASE,
+)
+
+
 def _looks_like_prompt_echo(text: str) -> bool:
-    """True when the provider output is clearly the echoed prompt/instruction.
+    """True when the provider output is the echoed prompt OR the raw transcript.
 
     Defense in depth across providers: a real generative summary never reproduces
-    the instruction verbatim, so the presence of these instruction-only phrases (or
-    the rendered ``User:``-prefixed prompt) marks an echo we must not surface.
+    the instruction verbatim, nor does it parrot the transcript. We reject (1) the
+    instruction-only phrases, (2) the rendered ``User:`` prompt, and (3) a
+    TRANSCRIPT echo — output dominated by speaker-label / timestamped lines (an
+    extractive engine, or a model that copied the transcript with its labels).
     """
     if not text:
         return False
     lowered = text.lower()
     if any(marker in lowered for marker in _ECHO_MARKERS):
         return True
-    # The native helper renders the conversation as "User: …" lines; an extractive
-    # echo therefore starts with that prefix (optionally bulleted).
     stripped = text.lstrip().lstrip("•").lstrip()
-    return stripped.startswith("User:")
+    if stripped.startswith("User:"):
+        return True
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if lines:
+        labeled = sum(1 for ln in lines if _SPEAKER_LINE.match(ln))
+        if labeled >= 2 and labeled / len(lines) >= 0.4:
+            return True
+    return False
+
+
+#: Internal AI-comprehension speaker tokens that must NEVER reach a user-facing
+#: summary. The bracket tags are ours (chat-side relabel); the "X said:" prefixes
+#: are how the transcript renders speakers. Stripped line-by-line as a last resort
+#: (the prompt already forbids them — this catches a stray leak).
+_LEAK_PREFIX = re.compile(
+    r"^(\s*(?:[•\-\*]\s+)?)"  # 1: keep leading bullet/indent
+    r"(?:\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s*)?"  # drop a leading timestamp
+    r"(?:\[ME\]|\[OTHER\]|You|They|User)\s*(?:said|dijo)?\s*:\s*",  # drop the label + colon
+    re.IGNORECASE,
+)
+
+
+def _strip_speaker_labels(text: str) -> str:
+    """Remove leaked speaker-label prefixes/tags from summary text (per line)."""
+    if not text:
+        return text
+    out: list[str] = []
+    for line in text.splitlines():
+        line = _LEAK_PREFIX.sub(r"\1", line, count=1)
+        # Remove any stray bracket tags left mid-line (never valid summary content).
+        line = line.replace("[ME]", "").replace("[OTHER]", "")
+        out.append(line)
+    return "\n".join(out)
 
 
 def _looks_like_json(text: str) -> bool:
@@ -310,9 +349,9 @@ def _parse_summary(text: str, meeting_id: str, provider: str, model: str) -> Sum
     if _looks_like_json(text):
         parsed = _extract_json_object(text)
         if parsed is not None:
-            title = str(parsed.get("title", "")).strip()
-            overview = str(parsed.get("overview", "")).strip()
-            tldr = str(parsed.get("tldr", "")).strip()
+            title = _strip_speaker_labels(str(parsed.get("title", ""))).strip()
+            overview = _strip_speaker_labels(str(parsed.get("overview", ""))).strip()
+            tldr = _strip_speaker_labels(str(parsed.get("tldr", ""))).strip()
             decisions = _coerce_str_list(parsed.get("decisions"))
             action_items = _coerce_action_items(parsed.get("action_items"))
             topics = _coerce_str_list(parsed.get("topics"))
@@ -327,10 +366,13 @@ def _parse_summary(text: str, meeting_id: str, provider: str, model: str) -> Sum
                     **base,
                 )
 
-    # Default markdown path.
+    # Default markdown path. Strip any leaked speaker labels as a last resort so
+    # internal [ME]/[OTHER]/"You said:" tokens never reach the user-facing summary.
     title, overview = _split_title_overview(text)
     if not overview:
         overview = text.strip()
+    title = _strip_speaker_labels(title).strip()
+    overview = _strip_speaker_labels(overview).strip()
     return Summary(title=title, overview=overview, **base)
 
 
@@ -368,14 +410,18 @@ def build_summary_messages(
         transcript = reader.read(meeting_id, "live")
         if len(transcript) > CONTEXT_CHAR_BUDGET:
             transcript = transcript[-CONTEXT_CHAR_BUDGET:]
-        # Detect the language off the ORIGINAL text, then relabel the COPY that goes
-        # into the <transcript> so [ME]/[OTHER] tags reach the model (the stored
-        # transcript is untouched).
         lang = detect_transcript_language(transcript)
-        transcript = relabel_speakers(transcript)
-        # Keep NOTETAKER_PROMPT FIRST (tests assert the system message starts with
-        # it), then explain the [ME]/[OTHER] tags via the shared legend.
-        system_parts = [NOTETAKER_PROMPT, SPEAKER_LEGEND]
+        # NOTETAKER_PROMPT stays FIRST (tests assert it). The transcript keeps its
+        # ORIGINAL "You said:"/"They said:" labels so the model still knows who
+        # spoke — but we do NOT inject [ME]/[OTHER] tags or a speaker legend here.
+        # On the small on-device model (Apple Foundation Models) the legend pushed
+        # it to COPY transcript lines verbatim and reproduce the labels; testing
+        # also showed an explicit "write NEW sentences" anti-echo rule made it
+        # HALLUCINATE unrelated content. The notetaker prompt's own "be faithful /
+        # don't pad" rule is what produces a clean, faithful summary, so the system
+        # is JUST that prompt (+ the language directive + calendar context below).
+        # Chat keeps the [ME]/[OTHER] legend — strong cloud models handle it.
+        system_parts = [NOTETAKER_PROMPT]
         # Name the transcript's language EXPLICITLY when we can tell it — a small
         # on-device model follows "Write in Spanish" far more reliably than the
         # generic "match the transcript" rule (which it inconsistently ignored,

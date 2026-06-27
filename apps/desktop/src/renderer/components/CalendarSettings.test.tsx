@@ -94,22 +94,39 @@ describe("CalendarSettings", () => {
   });
 
   it("disconnects a connected provider account", async () => {
+    // Google is the connectable provider (microsoft/zoom are "coming soon").
     const initial: CalendarConnection[] = [
-      { provider: "zoom", account: "me@zoom.us", lastSyncAt: null },
+      { provider: "google", account: "me@gmail.com", lastSyncAt: null },
     ];
     const { api } = makeApi(initial);
     render(<CalendarSettings api={api} />);
-    await waitFor(() => expect(screen.getByTestId("calendar-disconnect-zoom")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("calendar-disconnect-google")).toBeTruthy());
     // Never-synced label.
-    expect(screen.getByTestId("calendar-account-zoom-me@zoom.us").textContent).toMatch(
+    expect(screen.getByTestId("calendar-account-google-me@gmail.com").textContent).toMatch(
       /Never synced/,
     );
 
-    fireEvent.click(screen.getByTestId("calendar-disconnect-zoom"));
+    fireEvent.click(screen.getByTestId("calendar-disconnect-google"));
 
-    await waitFor(() => expect(api.disconnect).toHaveBeenCalledWith("zoom", "me@zoom.us"));
-    await waitFor(() => expect(screen.getByTestId("calendar-connect-zoom")).toBeTruthy());
-    expect(screen.queryByTestId("calendar-account-zoom-me@zoom.us")).toBeNull();
+    await waitFor(() => expect(api.disconnect).toHaveBeenCalledWith("google", "me@gmail.com"));
+    await waitFor(() => expect(screen.getByTestId("calendar-connect-google")).toBeTruthy());
+    expect(screen.queryByTestId("calendar-account-google-me@gmail.com")).toBeNull();
+  });
+
+  it("shows Outlook & Zoom as 'Coming soon' (dimmed, no Connect button)", async () => {
+    const { api } = makeApi();
+    render(<CalendarSettings api={api} />);
+    await waitFor(() => expect(screen.getByTestId("calendar-connect-google")).toBeTruthy());
+
+    for (const provider of ["microsoft", "zoom"] as const) {
+      expect(screen.getByTestId(`calendar-soon-${provider}`).textContent).toMatch(/coming soon/i);
+      // No (enabled) Connect/Disconnect affordance for a coming-soon provider.
+      expect(screen.queryByTestId(`calendar-connect-${provider}`)).toBeNull();
+      expect(screen.queryByTestId(`calendar-disconnect-${provider}`)).toBeNull();
+      expect(
+        screen.getByTestId(`calendar-provider-${provider}`).getAttribute("data-coming-soon"),
+      ).toBe("true");
+    }
   });
 
   it("surfaces a failed/cancelled connect", async () => {
@@ -117,12 +134,12 @@ describe("CalendarSettings", () => {
       connect: vi.fn(async () => ({ connected: false })),
     });
     render(<CalendarSettings api={api} />);
-    await waitFor(() => expect(screen.getByTestId("calendar-connect-microsoft")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("calendar-connect-google")).toBeTruthy());
 
-    fireEvent.click(screen.getByTestId("calendar-connect-microsoft"));
+    fireEvent.click(screen.getByTestId("calendar-connect-google"));
     await waitFor(() =>
       expect(screen.getByTestId("calendar-settings-error").textContent).toMatch(
-        /Could not connect Microsoft/i,
+        /Could not connect Google/i,
       ),
     );
   });

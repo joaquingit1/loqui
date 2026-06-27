@@ -1,7 +1,9 @@
 {
   "name": "@loqui/desktop",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
+  "description": "Loqui — local-first meeting transcription, notes & AI chat.",
+  "author": "Joaquin Castellano and contributors",
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
@@ -13,7 +15,8 @@
     "test:e2e": "playwright test",
     "lint": "eslint . --max-warnings 0",
     "build:runtime": "node scripts/build-runtime.mjs",
-    "package": "pnpm build:worklet && electron-vite build && electron-builder",
+    "build:helper": "bash native/macos/build.sh --foundation",
+    "package": "pnpm build:worklet && electron-vite build && pnpm build:helper && pnpm build:runtime && electron-builder",
     "postinstall": "electron-rebuild -f -w better-sqlite3 || true"
   },
   "dependencies": {

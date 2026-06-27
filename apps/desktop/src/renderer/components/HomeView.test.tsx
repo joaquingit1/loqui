@@ -30,6 +30,7 @@ function event(overrides: Partial<CalendarEvent>): CalendarEvent {
     title: "Untitled",
     startsAt: iso(0, 10),
     endsAt: iso(0, 11),
+    allDay: false,
     platform: "google-meet",
     joinUrl: "https://meet.example/abc",
     attendees: [],
@@ -172,6 +173,26 @@ describe("HomeView", () => {
     // The today item is NOT duplicated into the upcoming peek.
     expect(screen.queryByTestId("home-upcoming-t1")).toBeNull();
     expect(screen.getByTestId("home-upcoming-u1")).toBeTruthy();
+  });
+
+  it("upcoming entries carry a Join & record button that starts a meeting", async () => {
+    const openExternal = vi.fn();
+    const onStartMeeting = vi.fn();
+    const { api } = makeCalendar({ today: [], upcoming: [TOMORROW] });
+    render(
+      <HomeView
+        calendar={api}
+        now={NOW}
+        onStartMeeting={onStartMeeting}
+        openExternal={openExternal}
+      />,
+    );
+
+    // The upcoming row renders its own record button (testid home-join-<id>).
+    const joinBtn = await screen.findByTestId(`home-join-${TOMORROW.id}`);
+    expect(joinBtn.textContent).toMatch(/record/i);
+    fireEvent.click(joinBtn);
+    expect(onStartMeeting).toHaveBeenCalledTimes(1);
   });
 
   it("shows the today-empty state when connected but nothing is scheduled", async () => {

@@ -239,6 +239,7 @@ export function createCalendarService(deps: CreateCalendarServiceDeps): Calendar
         // A cancelled / failed connect leaves nothing persisted. Surface the
         // REASON (e.g. "not configured — set LOQUI_GOOGLE_CLIENT_ID") so the UI
         // can tell the user WHY instead of a generic "could not connect".
+        console.error(`[loqui] calendar connect (${provider}) failed:`, err);
         return {
           connected: false,
           reason: err instanceof Error ? err.message : String(err),

@@ -65,6 +65,16 @@ logs/
 *.exe
 *.app/
 release/
+# electron-builder output dir (the .app/.dmg/.zip + blockmaps + builder-debug.yml)
+dist-app/
+# PyInstaller spec written to the repo root by build-runtime.mjs (regenerated each build)
+/loqui-sidecar.spec
+
+# Runtime state + SECRETS that can land in the repo root when the app/sidecar is
+# run with cwd=repo (the real ones live under ~/Loqui). NEVER commit these —
+# calendar-tokens.json holds OAuth access/refresh tokens.
+/calendar-tokens.json
+/app-settings.json
 
 # Playwright E2E artifacts
 test-results/

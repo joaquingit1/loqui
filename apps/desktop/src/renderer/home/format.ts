@@ -12,7 +12,6 @@ import type {
   CalendarEvent,
   CalendarPlatform,
   CalendarProviderId,
-  StartMeetingParams,
 } from "@loqui/shared";
 import type { IconName } from "../components/Icon.js";
 
@@ -150,20 +149,7 @@ export function formatLastSync(lastSyncAt: CalendarConnection["lastSyncAt"]): st
   return t ? `Synced ${t}` : "Synced";
 }
 
-/**
- * Map a calendar event's platform to the Meeting platform enum for prefilling a
- * "join & record" start. The two enums share values; `null` stays `null` so the
- * lifecycle defaults it. ("other" is a valid Meeting platform too.)
- */
-export function eventStartParams(event: CalendarEvent): StartMeetingParams {
-  return {
-    title: event.title || undefined,
-    platform: event.platform ?? undefined,
-    // Carry the invited participants so the AI summary can use real names
-    // instead of "Speaker N" (only known when launched from a calendar event).
-    calendarAttendees:
-      event.attendees.length > 0
-        ? event.attendees.map((a) => ({ name: a.name, email: a.email }))
-        : undefined,
-  };
-}
+// `eventStartParams` now lives in @loqui/shared (single source — also used by the
+// main-process meeting-notification "Join & Record" handler). Re-exported here so
+// existing Home imports (`../home/format`) keep working.
+export { eventStartParams } from "@loqui/shared";

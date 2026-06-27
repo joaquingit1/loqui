@@ -221,7 +221,16 @@ export async function exchangeCode(args: {
     body: body.toString(),
   });
   if (!res.ok) {
-    throw new Error(`OAuth token exchange failed (${res.status})`);
+    // Surface Google's actual error body (e.g. {"error":"invalid_client",
+    // "error_description":"..."}) — the status alone hides WHY. A Desktop-app
+    // client that omits client_secret fails here with invalid_client.
+    let detail = "";
+    try {
+      detail = (await res.text()).trim().slice(0, 300);
+    } catch {
+      /* body unreadable — fall back to the bare status */
+    }
+    throw new Error(`OAuth token exchange failed (${res.status})${detail ? `: ${detail}` : ""}`);
   }
   const json = (await res.json()) as RawTokenResponse;
   if (json.error || !json.access_token) {

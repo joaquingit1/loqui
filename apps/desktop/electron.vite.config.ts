@@ -14,6 +14,19 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin({ exclude: ["@loqui/shared"] })],
+    // Bake the bundled Google OAuth client id/secret into the main bundle at
+    // build time from the build env (GitHub Actions secrets in CI; see
+    // release.yml). The credential is NEVER committed — src/main/calendar/
+    // providers.ts reads `process.env.LOQUI_GOOGLE_CLIENT_*_BAKED`, which these
+    // defines replace with the literal at build (empty in a plain source build).
+    define: {
+      "process.env.LOQUI_GOOGLE_CLIENT_ID_BAKED": JSON.stringify(
+        process.env["LOQUI_GOOGLE_CLIENT_ID"] ?? "",
+      ),
+      "process.env.LOQUI_GOOGLE_CLIENT_SECRET_BAKED": JSON.stringify(
+        process.env["LOQUI_GOOGLE_CLIENT_SECRET"] ?? "",
+      ),
+    },
     build: {
       rollupOptions: {
         input: { index: resolve(__dirname, "src/main/index.ts") },
@@ -43,7 +56,11 @@ export default defineConfig({
     },
     build: {
       rollupOptions: {
-        input: { index: resolve(__dirname, "src/renderer/index.html") },
+        input: {
+          index: resolve(__dirname, "src/renderer/index.html"),
+          // Second window: the always-on-top "Meeting Detected" popup.
+          notification: resolve(__dirname, "src/renderer/notification.html"),
+        },
       },
     },
   },

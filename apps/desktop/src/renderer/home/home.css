@@ -84,56 +84,71 @@
   color: var(--text-faint);
 }
 
-/* --- Meetings-ahead cards -------------------------------------------------- */
+/* The Upcoming peek: the overline + its rows were flush (both margin:0). Give a
+   proportional gap between the "Upcoming" label and the first event row. */
+.home__upcoming {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* --- Meetings-ahead: agenda rows (DESIGN-SYSTEM §9.8) — a real calendar
+   agenda: a tabular time gutter, the title, and quiet meta; rows are separated
+   by SPACE and only tint on hover (no per-row card, no icon chip, no resting
+   accent). The platform is a small muted glyph, not a coloured circle. ------- */
 .home__rows {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 2px;
 }
 
-.home__row {
+.home__event {
   display: flex;
-  align-items: center;
+  /* Top-align so the time sits on the SAME line as the title (a true ruler),
+     not floated to the vertical centre of the two-line body. */
+  align-items: flex-start;
   gap: var(--space-4);
-  padding: var(--space-4) var(--space-5);
-  background: var(--panel-glass);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  border-radius: var(--radius-lg);
-  box-shadow:
-    inset 0 1px 0 var(--edge-light),
-    var(--shadow-sm);
-}
-
-.home__row--peek {
-  background: transparent;
-  box-shadow: none;
-  padding: var(--space-3) var(--space-5);
-}
-
-.home__row-icon {
-  flex: none;
-  width: 38px;
-  height: 38px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.home__event:hover {
   background: var(--accent-tint);
-  color: var(--accent-ink);
 }
 
-.home__row--peek .home__row-icon {
-  width: 30px;
-  height: 30px;
-  background: var(--surface-sunken);
-  color: var(--text-dim);
+/* Time gutter — tabular, right-aligned, ONE fixed width across today + upcoming
+   so every title starts at the same x (the ruler). Inner gap matches the body's
+   so the second lines (relative / meta) line up too. */
+.home__event-when {
+  flex: none;
+  width: 88px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: right;
 }
 
-.home__row-main {
+.home__event-time {
+  /* Match the title's size + line-height exactly so the two first lines align. */
+  font-size: var(--text-subhead);
+  line-height: 1.35;
+  font-weight: var(--weight-semibold);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.home__event-rel,
+.home__event-day {
+  font-size: var(--text-caption);
+  color: var(--text-faint);
+}
+
+.home__event-body {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -141,38 +156,40 @@
   flex: 1;
 }
 
-.home__row-title {
+.home__event-title {
   font-size: var(--text-subhead);
-  font-weight: var(--weight-semibold);
+  line-height: 1.35;
+  font-weight: var(--weight-medium);
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.home__row-meta {
+.home__event-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
   font-size: var(--text-caption);
   color: var(--text-dim);
 }
 
-.home__row-time {
-  font-weight: var(--weight-medium);
-  color: var(--text);
+.home__event-platform {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
-.home__row-rel {
-  color: var(--accent-ink);
-  font-weight: var(--weight-medium);
+/* The glyph stays a faint hint — never a coloured chip. */
+.home__event-platform svg {
+  color: var(--text-faint);
 }
 
-.home__row-platform,
-.home__row-day,
-.home__row-attendees {
-  color: var(--text-dim);
+/* Upcoming peek — even lighter; the gutter shows the day above the time, on the
+   SAME ruler width as today's rows so titles stay aligned across both sections. */
+.home__event--peek {
+  padding: var(--space-2) var(--space-4);
 }
 
 /* --- Quick-start actions — a light, borderless list (NOT cards): no chrome,
@@ -265,9 +282,37 @@
   max-width: 60ch;
 }
 
-.btn--join {
+/* "Join & record" / "Record" — a quiet, design-system button (NOT a green pill
+   with an accent ring). Neutral at rest; turns red on hover/focus since record
+   is the live action (red). Centred in the now top-aligned row. */
+/* NOTE: scoped under .home__event (specificity 0,2,0) so these BEAT the base
+   .btn (0,1,0) no matter the stylesheet order — main.tsx imports App (→ home.css)
+   before styles.css, so an unscoped .btn--join would lose every shared property
+   to .btn (green fill + white text). Dark --text on --surface-sunken keeps the
+   label clearly legible at rest; red on hover/focus (record = live/red). */
+.home__event .btn--join {
   flex: none;
-  border-radius: var(--radius-pill);
+  align-self: center;
+  /* Text-only affordance: NO fill, border, or ring (red OR green) around the
+     label — just the words. Padding stays minimal so there's no visible box. */
+  background: transparent;
+  color: var(--text-dim);
+  box-shadow: none;
+  border: 0;
+  padding: 0 var(--space-1);
+  border-radius: 0;
+}
+
+/* Hover/focus tints only the TEXT red (record = live), never a background box. */
+.home__event .btn--join:hover:not(:disabled),
+.home__event .btn--join:focus-visible {
+  background: transparent;
+  color: var(--red);
+}
+
+.home__event .btn--join:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 .btn--ghost {
@@ -295,6 +340,18 @@
   padding: var(--space-4);
   background: var(--surface-sunken);
   border-radius: var(--radius-md);
+}
+
+/* Not-yet-available providers (Outlook/Zoom): dim the row + a quiet muted
+   "Coming soon" label — no badge, pill, or outline. */
+.calendar-settings__row--soon {
+  opacity: 0.55;
+}
+
+.calendar-settings__soon {
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  color: var(--text-faint);
 }
 
 .calendar-settings__row-head {

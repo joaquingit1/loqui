@@ -153,14 +153,14 @@ export class AppPaths {
   }
 
   /**
-   * Resolve the bundled MCP server binary. Returns null in dev (the lifecycle
-   * resolver then falls back to the built JS bin / PATH). Packaged: the
-   * `loqui-mcp` executable under `resources/mcp/`.
+   * Resolve the bundled MCP server entry. Returns null in dev (the lifecycle
+   * resolver then falls back to the repo JS bin / PATH). Packaged: the esbuild-
+   * bundled JS at `resources/mcp/dist/bin/loqui-mcp.js` (run under Electron-as-
+   * Node, like the sidecar) — NOT a standalone executable.
    */
   bundledMcpBin(): string | null {
     if (!this.app.isPackaged) return null;
-    const exe = this.env.platform === "win32" ? "loqui-mcp.exe" : "loqui-mcp";
-    const candidate = join(this.resourcesDir(), "mcp", exe);
+    const candidate = join(this.resourcesDir(), "mcp", "dist", "bin", "loqui-mcp.js");
     return existsSync(candidate) ? candidate : null;
   }
 }

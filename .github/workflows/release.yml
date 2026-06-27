@@ -24,7 +24,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        # v1 is macOS Apple-Silicon only (arm64). Windows + Intel are deferred to a
+        # later release that adds the matching runners (the PyInstaller sidecar +
+        # Swift helper are arch/OS-specific and can't cross-compile). macos-latest
+        # is Apple Silicon and ships full Xcode (needed for the FoundationModels
+        # helper build below).
+        os: [macos-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -61,9 +66,22 @@ jobs:
       - name: Build MCP server
         run: pnpm --filter @loqui/mcp-server build
 
-      # electron-vite -> out/{main,preload,renderer}
+      # electron-vite -> out/{main,preload,renderer}. The Google OAuth client
+      # id/secret are baked into the main bundle here from repo Actions secrets
+      # (electron.vite.config.ts `define`) — they are never committed to source.
       - name: Build desktop app
         run: pnpm --filter @loqui/desktop build
+        env:
+          LOQUI_GOOGLE_CLIENT_ID: ${{ secrets.LOQUI_GOOGLE_CLIENT_ID }}
+          LOQUI_GOOGLE_CLIENT_SECRET: ${{ secrets.LOQUI_GOOGLE_CLIENT_SECRET }}
+
+      # Build the macOS native Swift helper (Apple Speech ASR + Apple Foundation
+      # Models summaries). electron-builder copies it via extraResources
+      # (native/macos/.build/release/loqui-asr-helper); without this the package
+      # step fails on the missing `from:` path. macos-latest has full Xcode, so the
+      # FoundationModels compile succeeds.
+      - name: Build native helper (Swift)
+        run: pnpm --filter @loqui/desktop run build:helper
 
       # Stage the bundled Python sidecar + MCP runtime under
       # apps/desktop/build/runtime/{sidecar,mcp} (PyInstaller onedir for the
@@ -81,11 +99,15 @@ jobs:
           # Belt-and-suspenders: ensure no accidental signing/notarization.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
+      # The updater consumes the .zip; humans download the .dmg. Carry both to the
+      # publish job so both reach the GitHub Release.
       - name: Upload platform artifacts
         uses: actions/upload-artifact@v4
         with:
           name: artifacts-${{ matrix.os }}
-          path: apps/desktop/dist-app/*.zip
+          path: |
+            apps/desktop/dist-app/*.zip
+            apps/desktop/dist-app/*.dmg
           if-no-files-found: error
 
   publish:
@@ -121,7 +143,9 @@ jobs:
           node <<'NODE'
           const fs = require("fs");
           const manifest = JSON.parse(fs.readFileSync("dist/version.json", "utf8"));
-          const expected = ["darwin-arm64", "darwin-x64", "win32-x64"];
+          // v1 ships macOS arm64 only; add darwin-x64 / win32-x64 here when those
+          // build runners are reintroduced.
+          const expected = ["darwin-arm64"];
           const missing = expected.filter((key) => !manifest.platforms?.[key]);
           if (missing.length > 0) {
             console.error(`version.json missing platform asset(s): ${missing.join(", ")}`);
@@ -137,4 +161,5 @@ jobs:
           generate_release_notes: true
           files: |
             dist/*.zip
+            dist/*.dmg
             dist/version.json

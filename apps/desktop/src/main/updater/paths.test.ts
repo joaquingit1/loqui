@@ -22,12 +22,14 @@ describe("AppPaths — packaged", () => {
   it("resolves bundled sidecar + MCP binaries under resourcesPath when present", () => {
     const resources = mkdtempSync(join(tmpdir(), "loqui-res-"));
     mkdirSync(join(resources, "sidecar"), { recursive: true });
-    mkdirSync(join(resources, "mcp"), { recursive: true });
+    // The MCP is an esbuild-bundled JS run under Electron-as-Node, at
+    // mcp/dist/bin/loqui-mcp.js (not a standalone executable).
+    mkdirSync(join(resources, "mcp", "dist", "bin"), { recursive: true });
     const isWin = process.platform === "win32";
     const sidecarExe = isWin ? "loqui-sidecar.exe" : "loqui-sidecar";
-    const mcpExe = isWin ? "loqui-mcp.exe" : "loqui-mcp";
+    const mcpBin = join(resources, "mcp", "dist", "bin", "loqui-mcp.js");
     writeFileSync(join(resources, "sidecar", sidecarExe), "#bin");
-    writeFileSync(join(resources, "mcp", mcpExe), "#bin");
+    writeFileSync(mcpBin, "// bundled mcp");
 
     const paths = new AppPaths(fakeApp({ isPackaged: true }), {
       platform: process.platform,
@@ -35,7 +37,7 @@ describe("AppPaths — packaged", () => {
       execPath: join(resources, "..", isWin ? "Loqui.exe" : "Loqui"),
     });
     expect(paths.bundledSidecarBin()).toBe(join(resources, "sidecar", sidecarExe));
-    expect(paths.bundledMcpBin()).toBe(join(resources, "mcp", mcpExe));
+    expect(paths.bundledMcpBin()).toBe(mcpBin);
     expect(paths.helperScript()).toBe(
       join(resources, "build-helpers", isWin ? "update-helper.ps1" : "update-helper.sh"),
     );

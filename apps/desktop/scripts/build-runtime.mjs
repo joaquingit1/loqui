@@ -39,6 +39,10 @@ import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, rmSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { build as esbuild } from "esbuild";
+
+const require = createRequire(import.meta.url);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = join(here, "..");
@@ -75,7 +79,29 @@ try {
       "loqui-sidecar",
       "--distpath",
       runtimeDir,
-      join(repoRoot, "sidecar", "loqui_sidecar", "__main__.py"),
+      // Resolve the package + pull the native-lib packages whole (their .dylibs +
+      // data files are loaded dynamically, so PyInstaller's static analysis misses
+      // them without --collect-all).
+      "--paths",
+      join(repoRoot, "sidecar"),
+      "--collect-all",
+      "ctranslate2",
+      "--collect-all",
+      "faster_whisper",
+      "--collect-all",
+      "sherpa_onnx",
+      "--collect-all",
+      "onnxruntime",
+      "--collect-all",
+      "av",
+      // Bundle the emitted JSON Schemas the sidecar validates against (it can't
+      // walk to packages/shared/schema from inside the .app). schemas.py reads
+      // them from <_MEIPASS>/schema when frozen.
+      "--add-data",
+      `${join(repoRoot, "packages", "shared", "schema")}:schema`,
+      // Absolute-import entry (NOT __main__.py directly — that breaks relative
+      // imports + the dependency analysis).
+      join(repoRoot, "sidecar", "pyinstaller_entry.py"),
     ],
     { stdio: "inherit", cwd: repoRoot },
   );
@@ -91,18 +117,44 @@ try {
   warn(`sidecar build skipped/failed: ${err.message}`);
 }
 
-// --- MCP server (built JS dist + node_modules) -------------------------------
+// --- MCP server (esbuild-bundled, self-contained) ----------------------------
+// The raw tsc dist has bare imports (@loqui/shared, @modelcontextprotocol/sdk,
+// zod, better-sqlite3) that don't resolve in the .app (no node_modules there).
+// Bundle the JS deps into ONE file; keep the native better-sqlite3 external and
+// ship it + its runtime loader (bindings, file-uri-to-path) beside the bundle so
+// `require('bindings')('better_sqlite3.node')` resolves. The bin path is
+// unchanged (dist/bin/loqui-mcp.js) so the lifecycle + Claude Code registration
+// still point at it.
 try {
-  const mcpDist = join(repoRoot, "mcp-server", "dist");
-  if (existsSync(mcpDist)) {
-    log("staging the built MCP server dist…");
+  const mcpEntry = join(repoRoot, "mcp-server", "dist", "bin", "loqui-mcp.js");
+  if (existsSync(mcpEntry)) {
+    log("bundling the MCP server (esbuild; better-sqlite3 external)…");
     rmSync(mcpOut, { recursive: true, force: true });
-    mkdirSync(mcpOut, { recursive: true });
-    cpSync(mcpDist, join(mcpOut, "dist"), { recursive: true });
-    // Ship the MCP package.json so its bin path resolves.
-    const pkg = join(repoRoot, "mcp-server", "package.json");
-    if (existsSync(pkg)) cpSync(pkg, join(mcpOut, "package.json"));
-    log(`mcp staged -> ${mcpOut}`);
+    mkdirSync(join(mcpOut, "dist", "bin"), { recursive: true });
+    await esbuild({
+      entryPoints: [mcpEntry],
+      bundle: true,
+      platform: "node",
+      format: "esm",
+      target: "node20",
+      external: ["better-sqlite3"],
+      outfile: join(mcpOut, "dist", "bin", "loqui-mcp.js"),
+    });
+    // type:module so Node treats the bundled .js as ESM.
+    cpSync(join(repoRoot, "mcp-server", "package.json"), join(mcpOut, "package.json"));
+    // Copy the native module + its runtime loader, resolved from each other's
+    // perspective (pnpm), into the bundle's node_modules so the external import
+    // walks up to them. better-sqlite3's .node is the Electron-ABI build.
+    const copyPkg = (name, fromReq) => {
+      const dir = dirname(fromReq.resolve(`${name}/package.json`));
+      cpSync(dir, join(mcpOut, "node_modules", name), { recursive: true, dereference: true });
+      return dir;
+    };
+    const bsqDir = copyPkg("better-sqlite3", require);
+    const bsqReq = createRequire(join(bsqDir, "package.json"));
+    const bindingsDir = copyPkg("bindings", bsqReq);
+    copyPkg("file-uri-to-path", createRequire(join(bindingsDir, "package.json")));
+    log(`mcp bundled -> ${mcpOut}`);
   } else {
     warn("mcp-server/dist not found — run `pnpm --filter @loqui/mcp-server build` first.");
   }

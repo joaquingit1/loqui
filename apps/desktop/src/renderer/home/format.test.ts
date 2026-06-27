@@ -104,6 +104,7 @@ describe("home/format", () => {
       title,
       startsAt: at(h),
       endsAt: at(h + 1),
+      allDay: false,
       platform: "zoom",
       joinUrl: null,
       attendees: [],
@@ -127,6 +128,7 @@ describe("home/format", () => {
       id: "e",
       startsAt: NOW.toISOString(),
       endsAt: NOW.toISOString(),
+      allDay: false,
       attendees: [],
       source: "google" as const,
       calendarAccount: "me",
@@ -150,6 +152,7 @@ describe("home/format", () => {
       platform: "google-meet",
       startsAt: NOW.toISOString(),
       endsAt: NOW.toISOString(),
+      allDay: false,
       attendees: [
         { name: "Sarah Lee", email: "sarah@x.com" },
         { name: "John Park", email: null },

@@ -132,6 +132,13 @@ function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
       quitAndInstall: vi.fn(async () => {}),
       onState: () => () => {},
     },
+    // "Meeting Detected" popup bridge: no-op fakes (the popup is its own window).
+    notifications: {
+      onMeetingDetected: () => () => {},
+      join: vi.fn(async () => {}),
+      dismiss: vi.fn(async () => {}),
+    },
+    onStartRequest: () => () => {},
     ...overrides,
   };
   return { api, emitStatus: (s) => cb?.(s) };

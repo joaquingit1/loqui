@@ -85,7 +85,16 @@ async function getJson(http: CalendarHttp, url: string, accessToken: string): Pr
     headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
   });
   if (!res.ok) {
-    throw new Error(`calendar list request failed (${res.status})`);
+    // Name the endpoint so a 401/403 is unambiguous — the userinfo lookup and
+    // the events list share this helper but fail for different reasons (missing
+    // openid/email scope vs missing/unenabled calendar access).
+    let where = url;
+    try {
+      where = new URL(url).pathname;
+    } catch {
+      /* keep the raw url */
+    }
+    throw new Error(`calendar request failed (${res.status}) for ${where}`);
   }
   return res.json();
 }
@@ -213,15 +222,34 @@ const CLIENT_ID_ENV: Record<CalendarSource, string> = {
 
 /**
  * Bundled PUBLIC Google OAuth client id (an installed / "Desktop app" client).
- * This is NOT a secret: for native apps it's embedded in every install and only
- * identifies the APP to Google — never a user. Security comes from PKCE + the
- * loopback redirect + per-user consent (see ./oauth.ts); a leaked client id
- * cannot read anyone's calendar. `LOQUI_GOOGLE_CLIENT_ID` overrides it so a user
- * can bring their own Google project (no shared quota / no dependency on our
- * OAuth-consent verification).
+ * This is NOT a user secret: for native apps it's embedded in every install and
+ * only identifies the APP to Google — never a user. Security comes from PKCE +
+ * the loopback redirect + per-user consent (see ./oauth.ts); a leaked client id
+ * cannot read anyone's calendar.
+ *
+ * It is nonetheless kept OUT of source: the value is BAKED IN at build time from
+ * the `LOQUI_GOOGLE_CLIENT_ID` build env (a GitHub Actions secret in CI; see
+ * electron.vite.config.ts `define` + .github/workflows/release.yml), so the
+ * public repo never carries the credential and Google's secret-scanner can't
+ * auto-revoke it. Empty in a plain source build → set the env to enable Google
+ * (or use the runtime `LOQUI_GOOGLE_CLIENT_ID` override for a BYO project).
  */
-const DEFAULT_GOOGLE_CLIENT_ID =
-  "525627645392-onqb9jdqoq9ho6p1lbl6oh9spu8s2pts.apps.googleusercontent.com";
+function defaultGoogleClientId(): string {
+  return process.env.LOQUI_GOOGLE_CLIENT_ID_BAKED ?? "";
+}
+
+/**
+ * Bundled default Google client SECRET — also NOT confidential for a native app.
+ * Google issues a "secret" even for Desktop-app clients and REQUIRES it at the
+ * token-exchange step (it rejects the PKCE-only exchange with `invalid_client`),
+ * but it explicitly documents that installed apps cannot keep it private. Same
+ * build-time injection as the id above (from `LOQUI_GOOGLE_CLIENT_SECRET`), so it
+ * never lives in source. Security still rests on PKCE + the loopback redirect +
+ * per-user consent — the secret only re-identifies the app.
+ */
+function defaultGoogleClientSecret(): string {
+  return process.env.LOQUI_GOOGLE_CLIENT_SECRET_BAKED ?? "";
+}
 
 abstract class OAuthCalendarProvider implements CalendarProvider {
   abstract readonly id: CalendarSource;
@@ -312,6 +340,8 @@ export function normalizeGoogleEvent(raw: any, account: string): CalendarEvent |
     title: typeof raw?.summary === "string" ? raw.summary : "",
     startsAt: toIso(start),
     endsAt: toIso(end),
+    // Google all-day events carry `start.date` (no `dateTime`).
+    allDay: !raw?.start?.dateTime,
     platform,
     joinUrl,
     attendees,
@@ -329,12 +359,15 @@ export class GoogleProvider extends OAuthCalendarProvider {
       tokenUrl: "https://oauth2.googleapis.com/token",
       // Use the user's own client id when set, else the bundled public default
       // (empty string also falls back, not just unset).
-      clientId: process.env["LOQUI_GOOGLE_CLIENT_ID"] || DEFAULT_GOOGLE_CLIENT_ID,
-      // Google "Desktop app" clients may require their (non-confidential) client
-      // secret at token exchange even with PKCE. Optional — set
-      // LOQUI_GOOGLE_CLIENT_SECRET if your client rejects the PKCE-only exchange.
-      clientSecret: process.env["LOQUI_GOOGLE_CLIENT_SECRET"] || undefined,
-      scope: "https://www.googleapis.com/auth/calendar.events.readonly",
+      clientId: process.env["LOQUI_GOOGLE_CLIENT_ID"] || defaultGoogleClientId(),
+      // Google "Desktop app" clients REQUIRE their (non-confidential) client
+      // secret at token exchange even with PKCE — without it the exchange fails
+      // with `invalid_client`. Use the user's own when set, else the bundled one.
+      clientSecret: process.env["LOQUI_GOOGLE_CLIENT_SECRET"] || defaultGoogleClientSecret(),
+      // `openid email` are needed so the userinfo endpoint returns the account
+      // email (without them it 401s); `calendar.events.readonly` is the actual
+      // data scope. Both userinfo scopes are non-sensitive (no extra verification).
+      scope: "openid email https://www.googleapis.com/auth/calendar.events.readonly",
       redirectPath: "/oauth/google",
       // access_type=offline + prompt=consent so Google returns a refresh token.
       extraAuthParams: { access_type: "offline", prompt: "consent" },
@@ -403,6 +436,7 @@ export function normalizeMicrosoftEvent(raw: any, account: string): CalendarEven
     title: typeof raw?.subject === "string" ? raw.subject : "",
     startsAt: toIso(start),
     endsAt: toIso(end),
+    allDay: raw?.isAllDay === true,
     platform,
     joinUrl,
     attendees,
