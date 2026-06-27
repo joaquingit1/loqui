@@ -131,9 +131,49 @@ def test_default_flow_uses_builtin_instruction(data_dir):
     reader = FsTranscriptReader()
     messages = build_summary_messages("m1", ProviderConfig(provider="fake"), reader)
     assert messages[0].role == "system"
-    assert messages[0].content == SUMMARY_INSTRUCTION  # == NOTETAKER_PROMPT
+    # The system message LEADS with the notetaker prompt (an explicit-language
+    # directive may follow when the transcript language is detectable).
+    assert messages[0].content.startswith(SUMMARY_INSTRUCTION)  # == NOTETAKER_PROMPT
     assert "<transcript>" not in messages[0].content
     assert messages[-1].role == "user" and "<transcript>" in messages[-1].content
+
+
+def test_detect_transcript_language():
+    from loqui_sidecar.postprocess.summary import detect_transcript_language as d
+
+    assert d("bueno acá estamos haciendo una prueba de las cosas que tenemos que terminar para la semana en la empresa con el equipo") == "Spanish"
+    assert d("the meeting focused on the things that we have to do for the week and the team agreed to ship the product with new features") == "English"
+    assert d("bom estamos aqui fazendo um teste das coisas que temos que terminar para a semana na empresa com a equipe não") == "Portuguese"
+    # Too short / ambiguous -> None (falls back to the generic rule).
+    assert d("ok sure") is None
+
+
+class _FakeReader:
+    def __init__(self, text: str):
+        self._text = text
+
+    def read(self, meeting_id, variant="live"):  # noqa: ARG002
+        return self._text
+
+
+def test_default_flow_names_the_transcript_language_explicitly():
+    """A Spanish transcript -> the system message tells the model to write in
+    Spanish explicitly (so the small on-device model doesn't default to English)."""
+    reader = _FakeReader(
+        "bueno acá estamos haciendo una prueba de producto de las cosas que tenemos "
+        "que terminar para la semana que viene en la empresa con el equipo de operaciones"
+    )
+    messages = build_summary_messages("m1", ProviderConfig(provider="fake"), reader)
+    system = messages[0].content
+    assert "in Spanish" in system and "NON-NEGOTIABLE" in system
+
+    # An English transcript names English (and never demands a translation).
+    reader_en = _FakeReader(
+        "the meeting focused on the things that we have to do for the week and the team "
+        "agreed to ship the product with the new features and review the budget"
+    )
+    sys_en = build_summary_messages("m1", ProviderConfig(provider="fake"), reader_en)[0].content
+    assert "in English" in sys_en
 
 
 def test_calendar_context_block_injects_participant_names(data_dir):

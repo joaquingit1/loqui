@@ -113,6 +113,42 @@ NOTETAKER_PROMPT = (
 SUMMARY_INSTRUCTION = NOTETAKER_PROMPT
 
 
+#: Whole-word stopword fingerprints for the common meeting languages. Counting
+#: these over the transcript reliably names the language for paragraph-length text
+#: without a heavy dependency — so we can tell the model the language EXPLICITLY
+#: ("Write in Spanish"), which a small on-device model follows far more reliably
+#: than "match the transcript's language".
+_LANGUAGE_STOPWORDS: dict[str, set[str]] = {
+    "English": {"the", "and", "of", "to", "in", "that", "is", "for", "with", "on", "are", "was", "this", "it", "you", "we", "have", "but"},
+    "Spanish": {"que", "de", "la", "el", "los", "las", "una", "un", "en", "y", "para", "con", "se", "no", "es", "está", "esto", "pero", "como", "por", "acá", "aquí", "muy"},
+    "Portuguese": {"que", "de", "o", "a", "os", "as", "uma", "um", "em", "e", "para", "com", "não", "é", "está", "isso", "mas", "como", "por", "você", "aqui", "muito"},
+    "French": {"que", "de", "le", "la", "les", "un", "une", "des", "et", "en", "pour", "avec", "ne", "est", "ce", "mais", "comme", "par", "vous", "nous", "pas"},
+    "German": {"der", "die", "das", "und", "ist", "ich", "nicht", "ein", "eine", "zu", "den", "mit", "für", "auf", "wir", "sie", "war", "aber"},
+    "Italian": {"che", "di", "il", "la", "le", "un", "una", "e", "in", "per", "con", "non", "è", "questo", "ma", "come", "da", "voi", "noi", "molto"},
+}
+
+_WORD_RE = re.compile(r"[^\W\d_]+", re.UNICODE)
+
+
+def detect_transcript_language(text: str) -> Optional[str]:
+    """Best-effort language NAME (e.g. "Spanish") from the transcript text, or None
+    when it can't be told confidently. Pure + dependency-free: counts per-language
+    stopword hits and requires a clear winner so an ambiguous/short transcript
+    falls back to None (the generic "write in the transcript's language" rule)."""
+    if not text:
+        return None
+    words = [w.lower() for w in _WORD_RE.findall(text)]
+    if len(words) < 12:
+        return None
+    counts = {lang: sum(1 for w in words if w in stop) for lang, stop in _LANGUAGE_STOPWORDS.items()}
+    ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+    (top_lang, top), (_, second) = ranked[0], ranked[1]
+    # Need a real signal AND a clear margin over the runner-up.
+    if top >= 4 and top >= max(2, int(second * 1.3) + 1):
+        return top_lang
+    return None
+
+
 def build_calendar_context_block(context: object) -> Optional[str]:
     """Render a ``MeetingContext`` into the CALENDAR MEETING CONTEXT block the
     notetaker prompt references, or None when there's nothing to add.
@@ -357,6 +393,17 @@ def build_summary_messages(
         if len(transcript) > CONTEXT_CHAR_BUDGET:
             transcript = transcript[-CONTEXT_CHAR_BUDGET:]
         system_parts = [NOTETAKER_PROMPT]
+        # Name the transcript's language EXPLICITLY when we can tell it — a small
+        # on-device model follows "Write in Spanish" far more reliably than the
+        # generic "match the transcript" rule (which it inconsistently ignored,
+        # defaulting to English). Falls back to the generic rule when unsure.
+        lang = detect_transcript_language(transcript)
+        if lang:
+            system_parts.append(
+                f"OUTPUT LANGUAGE — NON-NEGOTIABLE: the meeting is in {lang}. Write the "
+                f"ENTIRE response — the title, every section header, and every bullet — "
+                f"in {lang}. Do not write in English (unless {lang} is English)."
+            )
         block = build_calendar_context_block(context)
         if block:
             system_parts.append(block)
