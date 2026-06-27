@@ -3,11 +3,12 @@
  *
  * `electron` is mocked with a fake `ipcMain` that records `handle` registrations
  * so we invoke the bound handlers directly (no Electron runtime). The manager is
- * a fake. Covers: status/enable/disable delegate to the manager; getConfigSnippets
- * renders one snippet per agent pointing at the resolved bin + data root; the
- * status push reaches the live window; the disposer removes every handler; and
- * the READ-ONLY invariant (no write/edit/delete channel; snippets reference no
- * mutating tool — structural).
+ * a fake. The server runs whenever Loqui is open (no user toggle) — main
+ * auto-starts it — so there is no enable/disable channel. Covers: status
+ * delegates to the manager; getConfigSnippets renders one snippet per agent
+ * pointing at the resolved bin + data root; the status push reaches the live
+ * window; the disposer removes every handler; and the READ-ONLY invariant (no
+ * write/edit/delete channel; snippets reference no mutating tool — structural).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MCP_CONFIG_TARGETS, type McpStatus } from "@loqui/shared";
@@ -54,8 +55,6 @@ const STOPPED: McpStatus = {
 function makeManager() {
   return {
     status: vi.fn((): McpStatus => STOPPED),
-    enable: vi.fn((): McpStatus => RUNNING),
-    disable: vi.fn((): McpStatus => STOPPED),
     getBinPath: vi.fn((): string => "/abs/loqui-mcp"),
     getDataRoot: vi.fn((): string => "/data/root"),
   };
@@ -76,21 +75,11 @@ describe("registerMcpIpc — invoke handlers", () => {
     expect(result).toEqual(STOPPED);
   });
 
-  it("enable delegates and returns the running status", () => {
-    const manager = makeManager();
-    registerMcpIpc({ manager });
-    const result = handlers.handle.get(IPC.mcpEnable)!(null) as McpStatus;
-    expect(manager.enable).toHaveBeenCalled();
-    expect(result.running).toBe(true);
-    expect(result.url).toBe("http://127.0.0.1:7333");
-  });
-
-  it("disable delegates and returns the stopped status", () => {
-    const manager = makeManager();
-    registerMcpIpc({ manager });
-    const result = handlers.handle.get(IPC.mcpDisable)!(null) as McpStatus;
-    expect(manager.disable).toHaveBeenCalled();
-    expect(result.running).toBe(false);
+  it("registers only the read-only status + config-snippet handlers (no enable/disable)", () => {
+    registerMcpIpc({ manager: makeManager() });
+    expect([...handlers.handle.keys()].sort()).toEqual(
+      [IPC.mcpStatus, IPC.mcpGetConfigSnippets].sort(),
+    );
   });
 
   it("getConfigSnippets renders one snippet per agent from the resolved bin + root", () => {
@@ -112,13 +101,8 @@ describe("registerMcpIpc — invoke handlers", () => {
   it("the disposer removes every handler it registered", () => {
     const dispose = registerMcpIpc({ manager: makeManager() });
     dispose();
-    expect(handlers.removedHandlers).toEqual(
-      expect.arrayContaining([
-        IPC.mcpStatus,
-        IPC.mcpEnable,
-        IPC.mcpDisable,
-        IPC.mcpGetConfigSnippets,
-      ]),
+    expect(handlers.removedHandlers.sort()).toEqual(
+      [IPC.mcpStatus, IPC.mcpGetConfigSnippets].sort(),
     );
   });
 });

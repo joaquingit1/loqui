@@ -212,17 +212,6 @@ export const IPC = {
    */
   mcpStatus: "loqui:mcp:status",
   /**
-   * invoke: start the app-managed MCP server (-> {@link import("@loqui/shared").McpStatus}).
-   * Idempotent — returns the running status if already up. The server is
-   * strictly read-only over the meeting store.
-   */
-  mcpEnable: "loqui:mcp:enable",
-  /**
-   * invoke: stop the app-managed MCP server
-   * (-> {@link import("@loqui/shared").McpStatus}). Idempotent.
-   */
-  mcpDisable: "loqui:mcp:disable",
-  /**
    * invoke: ready-to-paste agent config snippets for the standalone server
    * (-> {@link import("@loqui/shared").McpConfigSnippet}[]), one per
    * Claude Code / Claude Desktop / Codex, pointing at the local `loqui-mcp` bin.

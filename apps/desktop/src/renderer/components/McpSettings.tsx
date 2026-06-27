@@ -3,10 +3,10 @@
  *
  *   - Status indicator: whether the app-managed `loqui-mcp` server is running,
  *     its transport + loopback URL, and the data root it serves. Driven by
- *     `mcp.status()` and kept live via `mcp.onStatus(...)`.
- *   - Enable toggle: start/stop the managed server (`mcp.enable` / `mcp.disable`).
- *     The server is available to run but NOT forced on — it starts only when the
- *     user enables it here.
+ *     `mcp.status()` and kept live via `mcp.onStatus(...)`. The server runs
+ *     whenever Loqui is open (no user toggle) — main auto-starts it — so this is
+ *     a read-only indicator (it will essentially always show running; a crash or
+ *     restart still reflects live via the status push).
  *   - Config snippets: ready-to-paste blocks for Claude Code / Claude Desktop /
  *     Codex (from `mcp.getConfigSnippets()`), each with a Copy button, pointing
  *     the user's OWN agent at the local standalone bin.
@@ -14,7 +14,7 @@
  *     meetings + fetch transcripts/summaries, read-only, all local.
  *
  * STRICTLY READ-ONLY: nothing here (or on the server) can modify a meeting. The
- * panel only reports status, toggles the server, and prints config text.
+ * panel only reports status and prints config text.
  *
  * Talks ONLY to the typed `window.loqui.mcp` bridge (injectable for tests).
  */
@@ -24,7 +24,7 @@ import type { LoquiMcpApi } from "../../preload/index.js";
 
 export interface McpSettingsProps {
   /** MCP bridge. Injectable for tests; defaults to window.loqui.mcp. */
-  api?: Pick<LoquiMcpApi, "status" | "enable" | "disable" | "getConfigSnippets" | "onStatus">;
+  api?: Pick<LoquiMcpApi, "status" | "getConfigSnippets" | "onStatus">;
 }
 
 /** A stopped-by-default status so the panel always has a coherent starting point. */
@@ -41,7 +41,6 @@ export function McpSettings({ api }: McpSettingsProps): JSX.Element {
 
   const [status, setStatus] = useState<McpStatus>(STOPPED);
   const [snippets, setSnippets] = useState<McpConfigSnippet[]>([]);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -52,10 +51,14 @@ export function McpSettings({ api }: McpSettingsProps): JSX.Element {
     mcp
       .status()
       .then((s) => {
-        if (!cancelled) setStatus(s);
+        if (!cancelled) {
+          setStatus(s);
+          setError(null);
+        }
       })
-      .catch(() => {
-        /* keep the stopped default */
+      .catch((err: unknown) => {
+        // Keep the stopped default but surface the failure in the error line.
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       });
     const unsubscribe = mcp.onStatus?.((s) => setStatus(s));
     return () => {
@@ -81,19 +84,6 @@ export function McpSettings({ api }: McpSettingsProps): JSX.Element {
     };
   }, [mcp]);
 
-  const onToggle = useCallback(() => {
-    if (!mcp) return;
-    setBusy(true);
-    setError(null);
-    const action = status.running ? mcp.disable() : mcp.enable();
-    action
-      .then((s) => setStatus(s))
-      .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => setBusy(false));
-  }, [mcp, status.running]);
-
   const onCopy = useCallback((target: string, content: string) => {
     const clip =
       typeof navigator !== "undefined" ? navigator.clipboard : undefined;
@@ -114,9 +104,10 @@ export function McpSettings({ api }: McpSettingsProps): JSX.Element {
         Agent access (MCP)
       </h2>
       <p className="panel__subtitle">
-        Connect your own AI agent (Claude Code, Claude Desktop, or Codex) to Loqui over the
-        Model Context Protocol. Your agent can search past meetings and fetch transcripts and
-        summaries on demand — read-only, all on your machine. Nothing here can modify a meeting.
+        The local MCP server runs whenever Loqui is open. Point your agent (Claude Code,
+        Claude Desktop, or Codex) at it over the Model Context Protocol, and it can search past
+        meetings and fetch transcripts and summaries on demand — read-only, all on your machine.
+        Nothing here can modify a meeting.
       </p>
 
       <div className="mcp__status-row">
@@ -128,22 +119,6 @@ export function McpSettings({ api }: McpSettingsProps): JSX.Element {
           <span className="status__dot" />
           {status.running ? "Server running" : "Server stopped"}
         </span>
-        <button
-          type="button"
-          className="btn"
-          data-testid="mcp-toggle"
-          disabled={busy}
-          aria-pressed={status.running}
-          onClick={onToggle}
-        >
-          {busy
-            ? status.running
-              ? "Stopping…"
-              : "Starting…"
-            : status.running
-              ? "Stop server"
-              : "Start server"}
-        </button>
       </div>
 
       {status.running && status.url && (

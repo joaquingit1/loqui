@@ -7,14 +7,15 @@
  *
  * Channels (from src/shared/ipc.ts):
  *   - mcpStatus (invoke)           : current managed-server status.
- *   - mcpEnable (invoke)           : start the managed server (idempotent).
- *   - mcpDisable (invoke)          : stop the managed server (idempotent).
  *   - mcpGetConfigSnippets (invoke): ready-to-paste agent config snippets.
  *   - mcpStatusChanged (push)      : managed-server status changed.
  *
- * STRICTLY READ-ONLY: every channel here either reports status, starts/stops the
- * read-only server bin, or returns config text — none reads or writes a meeting.
- * There is no write/edit/delete channel and no payload that mutates the store.
+ * The server runs whenever Loqui is open (no user toggle) — main auto-starts it
+ * at bootstrap — so there is no enable/disable channel here.
+ *
+ * STRICTLY READ-ONLY: every channel here either reports status or returns config
+ * text — none reads or writes a meeting. There is no write/edit/delete channel
+ * and no payload that mutates the store.
  */
 import { ipcMain, type BrowserWindow } from "electron";
 import type { McpConfigSnippet, McpStatus } from "@loqui/shared";
@@ -23,8 +24,8 @@ import type { McpServerManager } from "./lifecycle.js";
 import { generateConfigSnippets } from "./snippets.js";
 
 export interface McpIpcDeps {
-  /** The app-managed MCP server lifecycle (start/stop/status + resolved bin/dataRoot). */
-  manager: Pick<McpServerManager, "status" | "enable" | "disable" | "getBinPath" | "getDataRoot">;
+  /** The app-managed MCP server lifecycle (status + resolved bin/dataRoot). */
+  manager: Pick<McpServerManager, "status" | "getBinPath" | "getDataRoot">;
 }
 
 /**
@@ -38,16 +39,12 @@ export function registerMcpIpc(deps: McpIpcDeps): () => void {
   const { manager } = deps;
 
   ipcMain.handle(IPC.mcpStatus, (): McpStatus => manager.status());
-  ipcMain.handle(IPC.mcpEnable, (): McpStatus => manager.enable());
-  ipcMain.handle(IPC.mcpDisable, (): McpStatus => manager.disable());
   ipcMain.handle(IPC.mcpGetConfigSnippets, (): McpConfigSnippet[] =>
     generateConfigSnippets({ binPath: manager.getBinPath(), dataRoot: manager.getDataRoot() }),
   );
 
   return () => {
     ipcMain.removeHandler(IPC.mcpStatus);
-    ipcMain.removeHandler(IPC.mcpEnable);
-    ipcMain.removeHandler(IPC.mcpDisable);
     ipcMain.removeHandler(IPC.mcpGetConfigSnippets);
   };
 }

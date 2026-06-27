@@ -520,13 +520,13 @@ export async function bootstrap(): Promise<void> {
   disposeChatIpc = registerChatIpc({ supervisor, keystore: chatKeystore });
   disposeChatStreamPush = forwardChatStream(supervisor, () => mainWindow);
 
-  // Local read-only MCP server (PRD-7). The app can optionally spawn/stop the
-  // bundled `loqui-mcp` server (over loopback HTTP) bound to the resolved data
-  // root, and prints ready-to-paste agent config snippets. It is AVAILABLE to
-  // run but NOT forced on — the app does not auto-start it; Settings does. The
-  // server is STRICTLY READ-ONLY over the meeting store (no write/edit/delete
-  // tool, SQLite opened readonly); this manager only starts/stops it + reports
-  // status. Status changes are pushed to the renderer for the Settings indicator.
+  // Local read-only MCP server (PRD-7). The app spawns the bundled `loqui-mcp`
+  // server (over loopback HTTP) bound to the resolved data root, and prints
+  // ready-to-paste agent config snippets. The server runs WHENEVER Loqui is open
+  // (no user toggle) — it is auto-started just below. The server is STRICTLY
+  // READ-ONLY over the meeting store (no write/edit/delete tool, SQLite opened
+  // readonly); this manager only runs it + reports status. Status changes are
+  // pushed to the renderer for the Settings indicator.
   mcpManager = new McpServerManager({
     onStatusChange: makeMcpStatusPush(() => mainWindow),
     // Packaged: spawn the bundled native `loqui-mcp` binary; dev => undefined so
@@ -534,6 +534,13 @@ export async function bootstrap(): Promise<void> {
     binPath: appPaths.bundledMcpBin() ?? undefined,
   });
   disposeMcpIpc = registerMcpIpc({ manager: mcpManager });
+  // The local MCP server runs whenever Loqui is open (no user toggle): start it
+  // now. Best-effort — a spawn failure must not block app bootstrap.
+  try {
+    mcpManager.enable();
+  } catch (err) {
+    console.error("[loqui] MCP server failed to start:", err);
+  }
 
   // Calendar integration + Home/Today view (PRD-15). FOUNDATION SEAM — Build
   // unit A implements `createCalendarService` (the service that fans out over

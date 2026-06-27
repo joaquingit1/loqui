@@ -1,10 +1,11 @@
 /**
  * McpSettings tests (jsdom). HERMETIC: the LoquiMcpApi is injected as a
- * controllable fake. Covers: the panel renders the status indicator + the
- * enable/disable toggle + the config snippets + the explainer; toggling calls
- * enable/disable and reflects the returned status; a live status push updates
- * the indicator; Copy writes the snippet to the clipboard; and the read-only
- * framing is present (no write/edit affordance).
+ * controllable fake. The server runs whenever Loqui is open (no user toggle), so
+ * the panel is a read-only indicator + config snippets — there is NO start/stop
+ * button. Covers: the panel renders the status indicator + the config snippets +
+ * the explainer; a live status push updates the indicator; Copy writes the
+ * snippet to the clipboard; and the read-only framing is present (no
+ * write/edit/toggle affordance).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -35,7 +36,7 @@ const SNIPPETS: McpConfigSnippet[] = [
   { target: "codex", label: "Codex", language: "toml", content: "[mcp_servers.loqui]" },
 ];
 
-type McpApi = Pick<LoquiMcpApi, "status" | "enable" | "disable" | "getConfigSnippets" | "onStatus">;
+type McpApi = Pick<LoquiMcpApi, "status" | "getConfigSnippets" | "onStatus">;
 
 function makeApi(
   overrides: Partial<McpApi> = {},
@@ -44,8 +45,6 @@ function makeApi(
   let cb: ((s: McpStatus) => void) | null = null;
   const api: McpApi = {
     status: vi.fn(async () => initial),
-    enable: vi.fn(async () => RUNNING),
-    disable: vi.fn(async () => STOPPED),
     getConfigSnippets: vi.fn(async () => SNIPPETS),
     onStatus: (fn) => {
       cb = fn;
@@ -59,20 +58,23 @@ function makeApi(
 }
 
 describe("McpSettings", () => {
-  it("renders the title, explainer, status, toggle, and snippets", async () => {
+  it("renders the title, explainer, status, and snippets (no start/stop toggle)", async () => {
     const { api } = makeApi();
     render(<McpSettings api={api} />);
 
     expect(screen.getByTestId("mcp-settings")).toBeTruthy();
     expect(screen.getByRole("heading", { name: /Agent access/i })).toBeTruthy();
-    // Explainer mentions search + read-only + local.
+    // Explainer mentions always-on + search + read-only + local.
     const panel = screen.getByTestId("mcp-settings");
+    expect(panel.textContent).toMatch(/runs whenever Loqui is open/i);
     expect(panel.textContent).toMatch(/search past meetings/i);
     expect(panel.textContent).toMatch(/read-only/i);
 
     await waitFor(() => expect(screen.getByTestId("mcp-status")).toBeTruthy());
     expect(screen.getByTestId("mcp-status").getAttribute("data-running")).toBe("false");
-    expect(screen.getByTestId("mcp-toggle").textContent).toContain("Start server");
+
+    // No start/stop toggle: the server is always-on.
+    expect(screen.queryByTestId("mcp-toggle")).toBeNull();
 
     // One snippet block per agent.
     await waitFor(() => expect(screen.getByTestId("mcp-snippet-claude-code")).toBeTruthy());
@@ -80,29 +82,11 @@ describe("McpSettings", () => {
     expect(screen.getByTestId("mcp-snippet-codex")).toBeTruthy();
   });
 
-  it("starts the server when the toggle is clicked and reflects the running status", async () => {
-    const { api } = makeApi();
-    render(<McpSettings api={api} />);
-    await waitFor(() => expect(screen.getByTestId("mcp-status").getAttribute("data-running")).toBe("false"));
-
-    fireEvent.click(screen.getByTestId("mcp-toggle"));
-
-    await waitFor(() => expect(api.enable).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByTestId("mcp-status").getAttribute("data-running")).toBe("true"));
-    expect(screen.getByTestId("mcp-toggle").textContent).toContain("Stop server");
-    // The loopback URL is shown when running.
-    await waitFor(() => expect(screen.getByTestId("mcp-url").textContent).toContain("127.0.0.1"));
-  });
-
-  it("stops the server when running and the toggle is clicked", async () => {
+  it("shows the loopback URL when the server is running", async () => {
     const { api } = makeApi({}, RUNNING);
     render(<McpSettings api={api} />);
     await waitFor(() => expect(screen.getByTestId("mcp-status").getAttribute("data-running")).toBe("true"));
-
-    fireEvent.click(screen.getByTestId("mcp-toggle"));
-
-    await waitFor(() => expect(api.disable).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByTestId("mcp-status").getAttribute("data-running")).toBe("false"));
+    await waitFor(() => expect(screen.getByTestId("mcp-url").textContent).toContain("127.0.0.1"));
   });
 
   it("updates the indicator on a live status push", async () => {
@@ -132,16 +116,13 @@ describe("McpSettings", () => {
     await waitFor(() => expect(screen.getByTestId("mcp-copy-claude-code").textContent).toContain("Copied"));
   });
 
-  it("surfaces a toggle error instead of throwing", async () => {
+  it("surfaces a status-load error instead of throwing", async () => {
     const { api } = makeApi({
-      enable: vi.fn(async () => {
+      status: vi.fn(async () => {
         throw new Error("bin not found");
       }),
     });
     render(<McpSettings api={api} />);
-    await waitFor(() => expect(screen.getByTestId("mcp-toggle")).toBeTruthy());
-
-    fireEvent.click(screen.getByTestId("mcp-toggle"));
     await waitFor(() => expect(screen.getByTestId("mcp-error").textContent).toContain("bin not found"));
   });
 
@@ -150,13 +131,16 @@ describe("McpSettings", () => {
     expect(screen.getByTestId("mcp-status").getAttribute("data-running")).toBe("false");
   });
 
-  it("READ-ONLY: the panel offers no write/edit/delete affordance", async () => {
+  it("READ-ONLY: the panel offers no write/edit/delete or start/stop affordance", async () => {
     const { api } = makeApi();
     render(<McpSettings api={api} />);
     await waitFor(() => expect(screen.getByTestId("mcp-settings")).toBeTruthy());
+    // No start/stop toggle — the server is always-on.
+    expect(screen.queryByTestId("mcp-toggle")).toBeNull();
+    // The only buttons are the per-snippet Copy buttons.
     const buttons = screen.getAllByRole("button").map((b) => b.textContent ?? "");
     for (const label of buttons) {
-      expect(label).not.toMatch(/delete|edit|write|remove meeting/i);
+      expect(label).not.toMatch(/delete|edit|write|remove meeting|start server|stop server/i);
     }
   });
 });
