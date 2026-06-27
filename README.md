@@ -1,4 +1,5 @@
 <div align="center">
+<img width="1774" height="887" alt="loqui_banner" src="https://github.com/user-attachments/assets/140ea057-10fd-4c6b-bb9f-336e116b80ac" />
 
 # Loqui
 
