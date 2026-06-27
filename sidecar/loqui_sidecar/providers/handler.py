@@ -34,6 +34,7 @@ via :func:`make_provider_selector` (the default selector raises an actionable
 from __future__ import annotations
 
 import logging
+import re
 from typing import Callable, Optional
 
 from ..lang import detect_language
@@ -89,12 +90,36 @@ def build_context_message(reader: TranscriptReader, meeting_id: str) -> Optional
         # chunk+keyword retrieval). Documented threshold = CONTEXT_CHAR_BUDGET.
         text = text[-CONTEXT_CHAR_BUDGET:]
     content = (
+        SPEAKER_LEGEND + "\n\n"
         "You are a helpful assistant answering questions about a meeting. "
         "Use ONLY the following transcript as ground truth; do not invent facts. "
         "The transcript is read-only context.\n\n"
-        "<transcript>\n" + text + "\n</transcript>"
+        "<transcript>\n" + relabel_speakers(text) + "\n</transcript>"
     )
     return ChatMessage(role="system", content=content)
+
+
+#: Relabel the user-centric transcript prefixes into role tags an LLM can't confuse
+#: with its own "you". The stored transcript is untouched — this rewrites only the
+#: COPY that goes into the model's context. Deterministic prefixes from
+#: SPEAKER_LABEL (mic->"You", system->"They"); "Speaker N" (diarized) is left as-is.
+def relabel_speakers(text: str) -> str:
+    if not text:
+        return text
+    # The label always follows the "[hh:mm:ss] " timestamp, so anchor on "] ".
+    text = text.replace("] You said:", "] [ME] said:").replace("] They said:", "] [OTHER] said:")
+    text = text.replace("] You:", "] [ME]:").replace("] They:", "] [OTHER]:")
+    return text
+
+
+#: A third-person legend (no "you" pronoun, to avoid colliding with the assistant's
+#: own role) that explains the [ME]/[OTHER] tags so the model attributes correctly.
+SPEAKER_LEGEND = (
+    "SPEAKER ATTRIBUTION: this transcript is the user's own meeting recording. Lines "
+    "tagged [ME] are what THE USER (the person these notes/answers are for) said; lines "
+    "tagged [OTHER] (or a named speaker) are what other participants said TO the user. "
+    "Attribute statements to the correct side — what the user said vs what was said to them."
+)
 
 
 def _default_provider_selector(config: ProviderConfig) -> ChatProvider:

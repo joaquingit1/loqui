@@ -204,6 +204,38 @@ def test_chat_reply_language_directive_names_the_language(data_dir):
     assert any(e == CHAT_DONE_EVENT for e, _ in events)
 
 
+def test_chat_relabels_speakers_and_explains_them(data_dir):
+    """The grounding context relabels the user-centric "You said:"/"They said:"
+    prefixes into [ME]/[OTHER] tags an LLM can't confuse with its own "you", and
+    prepends the SPEAKER ATTRIBUTION legend that explains them — so the model can
+    attribute what the user said vs what was said to them."""
+    transcript = (
+        "## Live transcript\n\n"
+        "[00:00:00] You said: I'll own the migration.\n"
+        "[00:00:05] They said: great, ship it Friday.\n"
+    )
+    _seed_transcript(data_dir, "m1", text=transcript)
+    captured: dict = {}
+
+    class _Capture:
+        name = "cap"
+
+        def stream_chat(self, messages, config, api_key=None):  # noqa: ARG002
+            captured["messages"] = list(messages)
+            yield "ok"
+
+    events, emit = _collect_emit()
+    handle_chat(_request("m1", "who owns the migration?"), emit, selector=lambda cfg: _Capture())
+    system = " ".join(m.content for m in captured["messages"] if m.role == "system")
+
+    # (a) the legend is present and explains the tags
+    assert "SPEAKER ATTRIBUTION" in system
+    # (b) relabeled tags reached the model; the raw user-centric prefixes did not
+    assert "[ME]" in system and "[OTHER]" in system
+    assert "You said:" not in system and "They said:" not in system
+    assert any(e == CHAT_DONE_EVENT for e, _ in events)
+
+
 def test_fake_provider_forced_by_env_over_config(data_dir, monkeypatch):
     """``LOQUI_FAKE_CHAT`` forces the fake even when the config asks for a real
     provider — keeps the gate hermetic regardless of providerConfig."""

@@ -22,7 +22,12 @@ import logging
 import re
 from typing import Callable, Optional
 
-from ..providers.handler import CONTEXT_CHAR_BUDGET, build_context_message
+from ..providers.handler import (
+    CONTEXT_CHAR_BUDGET,
+    SPEAKER_LEGEND,
+    build_context_message,
+    relabel_speakers,
+)
 from ..providers.types import (
     ChatMessage,
     ChatProvider,
@@ -363,12 +368,18 @@ def build_summary_messages(
         transcript = reader.read(meeting_id, "live")
         if len(transcript) > CONTEXT_CHAR_BUDGET:
             transcript = transcript[-CONTEXT_CHAR_BUDGET:]
-        system_parts = [NOTETAKER_PROMPT]
+        # Detect the language off the ORIGINAL text, then relabel the COPY that goes
+        # into the <transcript> so [ME]/[OTHER] tags reach the model (the stored
+        # transcript is untouched).
+        lang = detect_transcript_language(transcript)
+        transcript = relabel_speakers(transcript)
+        # Keep NOTETAKER_PROMPT FIRST (tests assert the system message starts with
+        # it), then explain the [ME]/[OTHER] tags via the shared legend.
+        system_parts = [NOTETAKER_PROMPT, SPEAKER_LEGEND]
         # Name the transcript's language EXPLICITLY when we can tell it — a small
         # on-device model follows "Write in Spanish" far more reliably than the
         # generic "match the transcript" rule (which it inconsistently ignored,
         # defaulting to English). Falls back to the generic rule when unsure.
-        lang = detect_transcript_language(transcript)
         if lang:
             system_parts.append(
                 f"OUTPUT LANGUAGE — NON-NEGOTIABLE: the meeting is in {lang}. Write the "

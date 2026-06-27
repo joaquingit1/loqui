@@ -176,6 +176,27 @@ def test_default_flow_names_the_transcript_language_explicitly():
     assert "in English" in sys_en
 
 
+def test_default_flow_relabels_speakers_and_explains_them():
+    """The default summary grounding relabels the user-centric "You said:"/"They
+    said:" prefixes into [ME]/[OTHER] tags (in the <transcript> user turn) and adds
+    the SPEAKER ATTRIBUTION legend to the system message — so the model attributes
+    what the user said vs what was said to them."""
+    reader = _FakeReader(
+        "[00:00:00] You said: hola que tal\n"
+        "[00:00:05] They said: todo bien gracias por la actualización del proyecto\n"
+    )
+    messages = build_summary_messages("m1", ProviderConfig(provider="fake"), reader)
+
+    system = messages[0].content
+    assert "SPEAKER ATTRIBUTION" in system
+    # NOTETAKER_PROMPT still leads (the existing startswith assertion must hold).
+    assert system.startswith(SUMMARY_INSTRUCTION)
+
+    user = messages[-1].content
+    assert "[ME]" in user and "[OTHER]" in user
+    assert "You said:" not in user and "They said:" not in user
+
+
 def test_calendar_context_block_injects_participant_names(data_dir):
     """When a MeetingContext with attendees is passed, the system message carries a
     CALENDAR MEETING CONTEXT block with the participant names (so the prompt can
