@@ -57,7 +57,7 @@ import { createImportPipeline } from "./import/pipeline.js";
 import { ExportService } from "./export/index.js";
 import { registerExportIpc } from "./export/register.js";
 import { SettingsStore } from "./settings/store.js";
-import { McpServerManager, makeMcpStatusPush, registerMcpIpc } from "./mcp/index.js";
+import { McpServerManager } from "./mcp/index.js";
 import {
   CalendarKeystore,
   FakeCalendarProvider,
@@ -256,7 +256,6 @@ let disposeSummaryStreamPush: (() => void) | null = null;
 let disposePostProcessPipeline: (() => void) | null = null;
 let disposeImportPipeline: (() => void) | null = null;
 let mcpManager: McpServerManager | null = null;
-let disposeMcpIpc: (() => void) | null = null;
 // PRD-13 export + capture/privacy seam: the disposer for the export/privacy IPC
 // bridge and the settings store it (plus the audio + postprocess paths) read.
 let disposeExportIpc: (() => void) | null = null;
@@ -521,21 +520,16 @@ export async function bootstrap(): Promise<void> {
   disposeChatStreamPush = forwardChatStream(supervisor, () => mainWindow);
 
   // Local read-only MCP server (PRD-7). The app spawns the bundled `loqui-mcp`
-  // server (over loopback HTTP) bound to the resolved data root, and prints
-  // ready-to-paste agent config snippets. The server runs WHENEVER Loqui is open
-  // (no user toggle) — it is auto-started just below. The server is STRICTLY
-  // READ-ONLY over the meeting store (no write/edit/delete tool, SQLite opened
-  // readonly); this manager only runs it + reports status. Status changes are
-  // pushed to the renderer for the Settings indicator.
+  // server (over loopback HTTP) bound to the resolved data root. It runs WHENEVER
+  // Loqui is open — no user toggle and NO settings UI; it's just always available
+  // so an external agent can read meetings over MCP. STRICTLY READ-ONLY over the
+  // meeting store (no write/edit/delete tool, SQLite opened readonly).
   mcpManager = new McpServerManager({
-    onStatusChange: makeMcpStatusPush(() => mainWindow),
     // Packaged: spawn the bundled native `loqui-mcp` binary; dev => undefined so
     // the lifecycle resolves the built JS bin / PATH (PRD-8 packaging).
     binPath: appPaths.bundledMcpBin() ?? undefined,
   });
-  disposeMcpIpc = registerMcpIpc({ manager: mcpManager });
-  // The local MCP server runs whenever Loqui is open (no user toggle): start it
-  // now. Best-effort — a spawn failure must not block app bootstrap.
+  // Start it now. Best-effort — a spawn failure must not block app bootstrap.
   try {
     mcpManager.enable();
   } catch (err) {
@@ -782,8 +776,6 @@ async function shutdown(): Promise<void> {
   disposePostProcessPipeline = null;
   disposeImportPipeline?.();
   disposeImportPipeline = null;
-  disposeMcpIpc?.();
-  disposeMcpIpc = null;
   mcpManager?.dispose();
   mcpManager = null;
   // PRD-13 export teardown.

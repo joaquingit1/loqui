@@ -96,12 +96,6 @@ function makeFakeApi(overrides: Partial<LoquiApi> = {}): {
       setDiarizationBackend: vi.fn(async () => ({}) as never),
       getDiarizationBackendStatus: vi.fn(async () => ({}) as never),
     },
-    // PRD-7 MCP bridge: a no-op fake; the App under test does not use it yet.
-    mcp: {
-      status: vi.fn(async () => ({}) as never),
-      getConfigSnippets: vi.fn(async () => []),
-      onStatus: () => () => {},
-    },
     // PRD-15 calendar bridge: a no-op fake; the App under test does not use it yet.
     calendar: {
       listToday: vi.fn(async () => []),
@@ -209,10 +203,11 @@ describe("App", () => {
     fireEvent.click(screen.getByTestId("nav-meeting"));
     await waitFor(() => expect(screen.getByTestId("meeting-controls")).toBeTruthy());
 
-    // Settings tab → CalendarSettings + MCP + Debug all mounted.
+    // Settings tab → CalendarSettings + Debug mounted. (No MCP panel — the local
+    // MCP server is always-on and headless, with no Settings surface.)
     fireEvent.click(screen.getByTestId("nav-settings"));
     await waitFor(() => expect(screen.getByTestId("calendar-settings")).toBeTruthy());
-    expect(screen.getByTestId("mcp-settings")).toBeTruthy();
+    expect(screen.queryByTestId("mcp-settings")).toBeNull();
     expect(screen.getByTestId("ping-button")).toBeTruthy();
 
     // Back Home.

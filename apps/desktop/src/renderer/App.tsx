@@ -31,7 +31,6 @@ import { DebugPanel } from "./components/DebugPanel.js";
 import { MeetingControls } from "./components/MeetingControls.js";
 import { Library } from "./components/Library.js";
 import { MeetingView } from "./components/MeetingView.js";
-import { McpSettings } from "./components/McpSettings.js";
 import { HomeView } from "./components/HomeView.js";
 import { CalendarSettings } from "./components/CalendarSettings.js";
 import { displayTitle, formatMeetingTime } from "./library/grouping.js";
@@ -312,7 +311,6 @@ export function App({
     content = (
       <>
         <CalendarSettings api={api?.calendar} />
-        <McpSettings api={api?.mcp} />
         <DebugPanel api={api} />
       </>
     );

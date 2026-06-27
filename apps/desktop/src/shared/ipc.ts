@@ -204,25 +204,8 @@ export const IPC = {
   /** invoke: read the postprocess diarization engine preference. */
   getDiarizationBackendStatus: "loqui:postprocess:getDiarizationBackendStatus",
 
-  // --- Local MCP server (PRD-7) ---
-  /**
-   * invoke: current app-managed MCP server status
-   * (-> {@link import("@loqui/shared").McpStatus}). READ-ONLY server; this only
-   * reports whether the managed process is up + how it's reachable.
-   */
-  mcpStatus: "loqui:mcp:status",
-  /**
-   * invoke: ready-to-paste agent config snippets for the standalone server
-   * (-> {@link import("@loqui/shared").McpConfigSnippet}[]), one per
-   * Claude Code / Claude Desktop / Codex, pointing at the local `loqui-mcp` bin.
-   */
-  mcpGetConfigSnippets: "loqui:mcp:getConfigSnippets",
-  /**
-   * push (main -> renderer): the MCP server status changed (payload
-   * {@link import("@loqui/shared").McpStatus}). The Settings indicator subscribes
-   * via `window.loqui.mcp.onStatus`.
-   */
-  mcpStatusChanged: "loqui:mcp:statusChanged",
+  // The local MCP server (PRD-7) runs always-on with NO renderer surface — no
+  // status/snippets IPC. It's spawned + managed entirely in main (see mcp/).
 
   // --- Calendar integration + Home/Today view (PRD-15) ---
   /**

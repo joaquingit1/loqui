@@ -37,8 +37,6 @@ import type {
   JobEvent,
   SummaryToken,
   ListMeetingsQuery,
-  McpConfigSnippet,
-  McpStatus,
   LoquiAudioApi,
   Meeting,
   ImportFileParams,
@@ -87,8 +85,6 @@ export interface LoquiApi {
   chat: LoquiChatApi;
   /** Post-meeting diarization + AI summaries bridge (PRD-5). */
   postprocess: LoquiPostProcessApi;
-  /** Local read-only MCP server lifecycle + config bridge (PRD-7). */
-  mcp: LoquiMcpApi;
   /** Calendar integration + Home/Today view bridge (PRD-15). */
   calendar: LoquiCalendarApi;
   /** Auto-record on meeting detection + menubar/tray bridge (PRD-11). */
@@ -196,24 +192,6 @@ export interface LoquiCalendarApi {
   onUpdated(cb: (events: CalendarEvent[]) => void): () => void;
 }
 
-/**
- * Local MCP server surface (PRD-7). Wraps the MCP IPC channels so the Settings
- * screen can show status and print ready-to-paste agent config snippets. The
- * server runs whenever Loqui is open (no user toggle) — main auto-starts it — so
- * there is no enable/disable here. STRICTLY READ-ONLY over the meeting store:
- * nothing here (or on the server) can modify a meeting.
- */
-export interface LoquiMcpApi {
-  /** Current app-managed MCP server status (running/transport/url/dataRoot). */
-  status(): Promise<McpStatus>;
-  /**
-   * Ready-to-paste agent config snippets (Claude Code / Claude Desktop / Codex)
-   * pointing at the local standalone `loqui-mcp` bin.
-   */
-  getConfigSnippets(): Promise<McpConfigSnippet[]>;
-  /** Subscribe to MCP server status changes. Returns an unsubscribe fn. */
-  onStatus(cb: (status: McpStatus) => void): () => void;
-}
 
 /**
  * Post-meeting diarization + AI summaries surface (PRD-5). Wraps the
@@ -448,17 +426,6 @@ const postprocess: LoquiPostProcessApi = {
     ipcRenderer.invoke(IPC.getDiarizationBackendStatus),
 };
 
-const mcp: LoquiMcpApi = {
-  status: (): Promise<McpStatus> => ipcRenderer.invoke(IPC.mcpStatus),
-  getConfigSnippets: (): Promise<McpConfigSnippet[]> =>
-    ipcRenderer.invoke(IPC.mcpGetConfigSnippets),
-  onStatus: (cb: (status: McpStatus) => void): (() => void) => {
-    const listener = (_e: unknown, status: McpStatus): void => cb(status);
-    ipcRenderer.on(IPC.mcpStatusChanged, listener);
-    return () => ipcRenderer.removeListener(IPC.mcpStatusChanged, listener);
-  },
-};
-
 const calendar: LoquiCalendarApi = {
   listToday: (): Promise<CalendarEvent[]> => ipcRenderer.invoke(IPC.calendarListToday),
   listUpcoming: (params?: ListUpcomingParams): Promise<CalendarEvent[]> =>
@@ -528,7 +495,6 @@ const api: LoquiApi = {
   library,
   chat,
   postprocess,
-  mcp,
   calendar,
   autoRecord,
   export: exportApi,
