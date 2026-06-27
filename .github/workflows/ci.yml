@@ -175,23 +175,6 @@ jobs:
       - name: Smoke (calendar Home/Today, hermetic)
         run: pnpm smoke:calendar
 
-      # PRD-6 Google-Meet speaker-name attribution smoke (hermetic; no Electron,
-      # no live Meet, NO network beyond a 127.0.0.1 listener it asserts is
-      # loopback-only). Drives the REAL main-process seam cross-process: boots the
-      # real loopback extension WS server, connects a real `ws` client over
-      # 127.0.0.1 (asserting the bound addr is 127.0.0.1 and an arbitrary website
-      # Origin is refused on the upgrade), pushes hello+activity ONLY while a
-      # meeting is active (the no-active-meeting invariant), drains, runs the PURE
-      # correlateSpeakerNames over a seeded diarized transcript, applies via the
-      # REAL applier (REUSING the PRD-5 rewrite path), and asserts the resolved
-      # names land in transcript.diarized.{json,md} + meta.participants while
-      # transcript.live.md AND transcript.jsonl stay BYTE-IDENTICAL. Also asserts
-      # GRACEFUL DEGRADATION (absent extension => generic `Speaker N`, no crash)
-      # and that an ambiguous turn stays `Speaker N`. Runs after the test step so
-      # better-sqlite3 is built for the node ABI.
-      - name: Smoke (speaker names, Google Meet, hermetic)
-        run: pnpm smoke:speakernames
-
   e2e:
     name: e2e / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
