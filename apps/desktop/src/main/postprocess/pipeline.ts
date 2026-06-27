@@ -164,7 +164,12 @@ export function createPostProcessPipeline(
         // prompt-template through to the sidecar's summary job (additive;
         // empty => the default structured-summary behavior).
         nativeModel: config.nativeModel,
-        summaryTemplate: config.summaryTemplate,
+        // The summary is now ALWAYS the expert-notetaker document (title + themed
+        // markdown overview). The old per-meeting summary-template picker is gone,
+        // so we never forward a persisted `summaryTemplate` — a stale one (e.g. a
+        // "concise TL;DR" template) would otherwise override the notetaker prompt
+        // and yield a short, unstructured summary. Force empty => notetaker prompt.
+        summaryTemplate: "",
       },
       apiKey,
       hfToken,
