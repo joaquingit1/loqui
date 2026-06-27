@@ -157,7 +157,13 @@ def test_no_speech_is_benign_skip(data_dir):
 def test_render_helpers_match_live_format():
     recs = [
         {"segId": "hifi-0", "source": "mic", "tStart": 4.0, "tEnd": 5.0, "text": "hello there"},
-        {"segId": "hifi-1", "source": "system", "tStart": 67.0, "tEnd": 68.0, "text": "loud and clear"},
+        {
+            "segId": "hifi-1",
+            "source": "system",
+            "tStart": 67.0,
+            "tEnd": 68.0,
+            "text": "loud and clear",
+        },
     ]
     assert render_hifi_md(recs) == (
         "[00:00:04] You said: hello there\n[00:01:07] They said: loud and clear\n"
@@ -221,7 +227,9 @@ def test_runner_emits_transcription_job_before_diarization(data_dir, monkeypatch
 
     events: list[tuple[str, dict]] = []
     run_postprocess(
-        PostProcessRequest(meeting_id="m1", config=ProviderConfig(provider="fake"), re_transcribe=True),
+        PostProcessRequest(
+            meeting_id="m1", config=ProviderConfig(provider="fake"), re_transcribe=True
+        ),
         lambda e, d: events.append((e, d)),
     )
 
@@ -250,7 +258,9 @@ def test_runner_skips_retranscription_when_flag_off(data_dir, monkeypatch):
 
     events: list[tuple[str, dict]] = []
     run_postprocess(
-        PostProcessRequest(meeting_id="m1", config=ProviderConfig(provider="fake")),  # re_transcribe defaults False
+        PostProcessRequest(
+            meeting_id="m1", config=ProviderConfig(provider="fake")
+        ),  # re_transcribe defaults False
         lambda e, d: events.append((e, d)),
     )
     assert called["n"] == 0

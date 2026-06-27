@@ -642,14 +642,16 @@ class _RecordingAccurate:
 
 
 def test_accurate_backend_drives_the_final_text_while_partials_flow():
-    fast = FakeAsrBackend(
-        script=growing_script([["fast"], ["fast", "approx"], ["fast", "approx"]])
-    )
+    fast = FakeAsrBackend(script=growing_script([["fast"], ["fast", "approx"], ["fast", "approx"]]))
     accurate = _RecordingAccurate([(0.0, 1.2, "the accurate sentence")])
     emitted: list[TranscriptSegment] = []
     pipe = StreamingTranscriptionPipeline(
-        "m1", "mic", emitted.append, fast,
-        config=fast_decode_config(), accurate_backend=accurate,  # no scheduler -> inline
+        "m1",
+        "mic",
+        emitted.append,
+        fast,
+        config=fast_decode_config(),
+        accurate_backend=accurate,  # no scheduler -> inline
     )
     feed_utterance(pipe, "mic")
     pipe.finish()
@@ -673,8 +675,12 @@ def test_accurate_decode_receives_the_locked_language():
     accurate = _RecordingAccurate([(0.0, 1.0, "hola mundo")], lang="es")
     emitted: list[TranscriptSegment] = []
     pipe = StreamingTranscriptionPipeline(
-        "m1", "mic", emitted.append, fast,
-        config=fast_decode_config(language="es"), accurate_backend=accurate,
+        "m1",
+        "mic",
+        emitted.append,
+        fast,
+        config=fast_decode_config(language="es"),
+        accurate_backend=accurate,
     )
     feed_utterance(pipe, "mic")
     pipe.finish()
@@ -688,8 +694,12 @@ def test_empty_accurate_result_falls_back_to_greedy_final():
     accurate = _RecordingAccurate([])  # recognizes nothing this utterance
     emitted: list[TranscriptSegment] = []
     pipe = StreamingTranscriptionPipeline(
-        "m1", "mic", emitted.append, fast,
-        config=fast_decode_config(), accurate_backend=accurate,
+        "m1",
+        "mic",
+        emitted.append,
+        fast,
+        config=fast_decode_config(),
+        accurate_backend=accurate,
     )
     feed_utterance(pipe, "mic")
     pipe.finish()
@@ -722,8 +732,13 @@ def test_finalize_runs_via_scheduler_when_provided():
 
     emitted: list[TranscriptSegment] = []
     pipe = StreamingTranscriptionPipeline(
-        "m1", "mic", emitted.append, fast,
-        config=fast_decode_config(), accurate_backend=accurate, schedule_finalize=schedule,
+        "m1",
+        "mic",
+        emitted.append,
+        fast,
+        config=fast_decode_config(),
+        accurate_backend=accurate,
+        schedule_finalize=schedule,
     )
     feed_utterance(pipe, "mic")
     pipe.finish()
@@ -736,9 +751,7 @@ def test_manager_emits_accurate_final_and_drains_finalizer_on_stop():
     # End-to-end through the manager: a shared accurate backend + the per-source
     # finalizer executor. on_stop must DRAIN the executor so the last utterance's
     # accurate final is emitted before the meeting tears down.
-    fast = FakeAsrBackend(
-        script=growing_script([["fast"], ["fast", "approx"], ["fast", "approx"]])
-    )
+    fast = FakeAsrBackend(script=growing_script([["fast"], ["fast", "approx"], ["fast", "approx"]]))
     accurate = _RecordingAccurate([(0.0, 1.0, "accurate final")])
     lock = threading.Lock()
     emitted: list[TranscriptSegment] = []

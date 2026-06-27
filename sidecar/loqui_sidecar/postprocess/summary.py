@@ -93,7 +93,7 @@ NOTETAKER_PROMPT = (
     "the first sentence, then add the supporting detail, reasoning, number, or "
     "example that was actually said. A bullet must make sense without reading the "
     "others.\n"
-    "- Lead each bullet with the substance, not throat-clearing. Write \"Pricing "
+    '- Lead each bullet with the substance, not throat-clearing. Write "Pricing '
     'moves to usage-based in Q3 to lift expansion revenue" — not "They talked about '
     'pricing."\n'
     "- Preserve concrete specifics verbatim where they matter: names, numbers, "
@@ -151,6 +151,7 @@ def build_calendar_context_block(context: object) -> Optional[str]:
         lines.append(f"- Participants ({len(names)}): {', '.join(names)}")
     # Only worth emitting when there is at least one usable signal beyond the header.
     return "\n".join(lines) if len(lines) > 1 else None
+
 
 #: The placeholder a custom summary prompt template (PRD-10) uses to mark where
 #: the read-only transcript text is spliced in. Mirror of @loqui/shared

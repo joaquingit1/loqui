@@ -15,7 +15,7 @@
  * immediately.
  *
  * Skipped automatically on non-Windows hosts (the swap is OS-specific; the macOS
- * helper is verified on Mac in CI — see SIGNING.md / the .sh helper).
+ * helper is verified on Mac in CI via the .sh helper).
  */
 import { describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";

@@ -7,6 +7,7 @@ dependency analysis (it can't import the package, so it misses ctranslate2 /
 faster-whisper / sherpa-onnx). This wrapper imports the package ABSOLUTELY so both
 the analysis and the runtime resolve the full module tree.
 """
+
 import sys
 
 from loqui_sidecar.__main__ import main

@@ -143,9 +143,24 @@ def test_default_flow_uses_builtin_instruction(data_dir):
 def test_detect_transcript_language():
     from loqui_sidecar.postprocess.summary import detect_transcript_language as d
 
-    assert d("bueno acá estamos haciendo una prueba de las cosas que tenemos que terminar para la semana en la empresa con el equipo") == "Spanish"
-    assert d("the meeting focused on the things that we have to do for the week and the team agreed to ship the product with new features") == "English"
-    assert d("bom estamos aqui fazendo um teste das coisas que temos que terminar para a semana na empresa com a equipe não") == "Portuguese"
+    assert (
+        d(
+            "bueno acá estamos haciendo una prueba de las cosas que tenemos que terminar para la semana en la empresa con el equipo"
+        )
+        == "Spanish"
+    )
+    assert (
+        d(
+            "the meeting focused on the things that we have to do for the week and the team agreed to ship the product with new features"
+        )
+        == "English"
+    )
+    assert (
+        d(
+            "bom estamos aqui fazendo um teste das coisas que temos que terminar para a semana na empresa com a equipe não"
+        )
+        == "Portuguese"
+    )
     # Too short / ambiguous -> None (falls back to the generic rule).
     assert d("ok sure") is None
 
@@ -250,7 +265,9 @@ def test_calendar_context_block_injects_participant_names(data_dir):
         started_at="2026-06-26T15:00:00Z",
         attendees=[Attendee(name="Sarah Lee"), Attendee(name="John Park")],
     )
-    messages = build_summary_messages("m1", ProviderConfig(provider="fake"), FsTranscriptReader(), ctx)
+    messages = build_summary_messages(
+        "m1", ProviderConfig(provider="fake"), FsTranscriptReader(), ctx
+    )
     system = messages[0].content
     assert "CALENDAR MEETING CONTEXT:" in system
     assert "Sarah Lee" in system and "John Park" in system

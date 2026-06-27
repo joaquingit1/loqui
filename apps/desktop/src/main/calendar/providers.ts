@@ -278,8 +278,7 @@ abstract class OAuthCalendarProvider implements CalendarProvider {
     if (!config.clientId) {
       throw new Error(
         `${this.id} calendar isn't configured in this build. Set ${CLIENT_ID_ENV[this.id]} ` +
-          `(an OAuth client id for ${this.id}) and restart Loqui to connect — see ` +
-          `docs/prd/PRD-15-calendar-home.md for the app-registration steps.`,
+          `(an OAuth client id for ${this.id}) and restart Loqui to connect.`,
       );
     }
     const tokens = await runPkceFlow({

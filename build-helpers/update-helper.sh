@@ -16,9 +16,9 @@
 #      because by swap time the parent is already gone.
 #   4. Relaunches the new app via `open` and exits.
 #
-# Adding a real Developer ID + notarization later (see SIGNING.md) makes the
-# quarantine-strip + ad-hoc-sign a harmless no-op — NO change to this helper or
-# the updater code is required.
+# Adding a real Developer ID + notarization later makes the quarantine-strip +
+# ad-hoc-sign a harmless no-op — NO change to this helper or the updater code
+# is required.
 #
 # Positional args (from the app):
 #   $1 ParentPid       the app PID to wait on before swapping

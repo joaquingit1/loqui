@@ -5,8 +5,8 @@
 # The custom self-updater (apps/desktop/src/main/updater) fetches the latest
 # release's `version.json`, semver-compares, downloads the platform asset, and
 # sha256-verifies it before swapping — so integrity rides entirely on the
-# checksums published here (no code-signing cert required; see SIGNING.md to add
-# one later with NO updater changes).
+# checksums published here (no code-signing cert required; a Developer ID /
+# notarization can be added later with NO updater changes).
 name: Release
 
 on:

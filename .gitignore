@@ -85,8 +85,5 @@ playwright-report/
 /tmp/
 /.tmp/
 
-# third-party design reference screenshots (not redistributed)
-/docs/design/reference/
-
 # Generated AudioWorklet bundle (built by scripts/build-worklet.mjs)
 apps/desktop/src/renderer/public/capture-worklet.js

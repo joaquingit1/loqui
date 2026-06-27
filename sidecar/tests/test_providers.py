@@ -639,7 +639,9 @@ def test_fs_transcript_reader_prefers_hifi_so_a_flawed_live_transcript_never_poi
     monkeypatch.setenv(transcript_mod.DATA_DIR_ENV, str(tmp_path))
     mdir = tmp_path / "meetings" / "m1"
     mdir.mkdir(parents=True)
-    (mdir / "transcript.live.md").write_text("[00:00:00] You said: flawd lvie txt\n", encoding="utf-8")
+    (mdir / "transcript.live.md").write_text(
+        "[00:00:00] You said: flawd lvie txt\n", encoding="utf-8"
+    )
     (mdir / "transcript.jsonl").write_text('{"text":"flawd lvie txt"}\n', encoding="utf-8")
     reader = FsTranscriptReader()
 
@@ -647,8 +649,12 @@ def test_fs_transcript_reader_prefers_hifi_so_a_flawed_live_transcript_never_poi
     assert "flawd" in reader.read("m1", "live")
 
     # Once the clean hi-fi exists, BOTH variants prefer it.
-    (mdir / "transcript.hifi.md").write_text("[00:00:00] You said: clean accurate text\n", encoding="utf-8")
-    (mdir / "transcript.hifi.jsonl").write_text('{"text":"clean accurate text"}\n', encoding="utf-8")
+    (mdir / "transcript.hifi.md").write_text(
+        "[00:00:00] You said: clean accurate text\n", encoding="utf-8"
+    )
+    (mdir / "transcript.hifi.jsonl").write_text(
+        '{"text":"clean accurate text"}\n', encoding="utf-8"
+    )
     assert reader.read("m1", "live") == "[00:00:00] You said: clean accurate text\n"
     assert "clean accurate text" in reader.read("m1", "structured")
 

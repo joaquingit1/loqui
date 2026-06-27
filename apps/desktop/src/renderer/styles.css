@@ -1,12 +1,11 @@
 /**
  * Loqui renderer styles — global tokens + app-shell chrome.
  *
- * The :root block below is the SINGLE SOURCE OF TRUTH for the design system
- * (see docs/design/DESIGN-SYSTEM.md). All per-feature CSS consumes these CSS
- * custom properties; no ad-hoc colours/sizes are allowed in feature CSS.
+ * The :root block below is the SINGLE SOURCE OF TRUTH for the design system.
+ * All per-feature CSS consumes these CSS custom properties; no ad-hoc
+ * colours/sizes are allowed in feature CSS.
  *
- * PRD-16 (UI rehaul, Phase 1): a refined, light, macOS-native palette derived
- * from docs/design/reference/ref-1.png + ref-2.png — warm near-white surfaces,
+ * A refined, light, macOS-native palette — warm near-white surfaces,
  * a muted sage accent, an elegant serif for display + a clean system sans for
  * UI. The legacy token NAMES (--bg/--panel/--panel-border/--text/--text-dim/
  * --accent/--green/--amber/--red/--slate/--sans/--mono) are preserved and

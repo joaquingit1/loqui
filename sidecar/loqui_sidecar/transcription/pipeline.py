@@ -667,9 +667,7 @@ class StreamingTranscriptionPipeline:
         """Pin the stream to the first confidently auto-detected language."""
         if self._locked_language is None and detected:
             self._locked_language = detected
-            logger.info(
-                "Locked language=%s for %s/%s", detected, self.meeting_id, self.source
-            )
+            logger.info("Locked language=%s for %s/%s", detected, self.meeting_id, self.source)
 
     def _safe_transcribe(self, pcm: bytes) -> Optional[list[AsrToken]]:
         try:

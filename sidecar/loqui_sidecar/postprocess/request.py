@@ -50,7 +50,11 @@ class MeetingContext:
                 if isinstance(a, dict):
                     name = str(a.get("name", "")).strip()
                     raw_email = a.get("email")
-                    email = str(raw_email).strip() if isinstance(raw_email, str) and raw_email.strip() else None
+                    email = (
+                        str(raw_email).strip()
+                        if isinstance(raw_email, str) and raw_email.strip()
+                        else None
+                    )
                     if name or email:
                         attendees.append(Attendee(name=name, email=email))
         return cls(

@@ -15,7 +15,7 @@
 #
 # UNSIGNED-FIRST: no `identity` / `certificateFile` here, so the build is unsigned
 # (works today, with a one-time first-launch approval). Adding a Developer ID /
-# Windows cert later requires NO updater code change — see SIGNING.md.
+# Windows cert later requires NO updater code change.
 
 appId: app.loqui.desktop
 productName: Loqui

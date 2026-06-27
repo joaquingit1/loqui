@@ -115,7 +115,9 @@ class WhisperLiveTranscriptionPipeline:
         samples = np.frombuffer(pcm[:usable], dtype="<i2")
         return samples.astype(np.float32) / _INT16_FULL_SCALE
 
-    def _make_segment(self, seg_id: str, text: str, start: float, end: float, status: str) -> TranscriptSegment:
+    def _make_segment(
+        self, seg_id: str, text: str, start: float, end: float, status: str
+    ) -> TranscriptSegment:
         return TranscriptSegment(
             meeting_id=self.meeting_id,
             source=self.source,

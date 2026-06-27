@@ -34,7 +34,6 @@ via :func:`make_provider_selector` (the default selector raises an actionable
 from __future__ import annotations
 
 import logging
-import re
 from typing import Callable, Optional
 
 from ..lang import detect_language
@@ -216,7 +215,9 @@ def handle_chat(
             (m.content for m in reversed(request.messages) if m.role == "user" and m.content),
             "",
         )
-        lang = detect_language(last_user) or detect_language(reader.read(request.meeting_id, "live"))
+        lang = detect_language(last_user) or detect_language(
+            reader.read(request.meeting_id, "live")
+        )
         directive = (
             f"Always reply in {lang}. Never switch to another language."
             if lang
@@ -229,7 +230,9 @@ def handle_chat(
         if context is not None:
             # Merge the directive into the single grounding system message (keeps
             # one system turn — also what lands on the native model's instructions).
-            messages.append(ChatMessage(role="system", content=context.content + "\n\n" + directive))
+            messages.append(
+                ChatMessage(role="system", content=context.content + "\n\n" + directive)
+            )
         else:
             messages.append(ChatMessage(role="system", content=directive))
         messages.extend(request.messages)

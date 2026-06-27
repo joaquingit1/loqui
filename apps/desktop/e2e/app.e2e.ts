@@ -47,6 +47,14 @@ test.beforeAll(async () => {
     env: { ...process.env, LOQUI_DATA_DIR: dataDir, LOQUI_FAKE_ASR: "1", LOQUI_E2E: "1" },
   });
   page = await app.firstWindow();
+  // The "Meeting Detected" popup is a SECOND BrowserWindow created at startup;
+  // its open order vs. the main window can race across OSes. Always drive the
+  // MAIN app window (notification.html → the popup; index.html → the main app).
+  if (page.url().includes("notification")) {
+    page = await app.waitForEvent("window", {
+      predicate: (w) => !w.url().includes("notification"),
+    });
+  }
   await page.waitForLoadState("domcontentloaded");
 });
 
@@ -171,7 +179,11 @@ test("a transcriptSegment pushed from main reaches window.loqui.onTranscriptSegm
   });
 
   await app.evaluate(({ BrowserWindow }) => {
-    const win = BrowserWindow.getAllWindows()[0];
+    // Target the MAIN window specifically — once the "Meeting Detected" popup
+    // exists, getAllWindows()[0] is not guaranteed to be the main app window
+    // (and the listener above lives in the main window).
+    const wins = BrowserWindow.getAllWindows();
+    const win = wins.find((w) => !w.webContents.getURL().includes("notification")) ?? wins[0];
     win?.webContents.send("loqui:transcriptSegment", {
       meetingId: "e2e-meeting",
       source: "mic",

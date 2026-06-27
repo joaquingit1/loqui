@@ -165,11 +165,7 @@ def test_full_run_emits_diarization_then_summary_then_done(data_dir):
     # The summary now STREAMS: ``summaryToken`` deltas are interleaved between the
     # summary running+done jobUpdates. Assert the jobUpdate/terminal SKELETON
     # (ignoring the token stream), then check the tokens separately below.
-    kinds = [
-        (e, d.get("kind"), d.get("state"))
-        for e, d in events
-        if e != SUMMARY_TOKEN_EVENT
-    ]
+    kinds = [(e, d.get("kind"), d.get("state")) for e, d in events if e != SUMMARY_TOKEN_EVENT]
     assert kinds == [
         (JOB_UPDATE_EVENT, JOB_KIND_DIARIZATION, "running"),
         (JOB_UPDATE_EVENT, JOB_KIND_DIARIZATION, "done"),

@@ -166,7 +166,9 @@ class WhisperLiveTranscriber:
         with self.lock:
             if self.frames_np is None:
                 return
-            pending = self.frames_np[int((self.timestamp_offset - self.frames_offset) * self.RATE) :]
+            pending = self.frames_np[
+                int((self.timestamp_offset - self.frames_offset) * self.RATE) :
+            ]
             if pending.shape[0] > self.CLIP_THRESHOLD_DURATION_S * self.RATE:
                 duration = self.frames_np.shape[0] / self.RATE
                 self.timestamp_offset = self.frames_offset + duration - self.CLIP_TAIL_DURATION_S
@@ -192,7 +194,10 @@ class WhisperLiveTranscriber:
             # Lock on a CONFIDENT detection over enough audio; or, as a safety net,
             # accept the best plausible guess once we've waited long enough so we
             # never stall. A low-confidence early "en" can no longer pin English.
-            confident = prob >= self.LANGUAGE_LOCK_MIN_PROB and duration >= self.LANGUAGE_LOCK_MIN_DURATION_S
+            confident = (
+                prob >= self.LANGUAGE_LOCK_MIN_PROB
+                and duration >= self.LANGUAGE_LOCK_MIN_DURATION_S
+            )
             fallback = duration >= self.LANGUAGE_LOCK_FALLBACK_S and prob > 0.5
             if detected and (confident or fallback):
                 self.language = detected
@@ -216,7 +221,12 @@ class WhisperLiveTranscriber:
 
     @staticmethod
     def _format_segment(start: float, end: float, text: str, completed: bool) -> Segment:
-        return {"start": round(float(start), 3), "end": round(float(end), 3), "text": text, "completed": completed}
+        return {
+            "start": round(float(start), 3),
+            "end": round(float(end), 3),
+            "text": text,
+            "completed": completed,
+        }
 
     def _handle_output(self, result: list, duration: float) -> None:
         if not result:
