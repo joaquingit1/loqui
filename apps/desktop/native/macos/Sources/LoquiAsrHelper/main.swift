@@ -90,7 +90,7 @@ while let line = readLine(strippingNewline: true) {
             continue
         }
         do {
-            let text = try e.generate(req.prompt ?? "")
+            let text = try e.generate(req.prompt ?? "", instructions: req.system)
             emit(.summaryResult(text: text))
         } catch let EngineError.unavailable(msg) {
             emit(.error(code: "unavailable", message: msg))

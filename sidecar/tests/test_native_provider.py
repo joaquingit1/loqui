@@ -68,9 +68,10 @@ def test_native_provider_generates_summary_via_helper():
     types = [m["type"] for m in helper.sent]
     assert types == ["summaryStart", "summaryGenerate", "summaryStop"]
     assert helper.sent[0]["engine"] == "apple-foundation"
-    # The full prompt (context + user) reached the helper.
-    prompt = helper.sent[1]["prompt"]
-    assert "<transcript>" in prompt and "Summarize the meeting." in prompt
+    # The transcript context rides on the SYSTEM channel (-> session instructions),
+    # the ask rides as the USER prompt — both reach the helper.
+    assert "<transcript>" in helper.sent[1]["system"]
+    assert "Summarize the meeting." in helper.sent[1]["prompt"]
     assert helper.closed is True
 
 

@@ -25,8 +25,12 @@ struct HostRequest: Decodable {
     let pcmBase64: String?
     /// PRD-10 summary: the on-device model id (e.g. an MLX model id) for `summaryStart`.
     let model: String?
-    /// PRD-10 summary: the full prompt (incl. the read-only transcript) for `summaryGenerate`.
+    /// PRD-10 summary: the USER prompt (the read-only transcript + the ask) for `summaryGenerate`.
     let prompt: String?
+    /// PRD-10 summary: the SYSTEM instructions (the notetaker prompt) for `summaryGenerate`.
+    /// Apple Foundation Models follows its `instructions` channel far more reliably
+    /// than an inlined instruction blob, so the host sends them separately.
+    let system: String?
 }
 
 // MARK: - Helper -> host replies

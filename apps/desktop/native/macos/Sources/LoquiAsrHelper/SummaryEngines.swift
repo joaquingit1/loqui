@@ -27,9 +27,11 @@ import NaturalLanguage
 /// One native summary engine behind a uniform generate seam.
 protocol SummaryEngine {
     /// Generate (or extract) a summary for the given prompt. The prompt already
-    /// contains the read-only transcript (spliced in by the host). Returns the
-    /// result text; may throw `EngineError` (host maps it to an `error` reply).
-    func generate(_ prompt: String) throws -> String
+    /// contains the read-only transcript (spliced in by the host). `instructions`
+    /// is the SYSTEM prompt (the notetaker instructions), passed separately so a
+    /// generative engine can use its system channel. Returns the result text; may
+    /// throw `EngineError` (host maps it to an `error` reply).
+    func generate(_ prompt: String, instructions: String?) throws -> String
     func stop()
 }
 
@@ -45,25 +47,37 @@ import FoundationModels
 /// which would echo the prompt instead of summarizing).
 @available(macOS 26.0, *)
 final class AppleFoundationEngine: SummaryEngine {
-    private let session: LanguageModelSession
+    private let model: SystemLanguageModel
 
     init() throws {
         let model = SystemLanguageModel.default
         switch model.availability {
         case .available:
-            self.session = LanguageModelSession(model: model)
+            self.model = model
         case let .unavailable(reason):
             throw EngineError.unavailable("Apple Foundation Models unavailable: \(reason)")
         }
     }
 
-    func generate(_ prompt: String) throws -> String {
+    func generate(_ prompt: String, instructions: String?) throws -> String {
         let sem = DispatchSemaphore(value: 0)
         var out = ""
         var failure: Error?
         Task {
             do {
-                let response = try await session.respond(to: prompt)
+                // Put the notetaker prompt on the SYSTEM `instructions` channel —
+                // the model follows it FAR more reliably than an inlined blob (which
+                // it largely ignored, defaulting to a short English paragraph). The
+                // transcript + ask ride as the user `prompt`. A generous token
+                // budget gives room for a full multi-section document.
+                let session: LanguageModelSession
+                if let instructions = instructions, !instructions.isEmpty {
+                    session = LanguageModelSession(model: self.model) { instructions }
+                } else {
+                    session = LanguageModelSession(model: self.model)
+                }
+                let options = GenerationOptions(maximumResponseTokens: 2000)
+                let response = try await session.respond(to: prompt, options: options)
                 out = response.content
             } catch {
                 failure = error
@@ -86,7 +100,8 @@ final class AppleFoundationEngine: SummaryEngine {
 /// salient ones as highlights. A robust fallback when no generative model is
 /// available, so a macOS user ALWAYS gets an on-device summary with no key.
 final class AppleNaturalLanguageEngine: SummaryEngine {
-    func generate(_ prompt: String) throws -> String {
+    func generate(_ prompt: String, instructions _: String?) throws -> String {
+        // Extractive: instructions are irrelevant (this engine can't follow them).
         // The prompt carries the transcript (the host splices it in). We summarize
         // the whole prompt text extractively — picking the longest, most
         // information-dense sentences as a lightweight highlight set.
@@ -159,14 +174,16 @@ final class MlxSummaryEngine: SummaryEngine {
         self.container = container
     }
 
-    func generate(_ prompt: String) throws -> String {
+    func generate(_ prompt: String, instructions: String?) throws -> String {
+        // MLX has no separate system channel here — prepend the instructions.
+        let fullPrompt = (instructions?.isEmpty == false) ? instructions! + "\n\n" + prompt : prompt
         let sem = DispatchSemaphore(value: 0)
         var out = ""
         var failure: Error?
         Task {
             do {
                 out = try await container.perform { context in
-                    let input = try await context.processor.prepare(input: .init(prompt: prompt))
+                    let input = try await context.processor.prepare(input: .init(prompt: fullPrompt))
                     var text = ""
                     let stream = try MLXLMCommon.generate(
                         input: input, parameters: .init(), context: context

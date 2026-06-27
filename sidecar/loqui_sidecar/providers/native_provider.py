@@ -111,6 +111,28 @@ def render_prompt(messages: list[ChatMessage]) -> str:
     return "\n\n".join(parts)
 
 
+def split_system_user(messages: list[ChatMessage]) -> tuple[str, str]:
+    """Split the conversation into (system, user) for the native helper.
+
+    The SYSTEM text (e.g. the notetaker instructions) is sent on the helper's
+    `system` channel so Apple Foundation Models follows it as session
+    `instructions` (far more reliable than an inlined blob); the rest becomes the
+    USER prompt. If there is no system message (e.g. a custom template that owns
+    the whole prompt), the system part is empty and everything is the user prompt.
+    READ-ONLY: builds strings only.
+    """
+    system = "\n\n".join(m.content for m in messages if m.role == "system" and m.content)
+    user_parts: list[str] = []
+    for m in messages:
+        if m.role == "system" or not m.content:
+            continue
+        user_parts.append(m.content if m.role == "user" else f"Assistant: {m.content}")
+    user = "\n\n".join(user_parts)
+    if not user:  # system-only (shouldn't happen) -> treat it as the user prompt.
+        return "", system
+    return system, user
+
+
 def probe_summary_capabilities(helper_factory=None) -> List[str]:
     """Ask the helper which native SUMMARY engines are available on this OS/arch.
 
@@ -203,12 +225,12 @@ class _HelperSummaryProvider:
                 "system (no native helper). Pick Ollama, a cloud provider, or run "
                 "on macOS.",
             )
-        prompt = render_prompt(messages)
+        system, prompt = split_system_user(messages)
         helper: Optional[HelperProcess] = None
         try:
             helper = self._factory()
             self._start(helper)
-            text = self._generate(helper, prompt)
+            text = self._generate(helper, prompt, system)
             if text:
                 yield text
         except ChatProviderError:
@@ -257,9 +279,17 @@ class _HelperSummaryProvider:
             f"The on-device {self._name!r} provider did not become ready.",
         )
 
-    def _generate(self, helper: HelperProcess, prompt: str) -> str:
-        """Send ``summaryGenerate`` + read back the single ``summaryResult`` text."""
-        helper.send_line(json.dumps({"type": "summaryGenerate", "prompt": prompt}))
+    def _generate(self, helper: HelperProcess, prompt: str, system: str = "") -> str:
+        """Send ``summaryGenerate`` + read back the single ``summaryResult`` text.
+
+        ``system`` (the notetaker instructions) rides on its own field so the
+        Swift helper can hand it to Apple Foundation Models as session
+        ``instructions`` rather than as inlined user text.
+        """
+        frame: dict = {"type": "summaryGenerate", "prompt": prompt}
+        if system:
+            frame["system"] = system
+        helper.send_line(json.dumps(frame))
         for _ in range(_MAX_LINES):
             raw = helper.read_line()
             if raw is None:
