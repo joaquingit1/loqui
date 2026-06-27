@@ -320,16 +320,45 @@ describe("real provider connect (OAuth via injected http, no network)", () => {
     expect(out.account).toBe("me@gmail.com");
   });
 
-  it("connect fails fast with an actionable message when no client id is configured", async () => {
+  it("Google falls back to the bundled public client id when the env is unset", async () => {
+    // Google ships a bundled public client id, so it's configured out of the box;
+    // an empty/unset LOQUI_GOOGLE_CLIENT_ID must NOT block the flow.
     vi.stubEnv("LOQUI_GOOGLE_CLIENT_ID", "");
+    let openedUrl = "";
+    const openExternal = (url: string): Promise<void> => {
+      openedUrl = url;
+      const u = new URL(url);
+      const state = u.searchParams.get("state")!;
+      const redirectUri = u.searchParams.get("redirect_uri")!;
+      void fetch(`${redirectUri}?code=AUTHCODE&state=${state}`).catch(() => {});
+      return Promise.resolve();
+    };
+    const oauthHttp: OAuthHttp = () =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ access_token: "AT", refresh_token: "RT", expires_in: 3600, scope: "s" }),
+        text: () => Promise.resolve("{}"),
+      });
+    const p = new GoogleProvider({ http: jsonHttp({ email: "me@gmail.com" }), oauthHttp, openExternal });
+    const out = await p.connect();
+    expect(out.tokens.accessToken).toBe("AT");
+    // The authorize URL carries the bundled client id (not empty).
+    expect(new URL(openedUrl).searchParams.get("client_id")).toContain("apps.googleusercontent.com");
+  });
+
+  it("connect fails fast with an actionable message when no client id is configured", async () => {
+    // Microsoft is env-only (no bundled default), so it exercises the shared
+    // "isn't configured" error path.
+    vi.stubEnv("LOQUI_MS_CLIENT_ID", "");
     let opened = false;
     const openExternal = (): Promise<void> => {
       opened = true;
       return Promise.resolve();
     };
     const oauthHttp: OAuthHttp = () => Promise.reject(new Error("should not be called"));
-    const p = new GoogleProvider({ http: jsonHttp({}), oauthHttp, openExternal });
-    await expect(p.connect()).rejects.toThrow(/isn't configured|LOQUI_GOOGLE_CLIENT_ID/);
+    const p = new MicrosoftProvider({ http: jsonHttp({}), oauthHttp, openExternal });
+    await expect(p.connect()).rejects.toThrow(/isn't configured|LOQUI_MS_CLIENT_ID/);
     // It must NOT open a broken consent page.
     expect(opened).toBe(false);
   });

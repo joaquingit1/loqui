@@ -211,6 +211,18 @@ const CLIENT_ID_ENV: Record<CalendarSource, string> = {
   zoom: "LOQUI_ZOOM_CLIENT_ID",
 };
 
+/**
+ * Bundled PUBLIC Google OAuth client id (an installed / "Desktop app" client).
+ * This is NOT a secret: for native apps it's embedded in every install and only
+ * identifies the APP to Google — never a user. Security comes from PKCE + the
+ * loopback redirect + per-user consent (see ./oauth.ts); a leaked client id
+ * cannot read anyone's calendar. `LOQUI_GOOGLE_CLIENT_ID` overrides it so a user
+ * can bring their own Google project (no shared quota / no dependency on our
+ * OAuth-consent verification).
+ */
+const DEFAULT_GOOGLE_CLIENT_ID =
+  "525627645392-onqb9jdqoq9ho6p1lbl6oh9spu8s2pts.apps.googleusercontent.com";
+
 abstract class OAuthCalendarProvider implements CalendarProvider {
   abstract readonly id: CalendarSource;
   protected abstract config(): OAuthClientConfig;
@@ -315,7 +327,13 @@ export class GoogleProvider extends OAuthCalendarProvider {
     return {
       authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
-      clientId: process.env["LOQUI_GOOGLE_CLIENT_ID"] ?? "",
+      // Use the user's own client id when set, else the bundled public default
+      // (empty string also falls back, not just unset).
+      clientId: process.env["LOQUI_GOOGLE_CLIENT_ID"] || DEFAULT_GOOGLE_CLIENT_ID,
+      // Google "Desktop app" clients may require their (non-confidential) client
+      // secret at token exchange even with PKCE. Optional — set
+      // LOQUI_GOOGLE_CLIENT_SECRET if your client rejects the PKCE-only exchange.
+      clientSecret: process.env["LOQUI_GOOGLE_CLIENT_SECRET"] || undefined,
       scope: "https://www.googleapis.com/auth/calendar.events.readonly",
       redirectPath: "/oauth/google",
       // access_type=offline + prompt=consent so Google returns a refresh token.
