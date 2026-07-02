@@ -36,12 +36,17 @@ from .writers import write_hifi_transcript
 
 logger = logging.getLogger("loqui_sidecar.postprocess.retranscribe")
 
-#: Env override for the high-accuracy model size. Defaults to ``medium`` — the
-#: genuine accuracy tier (beam search over the full file). Set ``small`` for a
-#: lighter pass that needs no extra model download (small is already cached for
-#: the live tier), or ``large-v3`` for maximum accuracy.
+#: Env override for the high-accuracy model size. Defaults to ``small`` — it is
+#: already cached for the live tier (no extra download), runs ~3× faster than
+#: ``medium`` on CPU, and whisper accuracy largely plateaus for typical meeting
+#: audio. Set ``medium``/``large-v3`` for maximum accuracy at the cost of speed.
 HIFI_MODEL_SIZE_ENV = "LOQUI_HIFI_MODEL_SIZE"
-DEFAULT_HIFI_MODEL_SIZE = "medium"
+DEFAULT_HIFI_MODEL_SIZE = "small"
+
+#: Env override for the hi-fi beam size. Defaults to ``3`` (a good accuracy/speed
+#: balance; ~10-20% faster than 5 with negligible quality loss). ``1`` is greedy.
+HIFI_BEAM_SIZE_ENV = "LOQUI_HIFI_BEAM_SIZE"
+DEFAULT_HIFI_BEAM_SIZE = 3
 
 #: The capture sources we re-transcribe, in display order (mic first = "You").
 _SOURCES = ("mic", "system")
@@ -76,6 +81,14 @@ class RetranscribeResult:
 def resolved_hifi_model_size() -> str:
     value = (os.environ.get(HIFI_MODEL_SIZE_ENV) or "").strip()
     return value or DEFAULT_HIFI_MODEL_SIZE
+
+
+def resolved_hifi_beam_size() -> int:
+    raw = (os.environ.get(HIFI_BEAM_SIZE_ENV) or "").strip()
+    try:
+        return max(1, int(raw)) if raw else DEFAULT_HIFI_BEAM_SIZE
+    except ValueError:
+        return DEFAULT_HIFI_BEAM_SIZE
 
 
 def _audio_dir(meeting_id: str) -> Path:
@@ -156,8 +169,10 @@ def re_transcribe_meeting(
                 backend = FasterWhisperBackend(
                     model_size=model_size,
                     language=language,
+                    # VAD stays ON — it skips silence, which SPEEDS UP the pass on
+                    # real meetings (less audio fed to the model), not slows it.
                     vad_filter=True,
-                    beam_size=5,
+                    beam_size=resolved_hifi_beam_size(),
                 )
         except Exception:  # noqa: BLE001 - construction failure degrades gracefully.
             logger.exception("failed to construct hi-fi backend for %s", meeting_id)

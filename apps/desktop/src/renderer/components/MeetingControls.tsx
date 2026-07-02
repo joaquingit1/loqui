@@ -174,6 +174,14 @@ export function MeetingControls({
       capture.statuses.mic.state === "error" ? capture.statuses.mic.error : null;
     const systemErr =
       capture.statuses.system.state === "error" ? capture.statuses.system.error : null;
+    // A system error whose message names the Screen Recording grant is the
+    // recoverable, actionable case: macOS never re-prompts a denied app, so the
+    // ONLY path forward is the settings deep-link + an app restart. Discriminate
+    // on the message text (the status carries only `error: string`); both the
+    // native (main) refusal and the Windows renderer-mode fallback phrase it with
+    // "Screen Recording".
+    const systemNeedsPermission =
+      systemErr != null && /screen recording/i.test(systemErr);
     return (
       <section
         className="meeting meeting--live"
@@ -231,11 +239,27 @@ export function MeetingControls({
         )}
         {!micErr && systemErr && (
           <p
-            className="meeting__note"
+            className={`meeting__note${systemNeedsPermission ? " meeting__note--action" : ""}`}
             data-testid="meeting-capture-error-system"
-            role="status"
+            role={systemNeedsPermission ? "alert" : "status"}
           >
-            {systemErr}
+            {systemNeedsPermission ? (
+              <>
+                System audio (“They”) is off — macOS needs Screen Recording
+                permission.{" "}
+                <button
+                  type="button"
+                  className="meeting__note-action"
+                  data-testid="meeting-open-screen-settings"
+                  onClick={() => void audio.openScreenSettings?.()}
+                >
+                  Open Screen Recording settings
+                </button>
+                <span className="meeting__note-hint"> then quit and reopen Loqui.</span>
+              </>
+            ) : (
+              systemErr
+            )}
           </p>
         )}
 

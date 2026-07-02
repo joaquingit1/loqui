@@ -8,28 +8,36 @@
  * callback with `{ audio: "loopback" }`. We register that handler on the
  * default session here.
  *
- * ## macOS Screen-Recording permission implication (must be documented)
+ * ## Platform reality: Electron loopback audio is WINDOWS-ONLY
  *
- * On macOS 13+ the loopback audio path is backed by ScreenCaptureKit, which is
- * gated by the **Screen Recording** privacy permission — the SAME grant used
- * for capturing screen video. So registering this handler does NOT itself
- * prompt; the OS prompt appears the first time the renderer actually calls
- * `getDisplayMedia` and a capture is attempted. If the user has denied it,
- * the loopback track is silent / the request is rejected. The capture
- * orchestrator pairs this with {@link import("./permission.js")} to detect the
- * `denied` / `not-determined` / needs-restart states and surface a recovery
- * path to the renderer. On Windows (WASAPI loopback) and Linux, no such grant
- * is required.
+ * Electron's `{ audio: "loopback" }` system-audio path is backed by WASAPI
+ * loopback and only produces a real system-audio track on **Windows**. On
+ * **macOS** this handler does NOT yield usable system audio — the loopback
+ * track is silent / the request effectively fails — so the renderer's
+ * `getDisplayMedia` path can never capture "They" on macOS. macOS system audio
+ * is instead captured NATIVELY in the main process by the Swift helper via
+ * ScreenCaptureKit (see {@link import("./native-system-capture.js")}), which
+ * injects it into the sidecar as `source:"system"` frames.
+ *
+ * We still register this handler because Windows needs it (and mic capture on
+ * every platform rides `getUserMedia`, not this). On macOS, ScreenCaptureKit is
+ * gated by the **Screen Recording** privacy permission (the SAME grant used for
+ * screen video); the native-capture path pairs with
+ * {@link import("./permission.js")} to detect the `denied` / `not-determined` /
+ * needs-restart states and surface a recovery path. On Windows (WASAPI
+ * loopback) and Linux, no such grant is required.
  *
  * ## Video constraint
  *
  * `getDisplayMedia` requires a video stream to be requested even when we only
  * want audio, and `setDisplayMediaRequestHandler` must therefore supply a
  * video source. We do NOT use the native system picker
- * (`useSystemPicker: false`) for the MVP — the renderer requests the primary
- * screen and immediately drops the video track, keeping only the loopback
- * audio track. (A native-tap helper that captures audio without any video is
- * the post-MVP path noted in the PRD.)
+ * (`useSystemPicker: false`) — the renderer requests the primary screen and
+ * immediately drops the video track, keeping only the loopback audio track.
+ * This path is exercised only on **Windows** (where loopback audio works); on
+ * macOS the Swift helper's native ScreenCaptureKit tap (see
+ * {@link import("./native-system-capture.js")}) captures audio without any
+ * video request at all.
  *
  * The handler is built as a pure factory so its decision (audio loopback, video
  * source selection) is unit-testable without a real Electron session; the thin

@@ -32,7 +32,29 @@ protocol SummaryEngine {
     /// generative engine can use its system channel. Returns the result text; may
     /// throw `EngineError` (host maps it to an `error` reply).
     func generate(_ prompt: String, instructions: String?) throws -> String
+    /// Streaming variant: invoke `onToken` with each incremental chunk as it is
+    /// produced, and return the full text. The default implementation is
+    /// non-streaming (it calls `generate` and emits the whole result as one
+    /// chunk), so engines that can't stream still work; generative engines that
+    /// can (Apple Foundation Models) override this to emit tokens live.
+    func generateStream(
+        _ prompt: String,
+        instructions: String?,
+        onToken: @escaping (String) -> Void
+    ) throws -> String
     func stop()
+}
+
+extension SummaryEngine {
+    func generateStream(
+        _ prompt: String,
+        instructions: String?,
+        onToken: @escaping (String) -> Void
+    ) throws -> String {
+        let text = try generate(prompt, instructions: instructions)
+        if !text.isEmpty { onToken(text) }
+        return text
+    }
 }
 
 // MARK: - Apple Foundation Models (generative, on-device) — -DFOUNDATION_MODELS
@@ -76,9 +98,57 @@ final class AppleFoundationEngine: SummaryEngine {
                 } else {
                     session = LanguageModelSession(model: self.model)
                 }
-                let options = GenerationOptions(maximumResponseTokens: 2000)
+                let options = GenerationOptions(maximumResponseTokens: 4000)
                 let response = try await session.respond(to: prompt, options: options)
                 out = response.content
+            } catch {
+                failure = error
+            }
+            sem.signal()
+        }
+        sem.wait()
+        if let failure = failure { throw EngineError.unavailable("\(failure)") }
+        return out
+    }
+
+    /// Streaming override: emit each incremental chunk via `onToken` as Apple
+    /// Foundation Models produces it, so chat/summary tokens appear immediately
+    /// instead of after the whole answer is ready. `streamResponse` yields
+    /// CUMULATIVE snapshots; we diff against what we've emitted to send only the
+    /// new suffix. The helper's main loop is blocked on the semaphore during
+    /// generation, so calling `onToken` (a stdout write) from the Task is safe —
+    /// no concurrent writer.
+    func generateStream(
+        _ prompt: String,
+        instructions: String?,
+        onToken: @escaping (String) -> Void
+    ) throws -> String {
+        let sem = DispatchSemaphore(value: 0)
+        var out = ""
+        var failure: Error?
+        Task {
+            do {
+                let session: LanguageModelSession
+                if let instructions = instructions, !instructions.isEmpty {
+                    session = LanguageModelSession(model: self.model) { instructions }
+                } else {
+                    session = LanguageModelSession(model: self.model)
+                }
+                let options = GenerationOptions(maximumResponseTokens: 4000)
+                var emitted = ""
+                let stream = session.streamResponse(to: prompt, options: options)
+                for try await partial in stream {
+                    let content = partial.content
+                    if content.hasPrefix(emitted), content.count > emitted.count {
+                        let delta = String(content.dropFirst(emitted.count))
+                        onToken(delta)
+                    } else if content != emitted {
+                        // Non-monotonic snapshot (shouldn't happen): re-sync.
+                        onToken(content)
+                    }
+                    emitted = content
+                    out = content
+                }
             } catch {
                 failure = error
             }

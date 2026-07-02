@@ -10,6 +10,12 @@ build/
 apps/desktop/dist/
 apps/desktop/out/
 packages/*/dist/
+# apps/desktop/build is electron-builder's buildResources dir: it holds COMMITTED
+# source (app icons, the afterPack signing hook), not build output — so un-ignore
+# the dir itself while still ignoring the staged-runtime output it also contains
+# (build/runtime/ is populated by scripts/build-runtime.mjs at package time).
+!apps/desktop/build/
+apps/desktop/build/runtime/
 
 # Python
 __pycache__/

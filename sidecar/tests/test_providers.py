@@ -142,8 +142,8 @@ def test_anthropic_request_shape_default_model_and_no_sampling():
     kwargs = rec["kwargs"]
     # default model honored
     assert kwargs["model"] == DEFAULT_ANTHROPIC_CHAT_MODEL
-    # max_tokens ~4096 per contract
-    assert kwargs["max_tokens"] == DEFAULT_CHAT_MAX_TOKENS == 4096
+    # max_tokens pinned to the (generous) chat default so thorough answers aren't clipped
+    assert kwargs["max_tokens"] == DEFAULT_CHAT_MAX_TOKENS == 8192
     # adaptive thinking, NOT budget_tokens
     assert kwargs["thinking"] == ADAPTIVE_THINKING == {"type": "adaptive"}
     # NO sampling params — they 400 on Opus 4.8 / Sonnet 4.6

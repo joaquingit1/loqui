@@ -40,5 +40,13 @@ export default tseslint.config(
       globals: { process: "readonly", console: "readonly", Buffer: "readonly" },
     },
   },
+  // CommonJS hooks (e.g. electron-builder afterPack, which v25 loads as CJS)
+  // use require()/module.exports — enable the CommonJS source type so those
+  // module globals resolve and require() is permitted.
+  {
+    files: ["**/*.cjs"],
+    languageOptions: { sourceType: "commonjs" },
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
   prettier,
 );

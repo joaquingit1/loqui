@@ -4,8 +4,8 @@ This is NOT part of the default unit gate. It is skipped cleanly unless
 ``ANTHROPIC_API_KEY`` is set in the environment. When set, it makes ONE tiny real
 streamed call through :class:`AnthropicProvider` (the official ``anthropic`` SDK,
 adaptive thinking, no sampling params) and asserts the stream produced non-empty
-text. Keep ``max_tokens`` small via a terse prompt; the provider pins
-``max_tokens=4096`` and ``thinking={"type":"adaptive"}`` per the PRD contract.
+text. Keep the response short via a terse prompt; the provider pins
+``max_tokens=8192`` and ``thinking={"type":"adaptive"}`` per the PRD contract.
 
 Run (only when you intend to spend a few tokens)::
 

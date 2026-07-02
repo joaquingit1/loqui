@@ -41,6 +41,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
@@ -70,6 +72,23 @@ from .types import (
 from .writers import hifi_jsonl_path
 
 logger = logging.getLogger("loqui_sidecar.postprocess.runner")
+
+#: Hard cap on summary generation so a hung/slow provider can NEVER leave a
+#: meeting stuck in "processing" forever — on timeout the summary stage is marked
+#: "error" and the meeting still finalizes to "done". Env-overridable; <= 0
+#: disables the cap.
+SUMMARY_TIMEOUT_ENV = "LOQUI_SUMMARY_TIMEOUT_SEC"
+DEFAULT_SUMMARY_TIMEOUT_SEC = 120.0
+
+
+def _resolved_summary_timeout() -> Optional[float]:
+    raw = (os.environ.get(SUMMARY_TIMEOUT_ENV) or "").strip()
+    try:
+        value = float(raw) if raw else DEFAULT_SUMMARY_TIMEOUT_SEC
+    except ValueError:
+        value = DEFAULT_SUMMARY_TIMEOUT_SEC
+    return value if value > 0 else None
+
 
 #: Builds a :class:`DiarizationBackend` for the current env + an optional HF token.
 #: The default (:func:`default_diarizer_factory`) selects, in order: the hermetic
@@ -182,6 +201,21 @@ def run_postprocess(
     index_parts: list[str] = []
     notes: list[str] = []
 
+    # Kick DIARIZATION off NOW so it runs CONCURRENTLY with the re-transcription
+    # below: the two stages are independent (diarization reads ONLY system.wav ->
+    # speaker turns, and sherpa runs out-of-process), so overlapping them hides
+    # the diarization wall time under the re-transcription long pole. ALIGNMENT
+    # still waits for the hi-fi transcript (it needs the text). `emit` is
+    # thread-safe and `diarizer.diarize` never emits, so jobUpdate ordering is
+    # unaffected — we join the future in the diarization stage below.
+    diar_pool: Optional[ThreadPoolExecutor] = None
+    diar_future = None
+    if not request.regenerate_summary:
+        diar_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="diarize")
+        diar_future = diar_pool.submit(
+            diarizer.diarize, _system_wav_path(meeting_id), request.hf_token
+        )
+
     # --- 0) HIGH-ACCURACY RE-TRANSCRIPTION (PRD-2 two-tier) --------------------
     # Runs BEFORE we read the structured transcript so diarization + the summary
     # + the search index all consume the better text. A larger model re-decodes
@@ -228,7 +262,10 @@ def run_postprocess(
             {"jobId": diar_id, "kind": JOB_KIND_DIARIZATION, "state": "running", "progress": 0.0},
         )
         try:
-            result = diarizer.diarize(_system_wav_path(meeting_id), request.hf_token)
+            # Join the diarization started up front (ran in parallel with
+            # re-transcription). `.result()` re-raises any worker exception here.
+            assert diar_future is not None
+            result = diar_future.result()
         except Exception:  # noqa: BLE001 - a backend crash degrades, never fatal.
             logger.exception("diarization backend crashed for %s", meeting_id)
             result = DiarizationResult(
@@ -236,6 +273,9 @@ def run_postprocess(
                 backend=getattr(diarizer, "name", ""),
                 note="diarization failed unexpectedly",
             )
+        finally:
+            if diar_pool is not None:
+                diar_pool.shutdown(wait=False)
         diar_backend = result.backend
         if result.note:
             notes.append(result.note)
@@ -301,15 +341,26 @@ def run_postprocess(
                 {"jobId": sum_id, "meetingId": meeting_id, "delta": delta},
             )
 
-        summary = summarize(
-            meeting_id,
-            provider,
-            config,
-            api_key=request.api_key,
-            reader=reader,
-            on_delta=_on_summary_delta,
-            context=request.meeting_context,
-        )
+        # Run under a hard timeout so a hung provider can't wedge the meeting in
+        # "processing" forever. summarize() streams via on_delta (emit is
+        # thread-safe), so running it on a worker thread is safe; on timeout we
+        # stop waiting and finalize the meeting (the orphaned worker, if the
+        # provider eventually returns, harmlessly drops its late deltas).
+        summary_timeout = _resolved_summary_timeout()
+        summary_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="summary")
+        try:
+            summary = summary_pool.submit(
+                summarize,
+                meeting_id,
+                provider,
+                config,
+                api_key=request.api_key,
+                reader=reader,
+                on_delta=_on_summary_delta,
+                context=request.meeting_context,
+            ).result(timeout=summary_timeout)
+        finally:
+            summary_pool.shutdown(wait=False)
         summary.generated_at = datetime.now(timezone.utc).isoformat()
         from .writers import write_summary
 
@@ -335,6 +386,20 @@ def run_postprocess(
         emit(
             JOB_UPDATE_EVENT,
             {"jobId": sum_id, "kind": JOB_KIND_SUMMARY, "state": "done", "progress": 1.0},
+        )
+    except FuturesTimeoutError:
+        logger.warning("summary for %s timed out — finalizing without it", meeting_id)
+        summary_stage = "error"
+        notes.append("summary timed out")
+        emit(
+            JOB_UPDATE_EVENT,
+            {
+                "jobId": sum_id,
+                "kind": JOB_KIND_SUMMARY,
+                "state": "error",
+                "progress": 1.0,
+                "error": "summary timed out",
+            },
         )
     except ChatProviderError as exc:
         logger.warning("summary for %s failed: [%s] %s", meeting_id, exc.code, exc)

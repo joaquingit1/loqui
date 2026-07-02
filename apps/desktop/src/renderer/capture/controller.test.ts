@@ -6,12 +6,12 @@
  * and that stop() releases every resource (no leaks across start→stop→start).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { LoquiAudioApi } from "@loqui/shared";
-import { createCaptureController, type CaptureEnv } from "./controller.js";
+import { createCaptureController, type CaptureAudioBridge, type CaptureEnv } from "./controller.js";
 
 /** A fake MediaStreamTrack recording stop() + 'ended' listeners. */
 class FakeTrack {
   stopped = false;
+  enabled = true;
   private endedCbs: Array<() => void> = [];
   constructor(public kind: "audio" | "video") {}
   stop(): void {
@@ -110,26 +110,42 @@ class FakeContext {
   }
 }
 
+/** A push channel for main's ~10 Hz system-level updates (native mode). */
+type SystemLevelCb = (payload: { meetingId: string; level: number }) => void;
+
 interface Harness {
   contexts: FakeContext[];
   workletNodes: FakeWorkletNode[];
   micStream: FakeStream;
   systemStream: FakeStream;
   env: CaptureEnv;
-  audio: LoquiAudioApi & {
+  /** Fires the most-recent onSystemLevel subscriber (native mode). */
+  emitSystemLevel(payload: { meetingId: string; level: number }): void;
+  /** Spy on the unsubscribe returned by onSystemLevel. */
+  unsubscribeLevel: ReturnType<typeof vi.fn>;
+  audio: CaptureAudioBridge & {
     startCapture: ReturnType<typeof vi.fn>;
     stopCapture: ReturnType<typeof vi.fn>;
     sendFrame: ReturnType<typeof vi.fn>;
+    onSystemLevel: ReturnType<typeof vi.fn>;
+    setSystemMuted: ReturnType<typeof vi.fn>;
   };
 }
 
 function makeHarness(
-  opts: { startResult?: { ok: boolean; code?: string; message?: string } } = {},
+  opts: {
+    startResult?: { ok: boolean; code?: string; message?: string; mode?: "renderer" | "native" };
+    /** Omit the native-mode bridge methods (simulates a pre-PART-2 preload). */
+    omitNativeBridge?: boolean;
+  } = {},
 ): Harness {
   const contexts: FakeContext[] = [];
   const workletNodes: FakeWorkletNode[] = [];
   const micStream = new FakeStream([new FakeTrack("audio")]);
   const systemStream = new FakeStream([new FakeTrack("audio")], [new FakeTrack("video")]);
+
+  const levelCbs: SystemLevelCb[] = [];
+  const unsubscribeLevel = vi.fn();
 
   const audio = {
     startCapture: vi.fn(async () => opts.startResult ?? { ok: true }),
@@ -137,6 +153,15 @@ function makeHarness(
     sendFrame: vi.fn(),
     getScreenPermission: vi.fn(async () => "not-applicable" as const),
     onScreenPermission: vi.fn(() => () => {}),
+    ...(opts.omitNativeBridge
+      ? {}
+      : {
+          onSystemLevel: vi.fn((cb: SystemLevelCb) => {
+            levelCbs.push(cb);
+            return unsubscribeLevel;
+          }),
+          setSystemMuted: vi.fn(async () => {}),
+        }),
   };
 
   const env: CaptureEnv = {
@@ -163,6 +188,11 @@ function makeHarness(
     micStream,
     systemStream,
     env,
+    unsubscribeLevel,
+    emitSystemLevel: (payload) => {
+      const cb = levelCbs[levelCbs.length - 1];
+      cb?.(payload);
+    },
     audio: audio as Harness["audio"],
   };
 }
@@ -194,17 +224,25 @@ describe("createCaptureController", () => {
     expect(h.contexts[0]!.sourceNode.connections).toBe(2);
   });
 
-  it("system source keeps only the audio track and stops/removes the video track", async () => {
+  it("system source keeps the video track ALIVE (disabled) so loopback audio keeps flowing", async () => {
     const c = createCaptureController({ audio: h.audio, meetingId: MEETING, env: h.env });
     await c.start("system");
 
     expect(h.env.getDisplayMedia).toHaveBeenCalledTimes(1);
-    const video = h.systemStream.getVideoTracks(); // emptied after removeTrack
-    expect(video.length).toBe(0);
-    expect(h.systemStream.removed.some((t) => t.kind === "video" && t.stopped)).toBe(
-      true,
-    );
+    // The video track is NOT removed/stopped during capture — on macOS the
+    // loopback audio rides the same session, so killing the video track silences
+    // the audio. It must stay alive but disabled.
+    const video = h.systemStream.getVideoTracks();
+    expect(video.length).toBe(1);
+    expect(video[0]!.enabled).toBe(false);
+    expect(video[0]!.stopped).toBe(false);
+    expect(h.systemStream.removed.length).toBe(0);
     expect(c.getStatus("system").state).toBe("capturing");
+
+    // Teardown stops ALL tracks (audio + the retained video).
+    await c.stop("system");
+    expect(video[0]!.stopped).toBe(true);
+    expect(h.systemStream.getAudioTracks()[0]!.stopped).toBe(true);
   });
 
   it("routes worklet frame buffers to the bridge sendFrame, tagged per-source", async () => {
@@ -373,5 +411,95 @@ describe("createCaptureController", () => {
     await c.start("mic");
     captured[0]?.(0); // run the meter tick: analyser fills 0.5
     expect(c.getStatus("mic").level).toBeCloseTo(0.5, 5);
+  });
+});
+
+describe("createCaptureController — native-mode system capture (macOS)", () => {
+  /** A harness whose startCapture reports mode:"native" for the system source. */
+  function makeNativeHarness(): Harness {
+    return makeHarness({ startResult: { ok: true, mode: "native" } });
+  }
+
+  let nh: Harness;
+  beforeEach(() => {
+    nh = makeNativeHarness();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("reaches 'capturing' WITHOUT touching getDisplayMedia / Web-Audio (main owns capture)", async () => {
+    const c = createCaptureController({ audio: nh.audio, meetingId: MEETING, env: nh.env });
+    await c.start("system");
+
+    expect(nh.audio.startCapture).toHaveBeenCalledWith({ meetingId: MEETING, source: "system" });
+    // Renderer must NOT acquire a stream or build an audio graph in native mode.
+    expect(nh.env.getDisplayMedia).not.toHaveBeenCalled();
+    expect(nh.env.getUserMedia).not.toHaveBeenCalled();
+    expect(nh.contexts.length).toBe(0);
+    expect(nh.workletNodes.length).toBe(0);
+    // But it DID subscribe to main's level pushes.
+    expect(nh.audio.onSystemLevel).toHaveBeenCalledTimes(1);
+    expect(c.getStatus("system").state).toBe("capturing");
+  });
+
+  it("mirrors main-pushed level updates, filtered by meetingId", async () => {
+    const c = createCaptureController({ audio: nh.audio, meetingId: MEETING, env: nh.env });
+    await c.start("system");
+
+    nh.emitSystemLevel({ meetingId: MEETING, level: 0.42 });
+    expect(c.getStatus("system").level).toBeCloseTo(0.42, 5);
+
+    // A push for a DIFFERENT meeting is ignored (independence).
+    nh.emitSystemLevel({ meetingId: "other-meeting", level: 0.99 });
+    expect(c.getStatus("system").level).toBeCloseTo(0.42, 5);
+  });
+
+  it("toggleMute calls setSystemMuted AND forces the level to 0 while muted", async () => {
+    const c = createCaptureController({ audio: nh.audio, meetingId: MEETING, env: nh.env });
+    await c.start("system");
+    nh.emitSystemLevel({ meetingId: MEETING, level: 0.5 });
+    expect(c.getStatus("system").level).toBeCloseTo(0.5, 5);
+
+    // Mute: tells main to drop frames + zeroes the local meter.
+    const muted = c.toggleMute("system");
+    expect(muted).toBe(true);
+    expect(nh.audio.setSystemMuted).toHaveBeenCalledWith({ meetingId: MEETING, muted: true });
+    expect(c.getStatus("system").level).toBe(0);
+    // A push while muted stays at 0.
+    nh.emitSystemLevel({ meetingId: MEETING, level: 0.8 });
+    expect(c.getStatus("system").level).toBe(0);
+
+    // Unmute: tells main to resume; pushes flow again.
+    c.setMuted("system", false);
+    expect(nh.audio.setSystemMuted).toHaveBeenLastCalledWith({ meetingId: MEETING, muted: false });
+    nh.emitSystemLevel({ meetingId: MEETING, level: 0.7 });
+    expect(c.getStatus("system").level).toBeCloseTo(0.7, 5);
+  });
+
+  it("stop() unsubscribes the level listener and tells main to stop", async () => {
+    const c = createCaptureController({ audio: nh.audio, meetingId: MEETING, env: nh.env });
+    await c.start("system");
+    expect(nh.unsubscribeLevel).not.toHaveBeenCalled();
+
+    await c.stop("system");
+    expect(nh.unsubscribeLevel).toHaveBeenCalledTimes(1);
+    expect(nh.audio.stopCapture).toHaveBeenCalledWith({ meetingId: MEETING, source: "system" });
+    expect(c.getStatus("system").state).toBe("idle");
+  });
+
+  it("tolerates a pre-PART-2 preload lacking the native bridge methods", async () => {
+    const bare = makeHarness({
+      startResult: { ok: true, mode: "native" },
+      omitNativeBridge: true,
+    });
+    const c = createCaptureController({ audio: bare.audio, meetingId: MEETING, env: bare.env });
+    await c.start("system");
+    expect(c.getStatus("system").state).toBe("capturing");
+    // Mute must not throw even though setSystemMuted is absent.
+    expect(() => c.toggleMute("system")).not.toThrow();
+    expect(c.getStatus("system").muted).toBe(true);
+    await expect(c.stop("system")).resolves.toBeUndefined();
+    expect(c.getStatus("system").state).toBe("idle");
   });
 });

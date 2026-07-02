@@ -50,7 +50,21 @@ enum HelperReply {
     // PRD-10 summary replies (mirror of native_provider.py's summary protocol).
     case summaryCapabilities(engines: [String], os: String, arch: String)
     case summaryReady(engine: String, model: String?)
+    /// Incremental chunk of the summary/chat answer, streamed as it generates so
+    /// the renderer shows tokens immediately instead of waiting for the whole
+    /// response. Always followed by a terminal `summaryResult` carrying the full
+    /// text (so a client that ignores tokens still works).
+    case summaryToken(delta: String)
     case summaryResult(text: String)
+    // System-audio capture replies (the loopback fix). The host streams these
+    // pcm frames into the same pipeline the mic ("Me") audio feeds.
+    /// SCStream is running and about to deliver frames.
+    case captureReady
+    /// One chunk of captured system audio: pcm_s16le 16 kHz MONO, base64-encoded,
+    /// with `level` = peak |sample| / 32768 in 0..1 for a live meter.
+    case captureFrame(pcmBase64: String, level: Float)
+    /// Terminal ack for `captureStop` — capture has fully stopped.
+    case captureStopped
 
     /// Serialize to a single JSON line (no embedded newline).
     func jsonLine() -> String {
@@ -72,8 +86,16 @@ enum HelperReply {
             obj = ["type": "summaryCapabilities", "engines": engines, "os": os, "arch": arch]
         case let .summaryReady(engine, model):
             obj = ["type": "summaryReady", "engine": engine, "model": (model ?? NSNull()) as Any]
+        case let .summaryToken(delta):
+            obj = ["type": "summaryToken", "delta": delta]
         case let .summaryResult(text):
             obj = ["type": "summaryResult", "text": text]
+        case .captureReady:
+            obj = ["type": "captureReady"]
+        case let .captureFrame(pcmBase64, level):
+            obj = ["type": "captureFrame", "pcmBase64": pcmBase64, "level": level]
+        case .captureStopped:
+            obj = ["type": "captureStopped"]
         }
         guard let data = try? JSONSerialization.data(withJSONObject: obj),
               let line = String(data: data, encoding: .utf8)

@@ -21,6 +21,14 @@ appId: app.loqui.desktop
 productName: Loqui
 copyright: Copyright © 2026 Joaquin Castellano and contributors
 
+# macOS signing durability: `codesign --deep` does NOT sign executables under
+# Contents/Resources/, so the bundled ScreenCaptureKit helper never inherits the
+# app's identity and its ad-hoc identifier drifts every build — breaking the
+# Screen Recording (TCC) grant, which macOS keys to code identity. This hook
+# signs the helper INSIDE-OUT with the app's identity (helper first, then re-seals
+# the app) after packaging. Path is relative to this config's app dir.
+afterPack: build/after-pack.cjs
+
 # electron-vite emits the app into out/{main,preload,renderer}; package those.
 directories:
   output: dist-app
@@ -70,6 +78,12 @@ mac:
   identity: null
   # Harden the runtime later when notarizing; harmless unsigned.
   hardenedRuntime: false
+  # macOS permission purpose strings shown in the system prompts. Screen
+  # Recording is what gates SYSTEM-audio ("They") capture via the loopback path;
+  # without an explicit string the prompt UX degrades on recent macOS.
+  extendInfo:
+    NSMicrophoneUsageDescription: Loqui records your microphone ("You") to transcribe meetings on your device.
+    NSScreenCaptureUsageDescription: Loqui needs Screen Recording permission to capture the other participants' audio ("They") from your system output. It records audio only.
 
 # Artifact names embed the version + arch so the release `version.json` URLs are
 # stable + predictable (the generator composes them from the tag + these names).

@@ -5,7 +5,7 @@
  * with availability + backend toggling) — no real OS keychain, no network. The
  * token never lands plaintext on disk and is never returned by the status API.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -63,6 +63,23 @@ describe("HfKeystore", () => {
     const ks = new HfKeystore(makeSafeStorage());
     expect(ks.getHfToken()).toBeNull();
     expect(ks.getHfTokenStatus()).toEqual({ hasToken: false });
+  });
+
+  it("a read with NO persisted token NEVER touches safeStorage (no keychain prompt)", () => {
+    // First-open hygiene: a user who never entered an HF token must not trigger
+    // the OS "Loqui wants to access safe storage" prompt. The constructor + a
+    // no-blob read must not call ANY safeStorage method.
+    const safe = makeSafeStorage();
+    const isAvail = vi.spyOn(safe, "isEncryptionAvailable");
+    const decrypt = vi.spyOn(safe, "decryptString");
+
+    const ks = new HfKeystore(safe);
+    expect(ks.getHfToken()).toBeNull();
+    expect(ks.getHfTokenStatus()).toEqual({ hasToken: false });
+    expect(ks.getDiarizationBackend()).toBe("auto");
+
+    expect(isAvail).not.toHaveBeenCalled();
+    expect(decrypt).not.toHaveBeenCalled();
   });
 
   it("clears the token on an empty/null token", () => {

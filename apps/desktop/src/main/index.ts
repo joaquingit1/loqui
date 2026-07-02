@@ -46,7 +46,14 @@ import {
   pushTranscriptSegments,
   registerIpcHandlers,
 } from "./ipc/register.js";
-import { registerAudioIpc } from "./audio/register.js";
+import { makeSystemLevelPusher, registerAudioIpc } from "./audio/register.js";
+import { CaptureOrchestrator } from "./capture/orchestrator.js";
+import { openScreenSettings } from "./capture/index.js";
+import {
+  NativeSystemCapture,
+  makeDefaultSpawn,
+  resolveNativeCaptureHelperBin,
+} from "./capture/native-system-capture.js";
 import { ChatKeystore } from "./chat/keystore.js";
 import { forwardChatStream, registerChatIpc } from "./chat/register.js";
 import {
@@ -213,9 +220,14 @@ function deleteMeetingAudioFiles(meetingId: string): void {
 
 /**
  * Register the loopback display-media handler so the renderer's
- * `getDisplayMedia({ audio: true })` yields system/loopback audio. On macOS
- * this routes through the Screen-Recording permission. Build units refine the
- * source selection; Foundation wires the `{ audio: "loopback" }` seam.
+ * `getDisplayMedia({ audio: true })` yields system/loopback audio.
+ *
+ * NOTE: Electron's `{ audio: "loopback" }` system-audio is WINDOWS-ONLY (WASAPI
+ * loopback). On macOS it does NOT produce a usable system-audio track, so macOS
+ * "They" capture is done NATIVELY in main by the Swift helper via
+ * ScreenCaptureKit (see capture/native-system-capture.ts + the audio/register
+ * wiring), NOT through this handler. We still register it because Windows needs
+ * it; it is harmless (and unused for audio) on macOS.
  */
 function registerDisplayMediaLoopback(): void {
   session.defaultSession.setDisplayMediaRequestHandler(
@@ -300,6 +312,40 @@ let disposeCalendarNotify: (() => void) | null = null;
 function applyRunInBackground(enabled: boolean): void {
   if (enabled) app.dock?.hide();
   else app.dock?.show();
+}
+
+/**
+ * Apply the "open at login" OS setting, but ONLY when it actually needs to
+ * change. Calling `app.setLoginItemSettings` is not free:
+ *   - in dev (unpackaged) it errors ("Unable to set login item") and, on
+ *     macOS 13+, can surface a "Loqui runs in the background" system notification;
+ *   - even packaged, re-asserting an unchanged value is a needless OS write.
+ *
+ * So we skip when the desired value already matches `getLoginItemSettings()`.
+ * `opts.requirePackaged` gates the unconditional BOOTSTRAP reflect (which must
+ * never prompt on first open in dev): unpackaged, it logs instead of calling.
+ * User-initiated toggles pass `requirePackaged:false` — they still differ-check,
+ * but a dev toggle logs rather than erroring.
+ */
+function applyLoginItemSetting(
+  openAtLogin: boolean,
+  opts: { requirePackaged: boolean },
+): void {
+  try {
+    if (app.getLoginItemSettings().openAtLogin === openAtLogin) return; // no change.
+    if (!app.isPackaged) {
+      console.error(
+        `[loqui] skipping setLoginItemSettings(openAtLogin=${openAtLogin}) in dev (unpackaged)`,
+      );
+      return;
+    }
+    app.setLoginItemSettings({ openAtLogin });
+  } catch (err) {
+    // requirePackaged is documentary for the bootstrap reflect; the guards above
+    // already make every path safe, so just log a failure rather than throw.
+    void opts;
+    console.error("[loqui] setLoginItemSettings failed:", err);
+  }
 }
 
 /**
@@ -479,6 +525,19 @@ export async function bootstrap(): Promise<void> {
       win.webContents.send(IPC.meetingStatus, { meeting });
     }
   };
+  // The capture orchestrator owns the per-(meeting,source) bounded frame queue.
+  // Created HERE (rather than inside registerAudioIpc) so the post-process
+  // pipeline can query which sources were started for a meeting — it must wait
+  // for EVERY started source's `audioFinalized` before dispatching (both sources
+  // close their WAVs independently and diarization reads system.wav). Passed into
+  // registerAudioIpc below so the audio hot path uses this SAME instance.
+  const audioOrchestrator = new CaptureOrchestrator({
+    supervisor,
+    // Audio is ALWAYS written during the meeting (the post-meeting hi-fi
+    // re-transcription + diarization read the WAVs), then deleted right after
+    // post-processing finishes — see postprocess/pipeline.ts finalize.
+    getPersistAudio: () => true,
+  });
   const postProcessPipeline = createPostProcessPipeline({
     supervisor,
     store,
@@ -489,6 +548,9 @@ export async function bootstrap(): Promise<void> {
     // (hi-fi re-transcription + diarization), mic.wav/system.wav are always
     // removed — see the finalize() hook in postprocess/pipeline.ts.
     deleteAudioFiles: deleteMeetingAudioFiles,
+    // Wait for EVERY started source (mic + system) to finalize before dispatching
+    // post-processing — otherwise diarization can read a still-open system.wav.
+    startedSources: (id) => audioOrchestrator.startedSources(id),
   });
   disposePostProcessPipeline = () => postProcessPipeline.dispose();
   disposeJobUpdatePush = forwardJobUpdates(supervisor, () => mainWindow);
@@ -539,6 +601,43 @@ export async function bootstrap(): Promise<void> {
   disposeAudioIpc = registerAudioIpc({
     supervisor,
     getScreenPermission: getScreenPermissionStatus,
+    // Recovery deep-link for the in-meeting "system audio is off" notice: opens
+    // System Settings ▸ Privacy & Security ▸ Screen Recording.
+    openScreenSettings: () => openScreenSettings().then((r) => ({ ok: r.ok })),
+    // Share the SAME orchestrator the post-process pipeline queries for started
+    // sources (created above) so `startedSources` reflects the live capture state.
+    orchestrator: audioOrchestrator,
+    // macOS system audio ("They") is captured NATIVELY by the Swift helper —
+    // Electron's getDisplayMedia loopback audio is Windows-only, so the renderer
+    // path never worked on macOS (PART-2). The factory receives the audio
+    // orchestrator's enqueueFrame so the helper's PCM rides the SAME bounded
+    // queue as renderer frames; its level pushes on IPC.audioSystemLevel to the
+    // live main window. On non-mac this is omitted (Windows keeps the
+    // getDisplayMedia loopback path via registerDisplayMediaLoopback).
+    ...(process.platform === "darwin"
+      ? {
+          makeNativeSystemCapture: (enqueueFrame) =>
+            new NativeSystemCapture({
+              spawn: makeDefaultSpawn(),
+              // SAME resolution main uses for LOQUI_ASR_HELPER_BIN above.
+              helperBin: () =>
+                resolveNativeCaptureHelperBin(appPaths.resourcesDir(), appPaths.isPackaged),
+              enqueueFrame,
+              sendLevel: makeSystemLevelPusher(() => mainWindow),
+            }),
+          // The APP-attributed Screen Recording request: macOS only shows the
+          // permission prompt for a bundled app with a usage description (the
+          // bare helper binary is auto-denied WITHOUT a prompt), so before the
+          // helper attempt the main process itself must ask. getSources is the
+          // canonical Electron trigger for the Screen Recording TCC prompt.
+          requestScreenAccess: async () => {
+            await desktopCapturer.getSources({
+              types: ["screen"],
+              thumbnailSize: { width: 1, height: 1 },
+            });
+          },
+        }
+      : {}),
   });
 
   // Export & interop (PRD-13). The ExportService is READ-ONLY over the canonical
@@ -705,8 +804,10 @@ export async function bootstrap(): Promise<void> {
   disposeAutoRecordIpc = registerAutoRecordIpc({
     engine: autoRecordEngine,
     settings: settingsStore,
+    // User-initiated toggle: differ-check (never re-assert an unchanged value),
+    // and in dev log instead of erroring.
     setLoginItemSettings: (enabled: boolean) =>
-      app.setLoginItemSettings({ openAtLogin: enabled }),
+      applyLoginItemSetting(enabled, { requirePackaged: false }),
     applyRunInBackground,
     getWindow: () => mainWindow,
   });
@@ -769,11 +870,8 @@ export async function bootstrap(): Promise<void> {
         openMeeting: () => openMainWindow(),
         setLaunchAtLogin: (enabled: boolean) => {
           updateAutoRecordSettings({ launchAtLogin: enabled });
-          try {
-            app.setLoginItemSettings({ openAtLogin: enabled });
-          } catch (err) {
-            console.error("[loqui] auto-record: setLoginItemSettings failed:", err);
-          }
+          // User-initiated toggle: differ-check + dev-log (never prompt/error).
+          applyLoginItemSetting(enabled, { requirePackaged: false });
         },
         quit: () => app.quit(),
       },
@@ -785,14 +883,14 @@ export async function bootstrap(): Promise<void> {
   }
 
   // Reflect the persisted launch-at-login to the OS at boot, then start watching
-  // (a no-op when auto-record is disabled).
-  try {
-    app.setLoginItemSettings({
-      openAtLogin: settingsStore.getAutoRecordSettings().launchAtLogin,
-    });
-  } catch (err) {
-    console.error("[loqui] auto-record: setLoginItemSettings failed:", err);
-  }
+  // (a no-op when auto-record is disabled). Guarded so a fresh install (default
+  // OFF, already matching the OS) never touches setLoginItemSettings on first
+  // open — that unconditional call was surfacing a dev error + a macOS 13+
+  // "runs in the background" prompt. Only writes when packaged AND the value
+  // actually differs.
+  applyLoginItemSetting(settingsStore.getAutoRecordSettings().launchAtLogin, {
+    requirePackaged: true,
+  });
   autoRecordEngine.start();
 
   // PRD-8 custom GitHub auto-updater. Fetches the latest release's public

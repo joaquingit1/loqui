@@ -175,23 +175,15 @@ describe("HomeView", () => {
     expect(screen.getByTestId("home-upcoming-u1")).toBeTruthy();
   });
 
-  it("upcoming entries carry a Join & record button that starts a meeting", async () => {
-    const openExternal = vi.fn();
+  it("upcoming entries carry a Record button that starts a meeting", async () => {
     const onStartMeeting = vi.fn();
     const { api } = makeCalendar({ today: [], upcoming: [TOMORROW] });
-    render(
-      <HomeView
-        calendar={api}
-        now={NOW}
-        onStartMeeting={onStartMeeting}
-        openExternal={openExternal}
-      />,
-    );
+    render(<HomeView calendar={api} now={NOW} onStartMeeting={onStartMeeting} />);
 
-    // The upcoming row renders its own record button (testid home-join-<id>).
-    const joinBtn = await screen.findByTestId(`home-join-${TOMORROW.id}`);
-    expect(joinBtn.textContent).toMatch(/record/i);
-    fireEvent.click(joinBtn);
+    // The upcoming row renders its own record button (testid home-record-<id>).
+    const recordBtn = await screen.findByTestId(`home-record-${TOMORROW.id}`);
+    expect(recordBtn.textContent).toMatch(/record/i);
+    fireEvent.click(recordBtn);
     expect(onStartMeeting).toHaveBeenCalledTimes(1);
   });
 
@@ -226,24 +218,17 @@ describe("HomeView", () => {
     expect(screen.getByTestId("home-event-t1")).toBeTruthy();
   });
 
-  it("join & record opens the join URL and requests a start pre-filled from the event", async () => {
-    const openExternal = vi.fn();
+  it("Record requests a start pre-filled from the event (and does NOT open the join link)", async () => {
     const onStartMeeting = vi.fn();
     const { api } = makeCalendar({ today: [TODAY_SOON] });
-    render(
-      <HomeView
-        calendar={api}
-        now={NOW}
-        openExternal={openExternal}
-        onStartMeeting={onStartMeeting}
-      />,
-    );
-    await waitFor(() => expect(screen.getByTestId("home-join-t1")).toBeTruthy());
+    render(<HomeView calendar={api} now={NOW} onStartMeeting={onStartMeeting} />);
+    await waitFor(() => expect(screen.getByTestId("home-record-t1")).toBeTruthy());
 
-    fireEvent.click(screen.getByTestId("home-join-t1"));
+    fireEvent.click(screen.getByTestId("home-record-t1"));
 
-    expect(openExternal).toHaveBeenCalledWith("https://meet.example/abc");
-    // The event's invited participants ride along so the AI summary can name them.
+    // Joining (opening the link in the browser) lives only on the popup; the
+    // Home button only records. The event's invited participants ride along so
+    // the AI summary can name them.
     expect(onStartMeeting).toHaveBeenCalledWith({
       title: "Standup",
       platform: "google-meet",
@@ -255,19 +240,15 @@ describe("HomeView", () => {
     });
   });
 
-  it("records without a join URL (no openExternal) when the event has none", async () => {
-    const openExternal = vi.fn();
+  it("records an event with no join URL", async () => {
     const onStartMeeting = vi.fn();
     const noLink = event({ id: "t1", title: "Phone call", joinUrl: null, platform: null });
     const { api } = makeCalendar({ today: [noLink] });
-    render(
-      <HomeView calendar={api} now={NOW} openExternal={openExternal} onStartMeeting={onStartMeeting} />,
-    );
-    await waitFor(() => expect(screen.getByTestId("home-join-t1")).toBeTruthy());
-    expect(screen.getByTestId("home-join-t1").textContent).toContain("Record");
+    render(<HomeView calendar={api} now={NOW} onStartMeeting={onStartMeeting} />);
+    await waitFor(() => expect(screen.getByTestId("home-record-t1")).toBeTruthy());
+    expect(screen.getByTestId("home-record-t1").textContent).toContain("Record");
 
-    fireEvent.click(screen.getByTestId("home-join-t1"));
-    expect(openExternal).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("home-record-t1"));
     expect(onStartMeeting).toHaveBeenCalledWith({ title: "Phone call" });
   });
 

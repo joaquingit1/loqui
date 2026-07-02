@@ -65,12 +65,13 @@ ChatEmit = Callable[[str, dict], None]
 #: raises an actionable :class:`ChatProviderError` for the others (until wired).
 ProviderSelector = Callable[[ProviderConfig], ChatProvider]
 
-#: Cap on how much transcript text is injected as context before the documented
-#: chunk/keyword/recency fallback engages (the build unit implements the
-#: fallback; Foundation passes the full transcript for normal meetings). ~24k
-#: chars ≈ a long meeting; beyond this the build unit trims to recent + keyword
-#: hits. Defined here so the threshold is one symbol all consumers reference.
-CONTEXT_CHAR_BUDGET = 24_000
+#: Cap on how much transcript text is injected as context per chat turn. Kept at
+#: ~10k chars (≈ the recent stretch of a meeting) so each turn tokenizes quickly —
+#: a smaller context is a big latency win for the on-device chat models, which
+#: re-read the whole context every message. Beyond this we keep the most-recent
+#: tail (the build unit swaps in chunk+keyword retrieval). One symbol, all
+#: consumers reference it.
+CONTEXT_CHAR_BUDGET = 10_000
 
 
 def build_context_message(reader: TranscriptReader, meeting_id: str) -> Optional[ChatMessage]:
@@ -90,9 +91,15 @@ def build_context_message(reader: TranscriptReader, meeting_id: str) -> Optional
         text = text[-CONTEXT_CHAR_BUDGET:]
     content = (
         SPEAKER_LEGEND + "\n\n"
-        "You are a helpful assistant answering questions about a meeting. "
+        "You are a knowledgeable assistant answering questions about a meeting. "
         "Use ONLY the following transcript as ground truth; do not invent facts. "
         "The transcript is read-only context.\n\n"
+        "Answer THOROUGHLY and in depth. Fully address every part of the user's "
+        "question, explain your reasoning, and cite the relevant moments or "
+        "details from the transcript. Prefer several sentences, multiple "
+        "paragraphs, or bullet points over a one-line reply — do not be terse. "
+        "If the transcript doesn't contain the answer, say so and explain what is "
+        "and isn't covered.\n\n"
         "<transcript>\n" + relabel_speakers(text) + "\n</transcript>"
     )
     return ChatMessage(role="system", content=content)

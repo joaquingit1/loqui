@@ -275,6 +275,24 @@ describe("API key storage (safeStorage)", () => {
     expect(ks.getApiKey("ollama")).toBeNull();
   });
 
+  it("a read with NO persisted key NEVER touches safeStorage (no keychain prompt)", () => {
+    // First-open hygiene: a user who never stored a key must not trigger the OS
+    // "Loqui wants to access safe storage" prompt. The constructor + a no-blob
+    // read must not call ANY safeStorage method (isEncryptionAvailable / decrypt).
+    const safe = makeFakeSafeStorage();
+    const isAvail = vi.spyOn(safe, "isEncryptionAvailable");
+    const decrypt = vi.spyOn(safe, "decryptString");
+
+    const ks = new ChatKeystore(safe);
+    // Constructing + reading provider settings + a no-key read: zero safeStorage.
+    ks.getProviderSettings();
+    expect(ks.getApiKey("anthropic")).toBeNull();
+    expect(ks.getApiKeyStatus("anthropic").hasKey).toBe(false);
+
+    expect(isAvail).not.toHaveBeenCalled();
+    expect(decrypt).not.toHaveBeenCalled();
+  });
+
   it("tolerates a corrupt settings file by starting fresh", () => {
     // Pre-seed a garbage file.
     const ks0 = new ChatKeystore(makeFakeSafeStorage());

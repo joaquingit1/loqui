@@ -8,16 +8,17 @@
  *
  * Shows the user's scheduled meetings pulled from their connected calendars:
  *   - Today's meetings (soonest-first) with time, a platform icon, an attendee
- *     summary, and a "Join & record" action.
+ *     summary, and a "Record" action.
  *   - A small Upcoming peek (the next events beyond today, within the default
  *     window).
  *   - A connect/empty state when no calendar is connected (links into the
  *     Calendar settings panel) or when nothing is scheduled.
  *
- * "Join & record" opens the event's join link (window.open → OS browser in
- * Electron) and starts a meeting pre-filled from the event (title/platform),
- * linking it back via the lifecycle. It then hands the new meeting up to the
- * host so the nav can switch to the active-meeting view.
+ * "Record" starts a meeting pre-filled from the event (title/platform), linking
+ * it back via the lifecycle, and hands the new meeting up to the host so the nav
+ * can switch to the active-meeting view. It does NOT open the join link —
+ * joining (in the user's default browser) lives only on the "Meeting Detected"
+ * popup notification.
  *
  * READ-ONLY over the calendar: this view only READS events (listToday /
  * listUpcoming / onUpdated) — it never writes a calendar or a transcript. It
@@ -61,16 +62,6 @@ export interface HomeViewProps {
   onStartMeeting?: (params?: StartMeetingParams) => void;
   /** Reference "now"; injectable so tests are deterministic. */
   now?: Date;
-  /** Open a join URL; injectable for tests. Defaults to window.open in a new tab. */
-  openExternal?: (url: string) => void;
-}
-
-function defaultOpenExternal(url: string): void {
-  if (typeof window !== "undefined" && typeof window.open === "function") {
-    // In Electron the window-open handler routes this to the OS browser; in a
-    // plain browser it opens a tab. noopener/noreferrer for safety.
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
 }
 
 export function HomeView({
@@ -79,7 +70,6 @@ export function HomeView({
   onOpenLibrary,
   onStartMeeting,
   now,
-  openExternal = defaultOpenExternal,
 }: HomeViewProps): JSX.Element {
   const cal =
     calendar ?? (typeof window !== "undefined" ? window.loqui?.calendar : undefined);
@@ -159,15 +149,16 @@ export function HomeView({
     cal.getConnections?.().then(setConnections).catch(() => {});
   }, [cal, load, refNow]);
 
-  // "Join & record": open the meeting's join link, then ask the host to start a
-  // recording PREFILLED from the event (title/platform). The host's meeting
-  // controller does the actual startMeeting + capture (one owner; no divergence).
-  const onJoinAndRecord = useCallback(
+  // "Record": ask the host to start a recording PREFILLED from the event
+  // (title/platform). The host's meeting controller does the actual startMeeting
+  // + capture (one owner; no divergence). It does NOT open the meeting link —
+  // joining (in the user's default browser) lives only on the "Meeting Detected"
+  // popup notification.
+  const onRecord = useCallback(
     (event: CalendarEvent) => {
-      if (event.joinUrl) openExternal(event.joinUrl);
       onStartMeeting?.(eventStartParams(event));
     },
-    [onStartMeeting, openExternal],
+    [onStartMeeting],
   );
 
   // "Start a meeting now" (quick action): hand the start intent up; the host
@@ -247,7 +238,7 @@ export function HomeView({
                   key={event.id}
                   event={event}
                   now={refNow}
-                  onJoinAndRecord={onJoinAndRecord}
+                  onRecord={onRecord}
                 />
               ))}
             </ul>
@@ -258,7 +249,7 @@ export function HomeView({
               <p className="home__overline">Upcoming</p>
               <ul className="home__rows home__rows--peek">
                 {upcomingPeek.map((event) => (
-                  <UpcomingRow key={event.id} event={event} onJoinAndRecord={onJoinAndRecord} />
+                  <UpcomingRow key={event.id} event={event} onRecord={onRecord} />
                 ))}
               </ul>
             </div>
@@ -352,10 +343,10 @@ function ConnectPrompt({ onOpenSettings }: ConnectPromptProps): JSX.Element {
 interface EventRowProps {
   event: CalendarEvent;
   now?: Date;
-  onJoinAndRecord: (event: CalendarEvent) => void;
+  onRecord: (event: CalendarEvent) => void;
 }
 
-function EventRow({ event, now, onJoinAndRecord }: EventRowProps): JSX.Element {
+function EventRow({ event, now, onRecord }: EventRowProps): JSX.Element {
   const attendees = summarizeAttendees(event.attendees);
   return (
     <li className="home__event" data-testid={`home-event-${event.id}`}>
@@ -380,10 +371,10 @@ function EventRow({ event, now, onJoinAndRecord }: EventRowProps): JSX.Element {
       <button
         type="button"
         className="btn btn--join"
-        data-testid={`home-join-${event.id}`}
-        onClick={() => onJoinAndRecord(event)}
+        data-testid={`home-record-${event.id}`}
+        onClick={() => onRecord(event)}
       >
-        {event.joinUrl ? "Join & record" : "Record"}
+        Record
       </button>
     </li>
   );
@@ -391,10 +382,10 @@ function EventRow({ event, now, onJoinAndRecord }: EventRowProps): JSX.Element {
 
 interface UpcomingRowProps {
   event: CalendarEvent;
-  onJoinAndRecord: (event: CalendarEvent) => void;
+  onRecord: (event: CalendarEvent) => void;
 }
 
-function UpcomingRow({ event, onJoinAndRecord }: UpcomingRowProps): JSX.Element {
+function UpcomingRow({ event, onRecord }: UpcomingRowProps): JSX.Element {
   return (
     <li className="home__event home__event--peek" data-testid={`home-upcoming-${event.id}`}>
       <span className="home__event-when">
@@ -415,10 +406,10 @@ function UpcomingRow({ event, onJoinAndRecord }: UpcomingRowProps): JSX.Element 
       <button
         type="button"
         className="btn btn--join"
-        data-testid={`home-join-${event.id}`}
-        onClick={() => onJoinAndRecord(event)}
+        data-testid={`home-record-${event.id}`}
+        onClick={() => onRecord(event)}
       >
-        {event.joinUrl ? "Join & record" : "Record"}
+        Record
       </button>
     </li>
   );

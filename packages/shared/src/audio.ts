@@ -27,6 +27,24 @@ import {
 export const audioSourceSchema = z.enum(["mic", "system"]);
 export type AudioSource = z.infer<typeof audioSourceSchema>;
 
+/**
+ * Who owns the actual audio capture for a started source (PART-2 of the macOS
+ * system-audio fix).
+ *
+ * - `"renderer"` (default / omitted): the RENDERER captures the device via
+ *   `getUserMedia` (mic) or `getDisplayMedia` (Windows loopback system audio)
+ *   and streams the encoded PCM frames back to main — the original PRD-1 path.
+ * - `"native"`: the MAIN process owns capture for this source (macOS system
+ *   audio, captured natively by the Swift helper via ScreenCaptureKit and
+ *   injected as `source:"system"` frames). The renderer MUST NOT call
+ *   `getDisplayMedia` for this source — main is already feeding the sidecar.
+ *
+ * Additive + optional so an older renderer that ignores it keeps working, and a
+ * result that omits it is treated as `"renderer"`.
+ */
+export const captureModeSchema = z.enum(["renderer", "native"]).optional();
+export type CaptureMode = z.infer<typeof captureModeSchema>;
+
 export const audioEncodingSchema = z.literal("pcm_s16le").default(AUDIO_ENCODING);
 export type AudioEncoding = z.infer<typeof audioEncodingSchema>;
 

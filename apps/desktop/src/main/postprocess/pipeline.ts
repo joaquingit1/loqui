@@ -40,6 +40,7 @@
 import {
   POSTPROCESS_DONE_EVENT,
   POSTPROCESS_REQUEST_EVENT,
+  audioFinalizedSchema,
   postProcessDoneSchema,
   postProcessRequestSchema,
   type Meeting,
@@ -50,6 +51,14 @@ import {
 } from "@loqui/shared";
 import type { MeetingStore } from "../store/index.js";
 import type { HfKeystore } from "./hf-keystore.js";
+
+/**
+ * Failsafe: how long the pipeline waits (after the FIRST `audioFinalized` for a
+ * meeting) for the REMAINING sources' finalize signals before it force-dispatches
+ * anyway. A lost finalize (sidecar crash between the two WAV closes, a dropped WS
+ * frame) must never leave a meeting stuck in "processing" — so we cap the wait.
+ */
+export const FINALIZE_FAILSAFE_MS = 30_000;
 
 /** The supervisor surface the pipeline needs (kept narrow for testability). */
 export type PostProcessSupervisor = {
@@ -91,6 +100,26 @@ export interface PostProcessPipelineDeps {
    * persists past processing).
    */
   deleteAudioFiles?: (meetingId: string) => void;
+  /**
+   * Snapshot the sources that were STARTED for a meeting (mic / system). Injected
+   * so the pipeline waits for EVERY started source's `audioFinalized` before it
+   * dispatches — both sources finalize their WAVs independently, and diarization
+   * reads system.wav, so a dispatch on the first finalize can race the still-open
+   * other source (masked while system.wav was empty; real now that native macOS
+   * capture writes it). Production passes the audio orchestrator's
+   * `startedSources(id)`. When absent OR it returns an EMPTY set (import /
+   * regenerate paths, or a meeting whose sources are already gone), the pipeline
+   * keeps the legacy behavior: dispatch on the FIRST `audioFinalized`.
+   */
+  startedSources?: (meetingId: string) => string[];
+  /**
+   * Schedule the finalize failsafe timer. Injectable so tests drive it with a
+   * fake clock; defaults to the global {@link setTimeout}. Its handle is passed
+   * to the paired `clearTimeoutFn`.
+   */
+  setTimeoutFn?: (cb: () => void, ms: number) => unknown;
+  /** Cancel a failsafe timer scheduled by {@link setTimeoutFn}. Defaults to clearTimeout. */
+  clearTimeoutFn?: (handle: unknown) => void;
 }
 
 export interface PostProcessPipeline {
@@ -122,11 +151,37 @@ export function createPostProcessPipeline(
 ): PostProcessPipeline {
   const { supervisor, store, providerKeys, hfKeystore, emitStatus } = deps;
   const deleteAudioFiles = deps.deleteAudioFiles;
+  const startedSources = deps.startedSources;
+  const scheduleTimeout = deps.setTimeoutFn ?? ((cb, ms) => setTimeout(cb, ms));
+  const cancelTimeout =
+    deps.clearTimeoutFn ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
 
   /** Meetings stopped + awaiting their `audioFinalized` to dispatch. */
   const awaitingFinalize = new Set<string>();
+  /**
+   * Per-meeting set of sources whose `audioFinalized` we are still waiting for
+   * before dispatch. Seeded on stop from {@link startedSources}. An EMPTY set (no
+   * dep wired, or no started sources) means "dispatch on the FIRST finalize" —
+   * the legacy behavior. Deleted once dispatch fires.
+   */
+  const pendingSources = new Map<string, Set<string>>();
+  /**
+   * Per-meeting failsafe timer handle. Armed on the FIRST `audioFinalized` so a
+   * lost finalize for another source can't hang the meeting in "processing";
+   * cleared on dispatch.
+   */
+  const failsafeTimers = new Map<string, unknown>();
   /** Meetings whose `postProcess` request has already been dispatched (dedupe). */
   const dispatched = new Set<string>();
+
+  /** Cancel + forget a meeting's failsafe timer, if any. */
+  function clearFailsafe(meetingId: string): void {
+    const handle = failsafeTimers.get(meetingId);
+    if (handle !== undefined) {
+      cancelTimeout(handle);
+      failsafeTimers.delete(meetingId);
+    }
+  }
 
   /** Build the `postProcess` request payload, injecting the transient secrets. */
   function buildRequest(
@@ -188,12 +243,47 @@ export function createPostProcessPipeline(
     if (dispatched.has(meetingId)) return;
     dispatched.add(meetingId);
     awaitingFinalize.delete(meetingId);
+    pendingSources.delete(meetingId);
+    clearFailsafe(meetingId);
     const req = buildRequest(meetingId, {
       regenerateSummary: false,
       rediarize: false,
       reTranscribe: true,
     });
     supervisor.sendControlNotification(POSTPROCESS_REQUEST_EVENT, req);
+  }
+
+  /**
+   * Handle an `audioFinalized` for a meeting we are awaiting: retire the finalized
+   * source from its pending set and dispatch once every source has finalized. If
+   * the pending set is empty (no started sources / no dep wired) OR the source is
+   * unknown/missing, fall back to the legacy first-event dispatch. Arms the
+   * failsafe timer on the first finalize so a lost sibling finalize can't hang
+   * the meeting in "processing".
+   */
+  function onSourceFinalized(meetingId: string, source: string | null): void {
+    const pending = pendingSources.get(meetingId);
+    // Legacy path: nothing tracked (no started sources / no dep) OR we couldn't
+    // read a source off the payload — dispatch on this first event.
+    if (!pending || pending.size === 0 || !source) {
+      dispatchFull(meetingId);
+      return;
+    }
+    // Arm the failsafe once (before the first source is retired) so a never-
+    // arriving sibling finalize still force-dispatches.
+    if (failsafeTimers.get(meetingId) === undefined) {
+      failsafeTimers.set(
+        meetingId,
+        scheduleTimeout(() => {
+          console.warn(
+            `[loqui] postprocess: audioFinalized failsafe fired for meeting ${meetingId}; dispatching without the remaining source(s)`,
+          );
+          dispatchFull(meetingId);
+        }, FINALIZE_FAILSAFE_MS),
+      );
+    }
+    pending.delete(source);
+    if (pending.size === 0) dispatchFull(meetingId);
   }
 
   /**
@@ -207,6 +297,8 @@ export function createPostProcessPipeline(
     const meetingId = done.meetingId;
     dispatched.delete(meetingId);
     awaitingFinalize.delete(meetingId);
+    pendingSources.delete(meetingId);
+    clearFailsafe(meetingId);
 
     const current = store.getMeeting(meetingId);
     if (!current) return; // unknown meeting (deleted mid-flight): nothing to finalize.
@@ -275,9 +367,14 @@ export function createPostProcessPipeline(
   // pending postProcess request; `postProcessDone` finalizes the meeting.
   const off = supervisor.onNotification((event: string, data: unknown) => {
     if (event === "audioFinalized") {
-      const meetingId = extractMeetingId(data);
+      // Parse the payload with the shared schema to pull the per-source signal;
+      // fall back to a defensive meetingId-only extract so an older/looser
+      // payload still triggers the legacy first-event dispatch.
+      const parsed = audioFinalizedSchema.safeParse(data);
+      const meetingId = parsed.success ? parsed.data.meetingId : extractMeetingId(data);
+      const source = parsed.success ? parsed.data.source : null;
       if (meetingId && awaitingFinalize.has(meetingId)) {
-        dispatchFull(meetingId);
+        onSourceFinalized(meetingId, source);
       }
       return;
     }
@@ -293,6 +390,12 @@ export function createPostProcessPipeline(
       const meetingId = meeting.id;
       if (dispatched.has(meetingId)) return; // already in flight.
       awaitingFinalize.add(meetingId);
+      // Snapshot the sources that were started for this meeting: we must wait for
+      // EVERY one to finalize its WAV before dispatching (diarization reads
+      // system.wav; the mic + system sources close independently). An empty set
+      // (no dep wired, or the sources already gone) => legacy first-event
+      // dispatch, handled in onSourceFinalized.
+      pendingSources.set(meetingId, new Set(startedSources?.(meetingId) ?? []));
       // Note: we intentionally wait for `audioFinalized` rather than dispatching
       // now — the sidecar must not read a still-open/0-byte system.wav. The E2E
       // + smokes drive a real audioStop -> audioFinalized; the regenerate path
@@ -308,6 +411,9 @@ export function createPostProcessPipeline(
 
     dispose(): void {
       off();
+      for (const handle of failsafeTimers.values()) cancelTimeout(handle);
+      failsafeTimers.clear();
+      pendingSources.clear();
       awaitingFinalize.clear();
       dispatched.clear();
     },

@@ -68,8 +68,9 @@ A few things make it different:
 2. Open the `.dmg` and drag **Loqui** into your **Applications** folder.
 3. **First launch (unsigned app).** Loqui is open-source and ships **unsigned** (no paid Apple Developer certificate), so macOS will warn that *"Loqui can't be opened because the developer cannot be verified."* This is expected. To allow it:
    - Open **System Settings → Privacy & Security**, scroll to the **Security** section, and click **"Open Anyway"** next to the Loqui notice — then confirm.
-   - You only do this once. Loqui's self-updater re-approves future versions automatically.
 4. On first recording, grant **Screen Recording** (to capture system / "They" audio) and **Microphone** (your "You" audio) permissions when prompted. The transcription model downloads on first use.
+
+> **Known limitation (unsigned builds + macOS 15+):** on macOS, the other participants' audio ("They") is captured natively via **ScreenCaptureKit**, which needs the one-time **Screen Recording** permission (granted on first record). Because these builds are unsigned, macOS may re-prompt for that grant after an app update — just re-enable Loqui under **System Settings → Privacy & Security → Screen Recording**. Your own microphone ("You") is unaffected.
 
 > **Apple Silicon only.** Intel Macs and Windows are not yet supported.
 

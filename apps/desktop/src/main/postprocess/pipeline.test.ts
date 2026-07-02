@@ -16,12 +16,12 @@
  *   - the regenerate path dispatches a summary-only request without waiting;
  *   - the pipeline never writes the live transcript (structural).
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DiarizationBackendPreference, Meeting, ProviderConfig } from "@loqui/shared";
-import { createPostProcessPipeline } from "./pipeline.js";
+import { FINALIZE_FAILSAFE_MS, createPostProcessPipeline } from "./pipeline.js";
 
 let dir: string;
 beforeEach(() => {
@@ -245,6 +245,176 @@ describe("pipeline — stop -> audioFinalized -> postProcess request", () => {
     });
     supervisor.emit("audioFinalized", { meetingId: "m1", source: "system" });
     expect(supervisor.sent).toHaveLength(0);
+    pipeline.dispose();
+  });
+});
+
+describe("pipeline — source-aware dispatch (waits for EVERY started source)", () => {
+  it("a two-source meeting dispatches only after BOTH sources' audioFinalized", () => {
+    const supervisor = makeSupervisor();
+    const store = makeStore([meeting("m1")]);
+    const pipeline = createPostProcessPipeline({
+      supervisor,
+      store,
+      providerKeys: makeProviderKeys(),
+      hfKeystore: makeHfKeystore("hf"),
+      // Both mic + system were captured for this meeting.
+      startedSources: () => ["mic", "system"],
+    });
+
+    pipeline.onMeetingProcessing(meeting("m1"));
+    expect(supervisor.sent).toHaveLength(0);
+
+    // Only ONE source has finalized — still waiting on the other's WAV.
+    supervisor.emit("audioFinalized", { meetingId: "m1", source: "system" });
+    expect(supervisor.sent).toHaveLength(0);
+
+    // The second source finalizes -> NOW dispatch (exactly once).
+    supervisor.emit("audioFinalized", { meetingId: "m1", source: "mic" });
+    expect(supervisor.sent).toHaveLength(1);
+    expect(supervisor.sent[0]!.event).toBe("postProcess");
+
+    // A duplicate finalize does not re-dispatch.
+    supervisor.emit("audioFinalized", { meetingId: "m1", source: "mic" });
+    expect(supervisor.sent).toHaveLength(1);
+    pipeline.dispose();
+  });
+
+  it("a one-source meeting dispatches on its single finalize", () => {
+    const supervisor = makeSupervisor();
+    const store = makeStore([meeting("m1")]);
+    const pipeline = createPostProcessPipeline({
+      supervisor,
+      store,
+      providerKeys: makeProviderKeys(),
+      hfKeystore: makeHfKeystore("hf"),
+      // Mic-only meeting (system capture never started).
+      startedSources: () => ["mic"],
+    });
+
+    pipeline.onMeetingProcessing(meeting("m1"));
+    expect(supervisor.sent).toHaveLength(0);
+    supervisor.emit("audioFinalized", { meetingId: "m1", source: "mic" });
+    expect(supervisor.sent).toHaveLength(1);
+    pipeline.dispose();
+  });
+
+  it("an empty startedSources keeps the legacy first-event dispatch", () => {
+    const supervisor = makeSupervisor();
+    const store = makeStore([meeting("m1")]);
+    const pipeline = createPostProcessPipeline({
+      supervisor,
+      store,
+      providerKeys: makeProviderKeys(),
+      hfKeystore: makeHfKeystore("hf"),
+      // No sources tracked (e.g. sources already torn down) -> first-event.
+      startedSources: () => [],
+    });
+
+    pipeline.onMeetingProcessing(meeting("m1"));
+    supervisor.emit("audioFinalized", { meetingId: "m1", source: "system" });
+    expect(supervisor.sent).toHaveLength(1);
+    pipeline.dispose();
+  });
+
+  it("an unwired startedSources dep keeps the legacy first-event dispatch", () => {
+    const supervisor = makeSupervisor();
+    const store = makeStore([meeting("m1")]);
+    const pipeline = createPostProcessPipeline({
+      supervisor,
+      store,
+      providerKeys: makeProviderKeys(),
+      hfKeystore: makeHfKeystore("hf"),
+      // startedSources omitted entirely (import/regenerate wiring).
+    });
+
+    pipeline.onMeetingProcessing(meeting("m1"));
+    supervisor.emit("audioFinalized", { meetingId: "m1", source: "mic" });
+    expect(supervisor.sent).toHaveLength(1);
+    pipeline.dispose();
+  });
+
+  it("an unknown/missing source falls back to first-event dispatch (defensive)", () => {
+    const supervisor = makeSupervisor();
+    const store = makeStore([meeting("m1")]);
+    const pipeline = createPostProcessPipeline({
+      supervisor,
+      store,
+      providerKeys: makeProviderKeys(),
+      hfKeystore: makeHfKeystore("hf"),
+      startedSources: () => ["mic", "system"],
+    });
+
+    pipeline.onMeetingProcessing(meeting("m1"));
+    // A payload with NO parseable source (older/looser sidecar) -> the schema
+    // parse fails; the meetingId-only extract still triggers a first-event
+    // dispatch rather than hanging forever.
+    supervisor.emit("audioFinalized", { meetingId: "m1" });
+    expect(supervisor.sent).toHaveLength(1);
+    pipeline.dispose();
+  });
+
+  it("force-dispatches via the 30s failsafe when a source's finalize never arrives", () => {
+    const supervisor = makeSupervisor();
+    const store = makeStore([meeting("m1")]);
+    // Capture the scheduled failsafe so the test can fire it deterministically.
+    let armed: (() => void) | null = null;
+    let armedMs = 0;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const pipeline = createPostProcessPipeline({
+      supervisor,
+      store,
+      providerKeys: makeProviderKeys(),
+      hfKeystore: makeHfKeystore("hf"),
+      startedSources: () => ["mic", "system"],
+      setTimeoutFn: (cb, ms) => {
+        armed = cb;
+        armedMs = ms;
+        return 1;
+      },
+      clearTimeoutFn: () => {
+        armed = null;
+      },
+    });
+
+    pipeline.onMeetingProcessing(meeting("m1"));
+    // Only ONE source finalizes; the other's finalize is lost.
+    supervisor.emit("audioFinalized", { meetingId: "m1", source: "system" });
+    expect(supervisor.sent).toHaveLength(0);
+    // The failsafe was armed (30s) but hasn't fired yet.
+    expect(armed).not.toBeNull();
+    expect(armedMs).toBe(FINALIZE_FAILSAFE_MS);
+
+    // Fire the failsafe: it force-dispatches and warns.
+    armed!();
+    expect(supervisor.sent).toHaveLength(1);
+    expect(supervisor.sent[0]!.event).toBe("postProcess");
+    expect(warn).toHaveBeenCalled();
+    pipeline.dispose();
+  });
+
+  it("clears the failsafe timer once both sources finalize (no force-dispatch)", () => {
+    const supervisor = makeSupervisor();
+    const store = makeStore([meeting("m1")]);
+    let cleared = false;
+    const pipeline = createPostProcessPipeline({
+      supervisor,
+      store,
+      providerKeys: makeProviderKeys(),
+      hfKeystore: makeHfKeystore("hf"),
+      startedSources: () => ["mic", "system"],
+      setTimeoutFn: () => 42,
+      clearTimeoutFn: (h) => {
+        if (h === 42) cleared = true;
+      },
+    });
+
+    pipeline.onMeetingProcessing(meeting("m1"));
+    supervisor.emit("audioFinalized", { meetingId: "m1", source: "system" });
+    supervisor.emit("audioFinalized", { meetingId: "m1", source: "mic" });
+    expect(supervisor.sent).toHaveLength(1);
+    // The armed failsafe was cancelled on dispatch (never leaks a timer).
+    expect(cleared).toBe(true);
     pipeline.dispose();
   });
 });

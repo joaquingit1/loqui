@@ -57,8 +57,9 @@ ONDEVICE_PROVIDERS = ("native", "mlx")
 DEFAULT_ANTHROPIC_CHAT_MODEL = "claude-opus-4-8"
 ANTHROPIC_CHAT_MODELS = ("claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5")
 
-#: Chat ``max_tokens`` default for the Anthropic provider (PRD contract).
-DEFAULT_CHAT_MAX_TOKENS = 4096
+#: Chat ``max_tokens`` default for the Anthropic provider. Generous so thorough,
+#: in-depth answers are never clipped mid-thought.
+DEFAULT_CHAT_MAX_TOKENS = 8192
 
 #: Default Ollama base URL (mirror of @loqui/shared DEFAULT_OLLAMA_BASE_URL).
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"

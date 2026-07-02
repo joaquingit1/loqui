@@ -305,3 +305,30 @@
   background: var(--red-soft);
   color: var(--text);
 }
+
+/* Actionable recovery note (system audio needs Screen Recording). Louder than a
+   plain note — full-ink text on a warm tint — but NO ring/box outline on the
+   affordance: the "Open settings" control is a text-only button that gains
+   colour on hover (design directive). */
+.meeting__note--action {
+  color: var(--text);
+}
+.meeting__note-action {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-weight: var(--weight-medium);
+  color: var(--accent-ink);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+.meeting__note-action:hover {
+  color: var(--accent-strong);
+}
+.meeting__note-hint {
+  color: var(--text-dim);
+}

@@ -13,7 +13,7 @@
  * The two sources (mic = "You", system = "They") stay independent end-to-end:
  * every call is per-source and the main process keeps no shared mixing buffer.
  */
-import type { AudioSource } from "./audio.js";
+import type { AudioSource, CaptureMode } from "./audio.js";
 
 /**
  * macOS Screen-Recording permission status for system/loopback capture.
@@ -56,6 +56,14 @@ export interface AudioCaptureResult {
    *  "sidecar_unavailable", "screen_permission_denied"). */
   code?: string;
   message?: string;
+  /**
+   * Who owns capture for this source (see {@link CaptureMode}). `"native"` tells
+   * the renderer that MAIN is already capturing this source (macOS system audio
+   * via the Swift helper) and it MUST NOT call `getDisplayMedia`. Omitted /
+   * `"renderer"` = the renderer captures the device as before. Only meaningful
+   * on a successful `startCapture`.
+   */
+  mode?: CaptureMode;
 }
 
 /**
@@ -97,4 +105,32 @@ export interface LoquiAudioApi {
    * grants in System Settings). Returns an unsubscribe fn.
    */
   onScreenPermission(cb: (status: ScreenPermissionStatus) => void): () => void;
+  /**
+   * Open System Settings at Privacy & Security ▸ Screen Recording (macOS deep
+   * link) so the user can grant the permission that gates system-audio capture.
+   * No-op on non-macOS; never throws (a failure to open resolves `ok:false`).
+   * Optional for the same additive reason as {@link LoquiAudioApi.onSystemLevel}
+   * — an older bridge / test stub that predates it still satisfies the type.
+   */
+  openScreenSettings?(): Promise<{ ok: boolean }>;
+  /**
+   * Subscribe to the NATIVE system-audio capture's live level (macOS system
+   * audio captured in main by the Swift helper — the `mode:"native"` path).
+   * Fires ~10 Hz with the meeting id + a 0..1 level so the renderer can drive
+   * the "They" meter without ever holding the system-audio stream. Returns an
+   * unsubscribe fn. No-op / never fires on non-native (renderer-owned) capture.
+   *
+   * Optional on the type (additive PART-2 surface) so an older renderer bridge /
+   * a test stub that predates it still satisfies {@link LoquiAudioApi}; the real
+   * preload always implements it.
+   */
+  onSystemLevel?(cb: (payload: { meetingId: string; level: number }) => void): () => void;
+  /**
+   * Mute / unmute the NATIVE system-audio capture (macOS `mode:"native"`).
+   * While muted, main drops the helper's frames (nothing is transcribed or
+   * recorded for "They") and reports level 0. No-op when the system source is
+   * not natively captured. Optional for the same additive reason as
+   * {@link LoquiAudioApi.onSystemLevel}; the real preload always implements it.
+   */
+  setSystemMuted?(payload: { meetingId: string; muted: boolean }): Promise<void>;
 }

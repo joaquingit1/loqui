@@ -8,7 +8,7 @@
  * connections listing (no tokens), lastSync stamping, and the Linux basic_text
  * refusal — exactly the PRD-4/5 keystore mechanism, separate file.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -126,5 +126,21 @@ describe("CalendarKeystore", () => {
     ks.setTokens("google", "me@gmail.com", TOKENS);
     fake.available = false;
     expect(ks.getTokens("google", "me@gmail.com")).toBeNull();
+  });
+
+  it("a read with NO persisted tokens NEVER touches safeStorage (no keychain prompt)", () => {
+    // First-open hygiene: a user who never connected a calendar must not trigger
+    // the OS "Loqui wants to access safe storage" prompt. The constructor +
+    // getConnections + a no-blob getTokens must not call ANY safeStorage method.
+    const safe = makeFakeSafeStorage();
+    const isAvail = vi.spyOn(safe, "isEncryptionAvailable");
+    const decrypt = vi.spyOn(safe, "decryptString");
+
+    const ks = new CalendarKeystore(safe);
+    expect(ks.getConnections()).toEqual([]);
+    expect(ks.getTokens("google", "me@gmail.com")).toBeNull();
+
+    expect(isAvail).not.toHaveBeenCalled();
+    expect(decrypt).not.toHaveBeenCalled();
   });
 });

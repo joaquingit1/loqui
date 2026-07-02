@@ -8,15 +8,23 @@
  *
  * Per source, start():
  *   1. asks main to begin the stream  → window.loqui.audio.startCapture()
- *      (main sets the active meeting + emits the `audioStart` control frame),
- *   2. acquires the device stream:
+ *      (main sets the active meeting + emits the `audioStart` control frame).
+ *      Its result carries a `mode`: "renderer" (default) or "native".
+ *   2. RENDERER mode acquires the device stream:
  *        mic    → navigator.mediaDevices.getUserMedia({ audio })
- *        system → navigator.mediaDevices.getDisplayMedia({ audio, video })
- *                 then keeps ONLY the audio track (video track stopped),
+ *        system → navigator.mediaDevices.getDisplayMedia({ audio, video })  —
+ *                 WINDOWS-ONLY loopback; keeps ONLY the audio track,
  *   3. builds an AudioContext, loads the @loqui/audio worklet module, creates a
  *      `loqui-capture` AudioWorkletNode tagged with the source, and routes each
  *      posted binary frame ArrayBuffer to window.loqui.audio.sendFrame(),
  *   4. taps an AnalyserNode for an independent, renderer-side level meter.
+ *
+ * NATIVE mode (macOS system audio via ScreenCaptureKit in the Swift helper):
+ * MAIN owns capture and is already pumping frames to the sidecar, so the
+ * renderer skips ALL stream/AudioContext/worklet work — it only mirrors main's
+ * ~10 Hz level pushes (window.loqui.audio.onSystemLevel) and forwards mute
+ * intent (window.loqui.audio.setSystemMuted). Electron's loopback audio is
+ * Windows-only, which is why macOS system audio must be captured natively.
  *
  * stop() tears the source down completely (worklet port closed, nodes
  * disconnected, tracks stopped, AudioContext closed, RAF cancelled) and asks
@@ -27,10 +35,29 @@
  * no getUserMedia/AudioWorklet, so the production path is manual-verified via
  * `pnpm dev`; the tests cover orchestration/teardown with fakes.
  */
-import type { AudioSource, LoquiAudioApi } from "@loqui/shared";
+import type { AudioSource, CaptureMode, LoquiAudioApi } from "@loqui/shared";
 
 /** Registered AudioWorklet processor name in @loqui/audio. */
 export const CAPTURE_PROCESSOR_NAME = "loqui-capture";
+
+/**
+ * The audio-bridge seam the controller codes against — the shared
+ * {@link LoquiAudioApi} (`window.loqui.audio`). PART 2 grew it with the
+ * native-mode surface (`onSystemLevel` / `setSystemMuted`) and taught
+ * `startCapture` to report a {@link CaptureMode}; the controller consumes those
+ * here. Aliased (not re-declared) so tests can inject a structural fake and so
+ * this file has a single named seam to reason about.
+ *
+ * Capture ownership per the `startCapture` result's `mode`:
+ * - `"renderer"` (default / undefined): the RENDERER owns capture for this
+ *   source — getUserMedia (mic) or getDisplayMedia loopback (Windows system
+ *   audio). This is the original path and stays byte-for-byte unchanged.
+ * - `"native"`: MAIN owns capture (macOS system audio via ScreenCaptureKit in
+ *   the Swift helper). Main is already pumping PCM frames to the sidecar, so the
+ *   renderer must NOT touch getDisplayMedia / Web-Audio; it only mirrors
+ *   main-pushed level updates and forwards mute intent.
+ */
+export type CaptureAudioBridge = LoquiAudioApi;
 
 /** Per-source lifecycle state surfaced to the UI. */
 export type CaptureSourceState = "idle" | "starting" | "capturing" | "stopping" | "error";
@@ -79,7 +106,7 @@ export interface CaptureEnv {
 
 export interface CaptureControllerDeps {
   /** The window.loqui.audio bridge (injected for tests). */
-  audio: LoquiAudioApi;
+  audio: CaptureAudioBridge;
   meetingId: string;
   /** Web-Audio/media surface; defaults to the real browser globals. */
   env?: Partial<CaptureEnv>;
@@ -103,9 +130,13 @@ function micConstraints(deviceId?: string): MediaStreamConstraints {
 }
 
 /**
+ * getDisplayMedia constraints for RENDERER-mode system capture. Electron's
+ * loopback audio (`audio: "loopback"` / the display-media loopback track) is
+ * WINDOWS-ONLY, so this path only ever runs on Windows; on macOS main captures
+ * system audio natively (mode:"native") and this branch is skipped entirely.
  * getDisplayMedia requires a video constraint to be offered even when we only
- * want the loopback audio track (Electron's loopback rides the display-media
- * request); we keep only the audio track and immediately stop the video one.
+ * want the loopback audio track (it rides the display-media request), so we
+ * offer a tiny video track and keep only the audio one for capture.
  */
 const SYSTEM_CONSTRAINTS: MediaStreamConstraints = {
   audio: true,
@@ -136,17 +167,28 @@ function defaultEnv(): CaptureEnv {
   };
 }
 
-/** Internal per-source resources, all owned so teardown is total. */
-interface SourceResources {
-  stream: MediaStream;
-  context: AudioContext;
-  sourceNode: MediaStreamAudioSourceNode;
-  workletNode: AudioWorkletNode;
-  analyser: AnalyserNode;
-  rafHandle: number | null;
-  /** Reused scratch buffer for analyser reads (typed for the DOM overload). */
-  meterBuf: Float32Array<ArrayBuffer>;
-}
+/**
+ * Internal per-source resources, all owned so teardown is total. A discriminated
+ * union on `mode`: renderer-mode owns the full Web-Audio graph; native-mode owns
+ * only a subscription to main-pushed level updates (main runs the real capture).
+ */
+type SourceResources =
+  | {
+      mode: "renderer";
+      stream: MediaStream;
+      context: AudioContext;
+      sourceNode: MediaStreamAudioSourceNode;
+      workletNode: AudioWorkletNode;
+      analyser: AnalyserNode;
+      rafHandle: number | null;
+      /** Reused scratch buffer for analyser reads (typed for the DOM overload). */
+      meterBuf: Float32Array<ArrayBuffer>;
+    }
+  | {
+      mode: "native";
+      /** Unsubscribe from main's level pushes (null if the bridge lacks the hook). */
+      unsubscribeLevel: (() => void) | null;
+    };
 
 export interface CaptureController {
   /** Begin capturing one source. Idempotent: re-entry while active is a no-op. */
@@ -206,16 +248,46 @@ export function createCaptureController(deps: CaptureControllerDeps): CaptureCon
       }
       begun = true;
 
-      // 2) Acquire the device stream.
+      // PART 2 may report that MAIN owns this source's capture (macOS system
+      // audio via ScreenCaptureKit). Omitted / "renderer" = the renderer path.
+      const mode: CaptureMode = res.mode === "native" ? "native" : "renderer";
+
+      if (mode === "native") {
+        // Main is already pumping frames to the sidecar. The renderer must NOT
+        // touch getDisplayMedia / Web-Audio for this source; it only mirrors the
+        // level meter from main's ~10 Hz pushes and forwards mute intent.
+        const unsubscribeLevel =
+          audio.onSystemLevel?.((payload) => {
+            if (payload.meetingId !== meetingId) return; // filter to our meeting
+            // A muted source reads 0 on the meter (main also drops its frames).
+            const level = statuses[source].muted ? 0 : payload.level;
+            if (statuses[source].state === "capturing" && statuses[source].level !== level) {
+              setStatus(source, { level });
+            }
+          }) ?? null;
+        resources[source] = { mode: "native", unsubscribeLevel };
+        setStatus(source, { state: "capturing", level: 0, error: undefined });
+        return;
+      }
+
+      // 2) Acquire the device stream (RENDERER mode: mic everywhere, plus
+      //    Windows loopback system audio — the only place getDisplayMedia runs).
       let stream: MediaStream;
       if (source === "mic") {
         stream = await env.getUserMedia(micConstraints(deps.micDeviceId));
       } else {
         const display = await env.getDisplayMedia(SYSTEM_CONSTRAINTS);
-        // Keep ONLY the audio track; stop + drop any video track.
+        // Windows loopback: the audio track rides the SAME display-media session
+        // as the VIDEO track. Stopping/removing the video track tears down that
+        // session, which silences the audio track — the worklet then never sees
+        // a sample and `system.wav` stays a 44-byte empty header. So KEEP the
+        // video track for the lifetime of the capture; just disable it so no
+        // frames are pulled/encoded. It is ignored by createMediaStreamSource
+        // (audio-only) and is stopped on teardown by releaseResources (which
+        // stops ALL stream tracks). (On macOS this branch never runs — main
+        // captures system audio natively; see SYSTEM_CONSTRAINTS.)
         for (const track of display.getVideoTracks()) {
-          track.stop();
-          display.removeTrack(track);
+          track.enabled = false;
         }
         if (display.getAudioTracks().length === 0) {
           throw new Error("no system-audio track in the display-media stream");
@@ -226,6 +298,13 @@ export function createCaptureController(deps: CaptureControllerDeps): CaptureCon
       // 3) Build the per-source audio graph and load the worklet.
       const context = env.createAudioContext();
       await context.audioWorklet.addModule(env.workletModuleUrl());
+      // A fresh AudioContext can start suspended; a MediaStream source only pulls
+      // when the context is running. Resume defensively (no-op if already running).
+      try {
+        await context.resume();
+      } catch {
+        /* ignore */
+      }
       const sourceNode = context.createMediaStreamSource(stream);
       const workletNode = env.createWorkletNode(context, source);
       const analyser = context.createAnalyser();
@@ -251,6 +330,7 @@ export function createCaptureController(deps: CaptureControllerDeps): CaptureCon
         new ArrayBuffer(analyser.fftSize * Float32Array.BYTES_PER_ELEMENT),
       );
       const res2: SourceResources = {
+        mode: "renderer",
         stream,
         context,
         sourceNode,
@@ -274,8 +354,10 @@ export function createCaptureController(deps: CaptureControllerDeps): CaptureCon
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err);
       const name = err instanceof Error ? err.name : "";
-      // System (loopback) audio on macOS rides a getDisplayMedia request that
-      // REQUIRES Screen Recording permission. Without it, Chromium rejects with a
+      // System audio needs Screen Recording permission on macOS. Two ways it can
+      // surface a refusal: (a) native mode — main's startCapture returns
+      // `ok:false` (handled above, not here); (b) Windows renderer-mode loopback
+      // rides a getDisplayMedia request, which without permission rejects with a
       // cryptic AbortError ("The user aborted a request." / "Error starting
       // capture"). Translate that into an actionable message instead — the mic
       // ("You") stream is unaffected and keeps recording.
@@ -303,7 +385,7 @@ export function createCaptureController(deps: CaptureControllerDeps): CaptureCon
     }
   }
 
-  function startMeter(source: AudioSource, res: SourceResources): void {
+  function startMeter(source: AudioSource, res: SourceResources & { mode: "renderer" }): void {
     const tick = (): void => {
       const cur = resources[source];
       if (!cur || cur !== res) return; // stopped/replaced
@@ -329,6 +411,17 @@ export function createCaptureController(deps: CaptureControllerDeps): CaptureCon
     const res = resources[source];
     if (!res) return;
     delete resources[source]; // detach first so the meter tick bails out.
+
+    if (res.mode === "native") {
+      // Native mode owns only the main-pushed level subscription.
+      try {
+        res.unsubscribeLevel?.();
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+
     if (res.rafHandle !== null) env.cancelAnimationFrame(res.rafHandle);
     try {
       res.workletNode.port.onmessage = null;
@@ -386,6 +479,14 @@ export function createCaptureController(deps: CaptureControllerDeps): CaptureCon
     if (statuses[source].muted === muted) return;
     // Mute drops frames immediately and zeroes the meter; unmute resumes both.
     setStatus(source, { muted, level: muted ? 0 : statuses[source].level });
+    // Native mode: the frames live in MAIN, so also tell main to drop/resume
+    // them (renderer-mode drops locally in the worklet onmessage handler).
+    const res = resources[source];
+    if (res?.mode === "native") {
+      void audio.setSystemMuted?.({ meetingId, muted })?.catch(() => {
+        /* fire-and-forget */
+      });
+    }
   }
 
   function toggleMute(source: AudioSource): boolean {

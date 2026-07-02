@@ -230,9 +230,7 @@ class _HelperSummaryProvider:
         try:
             helper = self._factory()
             self._start(helper)
-            text = self._generate(helper, prompt, system)
-            if text:
-                yield text
+            yield from self._stream_generate(helper, prompt, system)
         except ChatProviderError:
             raise
         except Exception as exc:  # noqa: BLE001 - normalize transport errors.
@@ -279,31 +277,53 @@ class _HelperSummaryProvider:
             f"The on-device {self._name!r} provider did not become ready.",
         )
 
-    def _generate(self, helper: HelperProcess, prompt: str, system: str = "") -> str:
-        """Send ``summaryGenerate`` + read back the single ``summaryResult`` text.
+    def _stream_generate(
+        self, helper: HelperProcess, prompt: str, system: str = ""
+    ) -> Iterator[str]:
+        """Send ``summaryGenerate`` + stream the answer back.
 
-        ``system`` (the notetaker instructions) rides on its own field so the
-        Swift helper can hand it to Apple Foundation Models as session
-        ``instructions`` rather than as inlined user text.
+        Yields each ``summaryToken`` delta as it arrives (so chat tokens surface
+        immediately), then stops on the terminal ``summaryResult``. A helper that
+        does NOT stream (only sends ``summaryResult``) still works: its full text
+        is yielded once. ``system`` (the notetaker instructions) rides on its own
+        field so the Swift helper can pass it to Apple Foundation Models as the
+        session ``instructions`` rather than as inlined user text.
         """
         frame: dict = {"type": "summaryGenerate", "prompt": prompt}
         if system:
             frame["system"] = system
         helper.send_line(json.dumps(frame))
-        for _ in range(_MAX_LINES):
+        streamed = False
+        # Token deltas reset the stall budget, so a long streamed answer is
+        # unbounded in length while a misbehaving/garbage helper is still capped.
+        stalls = 0
+        while stalls < _MAX_LINES:
             raw = helper.read_line()
             if raw is None:
                 break
             msg = self._decode(raw)
             if msg is None:
+                stalls += 1
                 continue
             mtype = msg.get("type")
+            if mtype == "summaryToken":
+                delta = msg.get("delta")
+                if isinstance(delta, str) and delta:
+                    streamed = True
+                    stalls = 0
+                    yield delta
+                continue
             if mtype == "summaryResult":
+                # Terminal. If nothing streamed (non-streaming helper), yield the
+                # full text now; if tokens already streamed, this is just the
+                # end-marker — don't double-emit.
                 text = msg.get("text")
-                return text if isinstance(text, str) else ""
+                if not streamed and isinstance(text, str) and text:
+                    yield text
+                return
             if mtype == "error":
                 raise self._map_error(msg)
-            # Unrecognized line: skip.
+            stalls += 1  # unrecognized line
         raise ChatProviderError(
             "provider_error",
             f"The on-device {self._name!r} provider returned no result.",

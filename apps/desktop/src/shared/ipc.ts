@@ -97,6 +97,30 @@ export const IPC = {
   audioGetScreenPermission: "loqui:audio:getScreenPermission",
   /** push (main → renderer): screen-recording permission status changed. */
   audioScreenPermission: "loqui:audio:screenPermission",
+  /**
+   * invoke (renderer → main): open System Settings at Privacy & Security ▸
+   * Screen Recording via the deep link (macOS). Used by the in-meeting recovery
+   * notice when the "They" (system) source is refused for lack of the grant.
+   * No-op on non-macOS; never throws (failure surfaces as `ok:false`).
+   */
+  audioOpenScreenSettings: "loqui:audio:openScreenSettings",
+  /**
+   * push (main → renderer): the NATIVE system-audio capture's live level (macOS
+   * system audio, captured by the Swift helper in main — PART-2 of the
+   * system-audio fix). Payload `{ meetingId: string; level: number }` (0..1).
+   * The renderer subscribes via `window.loqui.audio.onSystemLevel` to drive the
+   * "They" level meter, since for `mode:"native"` the renderer never holds the
+   * system-audio stream to meter it itself.
+   */
+  audioSystemLevel: "loqui:audio:systemLevel",
+  /**
+   * invoke (renderer → main): mute/unmute the NATIVE system-audio capture
+   * (PART-2). Payload `{ meetingId: string; muted: boolean }`. While muted, main
+   * drops the helper's PCM frames (nothing is transcribed/recorded for "They")
+   * and pushes level 0. The renderer calls it via
+   * `window.loqui.audio.setSystemMuted`.
+   */
+  audioSetSystemMuted: "loqui:audio:setSystemMuted",
 
   // --- Transcription (PRD-2) ---
   /**

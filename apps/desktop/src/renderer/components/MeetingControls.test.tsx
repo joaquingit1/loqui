@@ -57,6 +57,7 @@ function fakeAudio(): LoquiAudioApi {
     sendFrame: vi.fn(),
     getScreenPermission: vi.fn(async () => "not-applicable" as const),
     onScreenPermission: vi.fn(() => () => {}),
+    openScreenSettings: vi.fn(async () => ({ ok: true })),
   };
 }
 
@@ -287,7 +288,7 @@ describe("MeetingControls", () => {
     expect(screen.getByTestId("meeting-new")).toBeTruthy();
   });
 
-  it("surfaces a capture/permission error per-source while recording", async () => {
+  it("surfaces a generic system-capture error as a quiet note (no settings button)", async () => {
     const { api } = makeFakeApi();
     const cap = makeFakeCaptureFactory();
     render(<MeetingControls api={api} createCaptureController={cap.factory} />);
@@ -296,12 +297,43 @@ describe("MeetingControls", () => {
     });
     await waitFor(() => expect(screen.getByTestId("meeting-meters")).toBeTruthy());
 
-    cap.emit("system", { state: "error", level: 0, error: "screen recording denied" });
+    cap.emit("system", { state: "error", level: 0, error: "no system-audio track" });
     await waitFor(() =>
       expect(screen.getByTestId("meeting-capture-error-system").textContent).toContain(
-        "screen recording denied",
+        "no system-audio track",
       ),
     );
+    // A non-permission error is NOT the recoverable case: no settings button.
+    expect(screen.queryByTestId("meeting-open-screen-settings")).toBeNull();
+  });
+
+  it("shows an actionable Screen-Recording recovery notice for a permission error", async () => {
+    const { api } = makeFakeApi();
+    const cap = makeFakeCaptureFactory();
+    render(<MeetingControls api={api} createCaptureController={cap.factory} />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("meeting-toggle"));
+    });
+    await waitFor(() => expect(screen.getByTestId("meeting-meters")).toBeTruthy());
+
+    // A refusal message whose text names the Screen Recording grant (as both the
+    // native and Windows-fallback paths phrase it) drives the recovery UI.
+    cap.emit("system", {
+      state: "error",
+      level: 0,
+      error:
+        "Can’t capture system audio — macOS needs Screen Recording permission. " +
+        "Open System Settings → Privacy & Security → Screen Recording, enable Loqui, then restart.",
+    });
+
+    const note = await screen.findByTestId("meeting-capture-error-system");
+    expect(note.textContent).toContain("System audio");
+    expect(note.textContent).toContain("Screen Recording");
+    expect(note.textContent).toContain("quit and reopen");
+    // The settings deep-link is only offered for the permission-coded case.
+    const btn = screen.getByTestId("meeting-open-screen-settings");
+    fireEvent.click(btn);
+    expect(api.audio.openScreenSettings).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces a startMeeting failure as the error phase without throwing", async () => {

@@ -366,6 +366,18 @@ const audio: LoquiAudioApi = {
     ipcRenderer.on(IPC.audioScreenPermission, listener);
     return () => ipcRenderer.removeListener(IPC.audioScreenPermission, listener);
   },
+  openScreenSettings: (): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke(IPC.audioOpenScreenSettings),
+  onSystemLevel: (
+    cb: (payload: { meetingId: string; level: number }) => void,
+  ): (() => void) => {
+    const listener = (_e: unknown, payload: { meetingId: string; level: number }): void =>
+      cb(payload);
+    ipcRenderer.on(IPC.audioSystemLevel, listener);
+    return () => ipcRenderer.removeListener(IPC.audioSystemLevel, listener);
+  },
+  setSystemMuted: (payload: { meetingId: string; muted: boolean }): Promise<void> =>
+    ipcRenderer.invoke(IPC.audioSetSystemMuted, payload),
 };
 
 const library: LoquiLibraryApi = {
