@@ -255,3 +255,137 @@ def test_streaming_policy_protocol_is_checkable():
             pass
 
     assert isinstance(MiniPolicy(), StreamingPolicy)
+
+
+# --- live speaker-bleed suppression (manager seam) ----------------------------
+
+
+class _ScriptedEmitPipeline:
+    """A pipeline whose ``feed`` emits ONE pre-scripted final segment. Lets a test
+    drive the manager's emitter seam with exact (source, text, t_start, t_end)
+    values so the bleed filter is exercised deterministically."""
+
+    def __init__(self, emit, meeting_id, source, script):
+        self._emit = emit
+        self._meeting_id = meeting_id
+        self._source = source
+        self._script = script  # list of (text, t_start, t_end); one per fed frame
+        self._i = 0
+
+    def feed(self, frame):
+        if self._i >= len(self._script):
+            return
+        text, t0, t1 = self._script[self._i]
+        self._i += 1
+        self._emit(
+            TranscriptSegment(
+                meeting_id=self._meeting_id,
+                source=self._source,
+                text=text,
+                t_start=t0,
+                t_end=t1,
+                status="final",
+                seg_id=f"{self._source}-{self._i}",
+            )
+        )
+
+    def finish(self):
+        pass
+
+
+def _scripted_manager(scripts):
+    """Build a manager whose per-source pipeline replays ``scripts[source]``."""
+    emitted: list[TranscriptSegment] = []
+
+    def factory(meeting_id, source, emit, backend, config):
+        return _ScriptedEmitPipeline(emit, meeting_id, source, scripts.get(source, []))
+
+    mgr = TranscriptionManager(emit=emitted.append, pipeline_factory=factory)
+    return mgr, emitted
+
+
+def test_manager_suppresses_mic_final_matching_recent_system_final():
+    remote = "let's ship the release on Friday afternoon everyone"
+    scripts = {
+        "system": [(remote, 10.0, 13.0)],
+        # A bleed twin of the system final + a genuinely distinct mic final.
+        "mic": [
+            (remote + "!", 10.1, 13.2),  # bleed: should be DROPPED
+            ("sounds good I'll write the runbook tonight", 14.0, 16.0),  # distinct: KEPT
+        ],
+    }
+    mgr, emitted = _scripted_manager(scripts)
+    mgr.on_start("m1", "system")
+    mgr.on_start("m1", "mic")
+    # System final first so it lands in the ring before the mic bleed is filtered.
+    mgr.on_frame("m1", "system", _frame("system", 0))
+    mgr.on_frame("m1", "mic", _frame("mic", 0))  # bleed twin
+    mgr.on_frame("m1", "mic", _frame("mic", 1))  # distinct
+    mgr.on_stop("m1", "mic")
+    mgr.on_stop("m1", "system")
+
+    texts = [(s.source, s.text) for s in emitted]
+    # The system final is emitted; the bleed mic twin is dropped; the distinct mic
+    # final survives.
+    assert ("system", remote) in texts
+    assert ("mic", "sounds good I'll write the runbook tonight") in texts
+    assert not any(src == "mic" and txt.startswith("let's ship") for src, txt in texts)
+    assert mgr.bleed_suppressed == 1
+
+
+def test_manager_partials_are_never_suppressed():
+    # A mic PARTIAL matching a system final still emits (only finals persist / bleed).
+    remote = "let's ship the release on Friday afternoon everyone"
+
+    def factory(meeting_id, source, emit, backend, config):
+        class P:
+            def feed(self, frame):
+                if source == "system":
+                    emit(
+                        TranscriptSegment(
+                            meeting_id=meeting_id,
+                            source="system",
+                            text=remote,
+                            t_start=10.0,
+                            t_end=13.0,
+                            status="final",
+                            seg_id="sys-1",
+                        )
+                    )
+                else:
+                    emit(
+                        TranscriptSegment(
+                            meeting_id=meeting_id,
+                            source="mic",
+                            text=remote,
+                            t_start=10.1,
+                            t_end=13.2,
+                            status="partial",
+                            seg_id="mic-1",
+                        )
+                    )
+
+            def finish(self):
+                pass
+
+        return P()
+
+    emitted: list[TranscriptSegment] = []
+    mgr = TranscriptionManager(emit=emitted.append, pipeline_factory=factory)
+    mgr.on_start("m1", "system")
+    mgr.on_start("m1", "mic")
+    mgr.on_frame("m1", "system", _frame("system", 0))
+    mgr.on_frame("m1", "mic", _frame("mic", 0))
+    # The mic partial is emitted despite matching the system final.
+    assert any(s.source == "mic" and s.status == "partial" for s in emitted)
+    assert mgr.bleed_suppressed == 0
+
+
+def test_manager_bleed_ring_cleared_between_meetings():
+    remote = "let's ship the release on Friday afternoon everyone"
+    scripts = {"system": [(remote, 10.0, 13.0)], "mic": []}
+    mgr, _ = _scripted_manager(scripts)
+    mgr.on_start("m1", "system")
+    mgr.on_frame("m1", "system", _frame("system", 0))
+    mgr.on_stop("m1", "system")  # meeting m1 fully stopped -> ring dropped
+    assert "m1" not in mgr._bleed_ring

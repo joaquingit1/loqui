@@ -24,9 +24,11 @@ from loqui_sidecar.postprocess import (
     run_postprocess,
 )
 from loqui_sidecar.postprocess.summary import (
+    NOTETAKER_PROMPT,
     SUMMARY_INSTRUCTION,
     TEMPLATE_PLACEHOLDER,
     _looks_like_prompt_echo,
+    _parse_summary,
     _strip_speaker_labels,
     build_summary_messages,
     summarize,
@@ -250,6 +252,109 @@ def test_strip_speaker_labels_removes_internal_tokens():
     # The actual content survives.
     assert "cerramos el viernes" in out
     assert "Punto normal sin etiqueta" in out
+
+
+# --- the assistant-style sections (Key Takeaways / Action Items / Deliverables) --
+
+# A realistic notetaker output in the new shape: the title, topic sections, then the
+# standing sections in order. Everything after the title is markdown OVERVIEW.
+NEW_FORMAT_SUMMARY = (
+    "# Sarah and John Finalize Q2 Budget\n\n"
+    "## Budget decision\n"
+    "- The Q2 budget was set at $1.2M, up 8% to fund two new hires.\n"
+    "- Marketing's request was deferred to Q3 pending the pipeline review.\n\n"
+    "## Key Takeaways\n"
+    "- Q2 budget is locked at $1.2M; hiring can start immediately.\n"
+    "- Marketing spend is on hold until the Q3 pipeline review.\n\n"
+    "## Your Action Items\n"
+    "- Send the signed budget to finance by Friday.\n"
+    "- Kick off the two engineering reqs with recruiting this week.\n\n"
+    "## Team Action Items\n"
+    "- Sarah schedules the Q3 pipeline review before deciding on marketing.\n\n"
+    "## Deliverables\n"
+    "- Signed Q2 budget doc — owner: you, due Friday.\n"
+)
+
+
+def test_prompt_carries_the_standing_sections_and_translates_headers():
+    """The notetaker prompt instructs the model to emit the assistant-style
+    standing sections (takeaways / action items / deliverables) and to translate
+    their headers into the meeting's language."""
+    assert "## Key Takeaways" in NOTETAKER_PROMPT
+    assert "## Your Action Items" in NOTETAKER_PROMPT
+    assert "## Team Action Items" in NOTETAKER_PROMPT
+    assert "## Deliverables" in NOTETAKER_PROMPT
+    # The recorder-vs-others attribution signal + the omit-empty-sections rule.
+    assert "RECORDER" in NOTETAKER_PROMPT and '"You"' in NOTETAKER_PROMPT
+    assert "OMIT" in NOTETAKER_PROMPT
+    # Headers must be written in the meeting's language too (translate the headers).
+    assert "Translate the section headers" in NOTETAKER_PROMPT
+    # The safeguards we must never lose.
+    assert "NEVER translate the meeting into" in NOTETAKER_PROMPT
+    assert 'NEVER use "Speaker 0"' in NOTETAKER_PROMPT
+    assert "Begin your reply with the `# ` title line" in NOTETAKER_PROMPT
+
+
+def test_parse_new_format_keeps_all_sections_in_overview():
+    """The new assistant-style shape parses like any markdown doc: the leading H1
+    is the title; every section (topics + takeaways + action items + deliverables)
+    stays in the markdown overview."""
+    s = _parse_summary(NEW_FORMAT_SUMMARY, meeting_id="m1", provider="anthropic", model="claude")
+
+    assert s.title == "Sarah and John Finalize Q2 Budget"
+    # The title line is stripped; the body begins at the first topic section.
+    assert s.overview.startswith("## Budget decision")
+    assert "# Sarah and John" not in s.overview
+    for header in ("## Key Takeaways", "## Your Action Items", "## Team Action Items"):
+        assert header in s.overview
+    assert "## Deliverables" in s.overview
+    # The recorder's own task survives verbatim (it becomes searchable via overview).
+    assert "Send the signed budget to finance by Friday." in s.overview
+    # New shape does NOT populate the legacy JSON fields.
+    assert s.tldr == "" and s.decisions == [] and s.action_items == [] and s.topics == []
+
+
+def test_parse_new_format_omits_empty_sections_cleanly():
+    """A meeting where the recorder took on nothing (and nothing was promised) omits
+    the Your Action Items / Deliverables sections — the doc still parses fine and
+    the remaining sections are intact."""
+    partial = (
+        "# Weekly Engineering Sync\n\n"
+        "## Release status\n"
+        "- Backend is on track for the Friday cut.\n\n"
+        "## Key Takeaways\n"
+        "- The release is a go for Friday.\n\n"
+        "## Team Action Items\n"
+        "- QA runs the regression suite on Thursday.\n"
+    )
+    s = _parse_summary(partial, meeting_id="m2", provider="fake", model="fake")
+
+    assert s.title == "Weekly Engineering Sync"
+    assert "## Your Action Items" not in s.overview
+    assert "## Deliverables" not in s.overview
+    # No stray "none" filler and the real sections are present.
+    assert "none" not in s.overview.lower()
+    assert "## Key Takeaways" in s.overview and "## Team Action Items" in s.overview
+
+
+def test_new_format_summary_is_not_flagged_as_prompt_echo():
+    """A well-formed assistant-style summary — including verb-first action-item
+    bullets and translated (Spanish) standing-section headers — is NOT mistaken for
+    a prompt/transcript echo."""
+    assert _looks_like_prompt_echo(NEW_FORMAT_SUMMARY) is False
+
+    spanish = (
+        "# Sarah y Juan Cierran el Presupuesto Q2\n\n"
+        "## Decisión de presupuesto\n"
+        "- El presupuesto Q2 quedó en $1.2M para dos contrataciones nuevas.\n\n"
+        "## Puntos Clave\n"
+        "- El presupuesto está cerrado; se puede contratar de inmediato.\n\n"
+        "## Tus Tareas\n"
+        "- Enviar el presupuesto firmado a finanzas el viernes.\n\n"
+        "## Tareas del Equipo\n"
+        "- Sarah agenda la revisión del pipeline de Q3.\n"
+    )
+    assert _looks_like_prompt_echo(spanish) is False
 
 
 def test_calendar_context_block_injects_participant_names(data_dir):

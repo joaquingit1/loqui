@@ -28,11 +28,16 @@ class FakeSummaryHelper:
         '"action_items": [], "topics": []}',
         fail_start: bool = False,
         fail_generate: bool = False,
+        die_on_generate: bool = False,
     ) -> None:
         self._engines = engines if engines is not None else ["apple-foundation", "apple-nl", "mlx"]
         self._text = text
         self._fail_start = fail_start
         self._fail_generate = fail_generate
+        #: When set, this helper simulates a CRASHED/exited process: a
+        #: ``summaryGenerate`` produces EOF (``read_line`` -> ``None``) instead of a
+        #: result, so the warm pool must respawn + retry on a fresh helper.
+        self._die_on_generate = die_on_generate
         self.sent: List[dict] = []
         self._outbox: List[str] = []
         self.closed = False
@@ -74,6 +79,8 @@ class FakeSummaryHelper:
                 self._outbox.append(
                     json.dumps({"type": "error", "code": "denied", "message": "generation denied"})
                 )
+            elif self._die_on_generate:
+                pass  # no reply -> read_line returns None (EOF), simulating a crash.
             else:
                 self._outbox.append(json.dumps({"type": "summaryResult", "text": self._text}))
         elif mtype == "summaryStop":
@@ -91,3 +98,27 @@ class FakeSummaryHelper:
 def helper_factory(helper):
     """A ``HelperFactory`` returning a fixed helper (the injectable seam)."""
     return lambda: helper
+
+
+class SpawningFactory:
+    """A ``HelperFactory`` that mints a FRESH helper per call and records them, so a
+    test can prove reuse (spawn once, many turns) vs respawn (a new process after a
+    crash). ``helpers[i]`` is the i-th spawned helper; ``spawns`` is the count.
+
+    ``configure`` is called with the spawn index and returns kwargs for
+    :class:`FakeSummaryHelper`, so a test can, e.g., make the FIRST helper die on
+    generate and the SECOND succeed.
+    """
+
+    def __init__(self, configure=None) -> None:
+        self._configure = configure or (lambda i: {})
+        self.helpers: List[FakeSummaryHelper] = []
+
+    @property
+    def spawns(self) -> int:
+        return len(self.helpers)
+
+    def __call__(self) -> FakeSummaryHelper:
+        helper = FakeSummaryHelper(**self._configure(len(self.helpers)))
+        self.helpers.append(helper)
+        return helper

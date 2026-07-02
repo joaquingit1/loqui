@@ -427,6 +427,74 @@ def test_subprocess_runner_timeout_degrades(tmp_path, monkeypatch):
     assert "timed out" in outcome.note
 
 
+def test_subprocess_runner_isolates_stdin_and_uses_default_timeout(tmp_path, monkeypatch):
+    """The worker is spawned with stdin=DEVNULL (never the parent's fd 0) and the
+    default timeout — so a wedged/regressed worker fails fast instead of blocking
+    on inherited stdin (the packaged-app deadlock this guards against)."""
+    models = _models(tmp_path)
+    wav = tmp_path / "system.wav"
+    _write_wav(wav, seconds=1.0)
+    monkeypatch.delenv(sherpa_backend._WORKER_TIMEOUT_ENV, raising=False)
+
+    captured = {}
+
+    def _fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["kwargs"] = kwargs
+        import subprocess as _sp
+
+        return _sp.CompletedProcess(
+            args=cmd, returncode=0, stdout='{"ok": true, "turns": []}', stderr=""
+        )
+
+    monkeypatch.setattr(sherpa_backend.subprocess, "run", _fake_run)
+    outcome = sherpa_backend._run_in_subprocess(models, str(wav))
+
+    assert outcome.note is None
+    assert captured["kwargs"]["stdin"] is sherpa_backend.subprocess.DEVNULL
+    assert captured["kwargs"]["timeout"] == sherpa_backend._WORKER_TIMEOUT_DEFAULT_S
+    # The worker is launched via ``-m`` so the frozen entrypoint can emulate it.
+    assert captured["cmd"][1:3] == ["-m", sherpa_backend._WORKER_MODULE]
+
+
+def test_worker_timeout_honors_env_override(monkeypatch):
+    """LOQUI_DIARIZATION_TIMEOUT_SEC overrides the default; bad/non-positive
+    values fall back to the default (never crash the resolve)."""
+    monkeypatch.setenv(sherpa_backend._WORKER_TIMEOUT_ENV, "42")
+    assert sherpa_backend._worker_timeout_s() == 42.0
+
+    monkeypatch.setenv(sherpa_backend._WORKER_TIMEOUT_ENV, "not-a-number")
+    assert sherpa_backend._worker_timeout_s() == sherpa_backend._WORKER_TIMEOUT_DEFAULT_S
+
+    monkeypatch.setenv(sherpa_backend._WORKER_TIMEOUT_ENV, "0")
+    assert sherpa_backend._worker_timeout_s() == sherpa_backend._WORKER_TIMEOUT_DEFAULT_S
+
+    monkeypatch.delenv(sherpa_backend._WORKER_TIMEOUT_ENV, raising=False)
+    assert sherpa_backend._worker_timeout_s() == sherpa_backend._WORKER_TIMEOUT_DEFAULT_S
+
+
+def test_subprocess_runner_passes_env_timeout(tmp_path, monkeypatch):
+    """The env override flows through to the subprocess.run timeout kwarg."""
+    models = _models(tmp_path)
+    wav = tmp_path / "system.wav"
+    _write_wav(wav, seconds=1.0)
+    monkeypatch.setenv(sherpa_backend._WORKER_TIMEOUT_ENV, "123")
+
+    captured = {}
+
+    def _fake_run(cmd, **kwargs):
+        captured["timeout"] = kwargs.get("timeout")
+        import subprocess as _sp
+
+        return _sp.CompletedProcess(
+            args=cmd, returncode=0, stdout='{"ok": true, "turns": []}', stderr=""
+        )
+
+    monkeypatch.setattr(sherpa_backend.subprocess, "run", _fake_run)
+    sherpa_backend._run_in_subprocess(models, str(wav))
+    assert captured["timeout"] == 123.0
+
+
 def test_parse_worker_output_handles_garbage_and_success():
     """The stdout parser: native chatter before the JSON line, garbage, and a
     well-formed success all map correctly (last-line JSON wins)."""

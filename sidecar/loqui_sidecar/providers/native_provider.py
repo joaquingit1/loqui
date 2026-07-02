@@ -69,8 +69,11 @@ tolerating + logging any unrecognized line (forward-compatible).
 
 from __future__ import annotations
 
+import atexit
 import json
 import logging
+import os
+import threading
 from typing import Iterator, List, Optional
 
 from ..transcription.native_backend import (
@@ -91,6 +94,29 @@ SUMMARY_ENGINE_MLX = "mlx"
 
 #: Bounded line reads so a wedged/garbled helper never hangs the provider.
 _MAX_LINES = 256
+
+#: How long a WARM helper process stays alive after its LAST use before an idle
+#: reaper shuts it down. The big in-call latency win is REUSING one already-spawned
+#: helper across chat turns (no cold spawn + summaryStart handshake per message);
+#: the idle timeout is the safety valve so an idle process (e.g. after a chat
+#: session ends, or after a one-shot summary) is reclaimed instead of lingering.
+#: Env-overridable via ``LOQUI_NATIVE_HELPER_IDLE_SEC`` (seconds; <=0 disables the
+#: warm pool entirely -> a fresh helper per call, the pre-warm-pool behavior).
+_IDLE_TIMEOUT_ENV = "LOQUI_NATIVE_HELPER_IDLE_SEC"
+_DEFAULT_IDLE_TIMEOUT_SEC = 240.0  # 4 minutes since last use.
+
+
+def _resolved_idle_timeout() -> float:
+    """The warm-helper idle timeout in seconds (env-overridable). ``<= 0`` disables
+    the warm pool so every call spawns + tears down its own helper (safe fallback).
+    """
+    raw = os.environ.get(_IDLE_TIMEOUT_ENV)
+    if raw is None or raw == "":
+        return _DEFAULT_IDLE_TIMEOUT_SEC
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_IDLE_TIMEOUT_SEC
 
 
 def render_prompt(messages: list[ChatMessage]) -> str:
@@ -177,9 +203,290 @@ def probe_summary_capabilities(helper_factory=None) -> List[str]:
                 pass
 
 
+class _HelperGone(Exception):
+    """Internal signal: the warm helper's transport died mid-use (EOF from a
+    crashed/exited process, or a raised transport error). The pool respawns a fresh
+    helper and retries ONCE so a stale warm process never fails the user's message.
+    """
+
+
+class _WarmHelper:
+    """One WARM helper process kept alive across summary/chat calls for a given
+    ``(engine, model)``.
+
+    The whole latency win is here: the helper is spawned + handed a ``summaryStart``
+    handshake ONCE, then REUSED for every subsequent generation, instead of a cold
+    spawn + handshake + teardown per message. Access is serialized by a lock (one
+    in-flight generation at a time — the chat executor is single-threaded, so this
+    is never contended for chat; it just guards against a summary + chat racing the
+    same stdio). An idle reaper shuts the process down after
+    :func:`_resolved_idle_timeout` seconds since the last use, and :meth:`close`
+    tears it down immediately (provider close / meeting end / process exit).
+
+    READ-ONLY: it only sends prompt strings and reads back generated text — no file
+    handle, no writer.
+    """
+
+    def __init__(self, engine: str, model: str, factory) -> None:
+        self._engine = engine
+        self._model = model
+        self._factory = factory
+        self._helper: Optional[HelperProcess] = None
+        self._lock = threading.RLock()
+        self._timer: Optional[threading.Timer] = None
+        #: Bumped on every (re)arm/use so a STALE reaper — one that fired while a
+        #: generation held the lock, after which a new turn re-armed — is a no-op
+        #: instead of reaping the freshly-rearmed helper.
+        self._epoch = 0
+
+    # -- lifecycle ------------------------------------------------------------
+
+    def _ensure_started(self) -> HelperProcess:
+        """Return a started helper, spawning + handshaking one lazily. Caller holds
+        the lock. If the handshake fails, the freshly-spawned process is closed
+        before re-raising so a failed start never leaks a process."""
+        if self._helper is not None:
+            return self._helper
+        helper = self._factory()
+        try:
+            _start_summary_session(helper, self._engine, self._model, self._name())
+        except BaseException:
+            try:
+                helper.close()
+            except Exception:  # noqa: BLE001 - best effort.
+                pass
+            raise
+        self._helper = helper
+        return helper
+
+    def _name(self) -> str:
+        return f"{self._engine}{(':' + self._model) if self._model else ''}"
+
+    def _teardown_locked(self) -> None:
+        """Best-effort ``summaryStop`` + ``close`` of the live helper. Caller holds
+        the lock. Never raises."""
+        helper = self._helper
+        self._helper = None
+        if helper is None:
+            return
+        try:
+            helper.send_line(json.dumps({"type": "summaryStop"}))
+        except Exception:  # noqa: BLE001 - best effort.
+            pass
+        try:
+            helper.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def close(self) -> None:
+        """Cancel the idle reaper and tear down the helper now. Never raises."""
+        with self._lock:
+            self._epoch += 1  # invalidate any already-fired-but-blocked reaper.
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
+            self._teardown_locked()
+
+    def _arm_idle_reaper(self) -> None:
+        """(Re)arm the idle-timeout reaper. Caller holds the lock. A ``<= 0`` timeout
+        means the warm pool is disabled -> tear down immediately after this use."""
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
+        self._epoch += 1
+        timeout = _resolved_idle_timeout()
+        if timeout <= 0:
+            self._teardown_locked()
+            return
+        epoch = self._epoch
+        timer = threading.Timer(timeout, self._on_idle, args=(epoch,))
+        timer.daemon = True
+        timer.start()
+        self._timer = timer
+
+    def _on_idle(self, epoch: int) -> None:
+        with self._lock:
+            if epoch != self._epoch:
+                return  # a newer turn re-armed after this timer fired; stale -> no-op.
+            self._timer = None
+            self._teardown_locked()
+
+    # -- generation -----------------------------------------------------------
+
+    def stream_generate(self, prompt: str, system: str) -> Iterator[str]:
+        """Lease the warm helper, stream one generation, then re-arm the idle reaper.
+
+        A dead/crashed helper (EOF or transport error) must NOT fail the user's
+        message: the reused process is torn down and respawned, and the call is
+        retried ONCE on a fresh helper. Access is serialized by the lock so two
+        generations never interleave on one stdio channel.
+        """
+        with self._lock:
+            try:
+                yield from self._attempt(prompt, system)
+            except _HelperGone:
+                # The reused helper died between turns (idle-reaped by the OS,
+                # crashed, or EOF). Respawn transparently and retry once so a stale
+                # warm process never surfaces as a user-visible failure.
+                self._teardown_locked()
+                yield from self._attempt(prompt, system)
+            finally:
+                self._arm_idle_reaper()
+
+    def _attempt(self, prompt: str, system: str) -> Iterator[str]:
+        helper = self._ensure_started()
+        try:
+            yield from _stream_generate(helper, prompt, system, self._name())
+        except (ChatProviderError, _HelperGone):
+            raise
+        except Exception as exc:  # noqa: BLE001 - any other transport error means
+            # the warm helper is unusable; surface it as _HelperGone -> respawn.
+            raise _HelperGone() from exc
+
+
+#: Module-level registry of warm helpers keyed by ``(engine, model)``. Providers
+#: are rebuilt per request by the selector (``build_selector()`` is called per
+#: ``chatRequest`` / postprocess), so the warm process MUST outlive the provider
+#: instance to be reused across turns — hence a process-global pool rather than a
+#: per-instance field. Guarded by :data:`_pool_lock`.
+_warm_helpers: dict = {}
+_pool_lock = threading.Lock()
+
+
+def _get_warm_helper(engine: str, model: str, factory) -> _WarmHelper:
+    """Return the shared warm helper for ``(engine, model)``, creating one lazily."""
+    key = (engine, model)
+    with _pool_lock:
+        warm = _warm_helpers.get(key)
+        if warm is None:
+            warm = _WarmHelper(engine, model, factory)
+            _warm_helpers[key] = warm
+        return warm
+
+
+def shutdown_warm_helpers() -> None:
+    """Tear down ALL warm helper processes now (provider close / shutdown / atexit).
+
+    Idempotent + never raises. Registered with :mod:`atexit` so a warm helper never
+    outlives the sidecar, and callable explicitly (e.g. on meeting end) to free the
+    on-device model promptly.
+    """
+    with _pool_lock:
+        warms = list(_warm_helpers.values())
+        _warm_helpers.clear()
+    for warm in warms:
+        try:
+            warm.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+atexit.register(shutdown_warm_helpers)
+
+
+def _start_summary_session(helper: HelperProcess, engine: str, model: str, name: str) -> None:
+    """Send ``summaryStart`` + wait (bounded) for ``summaryReady`` (or error)."""
+    helper.send_line(json.dumps({"type": "summaryStart", "engine": engine, "model": model or None}))
+    for _ in range(_MAX_LINES):
+        raw = helper.read_line()
+        if raw is None:
+            # EOF: the (possibly reused) process is gone. Signal the pool to respawn
+            # + retry rather than failing the user's message.
+            raise _HelperGone()
+        msg = _decode(raw)
+        if msg is None:
+            continue
+        mtype = msg.get("type")
+        if mtype == "summaryReady":
+            return
+        if mtype == "error":
+            raise _map_error(msg, name)
+        # Unrecognized line: skip (forward-compatible).
+    raise ChatProviderError(
+        "provider_error",
+        f"The on-device {name!r} provider did not become ready.",
+    )
+
+
+def _stream_generate(helper: HelperProcess, prompt: str, system: str, name: str) -> Iterator[str]:
+    """Send ``summaryGenerate`` + stream the answer back (module-level so both the
+    warm helper and a one-shot path share one implementation).
+
+    Yields each ``summaryToken`` delta as it arrives (so chat tokens surface
+    immediately), then stops on the terminal ``summaryResult``. A helper that does
+    NOT stream (only sends ``summaryResult``) still works: its full text is yielded
+    once. ``system`` (the notetaker instructions) rides on its own field so the
+    Swift helper can pass it to Apple Foundation Models as the session
+    ``instructions`` rather than as inlined user text.
+    """
+    frame: dict = {"type": "summaryGenerate", "prompt": prompt}
+    if system:
+        frame["system"] = system
+    helper.send_line(json.dumps(frame))
+    streamed = False
+    # Token deltas reset the stall budget, so a long streamed answer is unbounded in
+    # length while a misbehaving/garbage helper is still capped.
+    stalls = 0
+    while stalls < _MAX_LINES:
+        raw = helper.read_line()
+        if raw is None:
+            # EOF before a terminal result. If nothing streamed yet, the reused
+            # process died before answering -> signal a respawn + retry. If deltas
+            # already streamed, a retry would double-emit, so surface a plain error
+            # (the already-yielded partial stands, per the streaming contract).
+            if streamed:
+                raise ChatProviderError(
+                    "provider_error",
+                    f"The on-device {name!r} provider stopped mid-answer.",
+                )
+            raise _HelperGone()
+        msg = _decode(raw)
+        if msg is None:
+            stalls += 1
+            continue
+        mtype = msg.get("type")
+        if mtype == "summaryToken":
+            delta = msg.get("delta")
+            if isinstance(delta, str) and delta:
+                streamed = True
+                stalls = 0
+                yield delta
+            continue
+        if mtype == "summaryResult":
+            # Terminal. If nothing streamed (non-streaming helper), yield the full
+            # text now; if tokens already streamed, this is just the end-marker —
+            # don't double-emit.
+            text = msg.get("text")
+            if not streamed and isinstance(text, str) and text:
+                yield text
+            return
+        if mtype == "error":
+            raise _map_error(msg, name)
+        stalls += 1  # unrecognized line
+    raise ChatProviderError(
+        "provider_error",
+        f"The on-device {name!r} provider returned no result.",
+    )
+
+
+def _decode(raw: str) -> Optional[dict]:
+    try:
+        msg = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    return msg if isinstance(msg, dict) else None
+
+
+def _map_error(msg: dict, name: str) -> ChatProviderError:
+    code = str(msg.get("code") or "provider_error")
+    message = str(msg.get("message") or "on-device summary failed")
+    # Keep the helper's actionable message but never trust it as a stable code.
+    return ChatProviderError("provider_error", f"{name}: {message} ({code})")
+
+
 class _HelperSummaryProvider:
-    """Shared base: a :class:`ChatProvider` that runs ONE summary/chat generation
-    through the Swift helper's summary protocol.
+    """Shared base: a :class:`ChatProvider` that runs summary/chat generations
+    through the Swift helper's summary protocol against a WARM (reused) helper.
 
     Subclasses pick the ``engine`` + the public :attr:`name`. ``helper_factory``
     is the injectable seam (the PRD-9 ``HelperProcess`` factory): production spawns
@@ -187,6 +494,13 @@ class _HelperSummaryProvider:
     When the factory is ``None`` (no helper — Windows / unbundled) the provider
     raises a stable, actionable :class:`ChatProviderError` so the selector's
     fallback engages — a missing helper never reaches a meeting.
+
+    LATENCY: the underlying helper process is kept warm in a module-level pool
+    (:data:`_warm_helpers`) keyed by ``(engine, model)``, so it survives across the
+    per-request provider instances the selector builds. The first call spawns +
+    handshakes; every later call reuses that process. An idle reaper reclaims it, so
+    the one-shot summary path (which never calls :meth:`close`) never leaks a lingering
+    process; :meth:`close` / :func:`shutdown_warm_helpers` free it eagerly.
 
     READ-ONLY: there is no writer/store/file handle here. The provider only sends
     a prompt string and reads back generated text.
@@ -226,122 +540,35 @@ class _HelperSummaryProvider:
                 "on macOS.",
             )
         system, prompt = split_system_user(messages)
-        helper: Optional[HelperProcess] = None
+        # Reuse the WARM helper for this (engine, model): no cold spawn + handshake
+        # per message. A dead reused helper is respawned + retried inside the pool
+        # (so a stale process never fails the user's message), and the idle reaper /
+        # shutdown_warm_helpers keep the process from lingering.
+        warm = _get_warm_helper(self.engine, self._model, self._factory)
         try:
-            helper = self._factory()
-            self._start(helper)
-            yield from self._stream_generate(helper, prompt, system)
+            yield from warm.stream_generate(prompt, system)
         except ChatProviderError:
             raise
         except Exception as exc:  # noqa: BLE001 - normalize transport errors.
             raise ChatProviderError(
                 "provider_error", f"The on-device {self._name!r} provider failed."
             ) from exc
-        finally:
-            if helper is not None:
-                try:
-                    helper.send_line(json.dumps({"type": "summaryStop"}))
-                except Exception:  # noqa: BLE001 - best effort.
-                    pass
-                try:
-                    helper.close()
-                except Exception:  # noqa: BLE001
-                    pass
 
-    def _start(self, helper: HelperProcess) -> None:
-        """Send ``summaryStart`` + wait (bounded) for ``summaryReady`` (or error)."""
-        helper.send_line(
-            json.dumps(
-                {
-                    "type": "summaryStart",
-                    "engine": self.engine,
-                    "model": self._model or None,
-                }
-            )
-        )
-        for _ in range(_MAX_LINES):
-            raw = helper.read_line()
-            if raw is None:
-                break
-            msg = self._decode(raw)
-            if msg is None:
-                continue
-            mtype = msg.get("type")
-            if mtype == "summaryReady":
-                return
-            if mtype == "error":
-                raise self._map_error(msg)
-            # Unrecognized line: skip (forward-compatible).
-        raise ChatProviderError(
-            "provider_error",
-            f"The on-device {self._name!r} provider did not become ready.",
-        )
+    def close(self) -> None:
+        """Tear down THIS provider's warm helper now (meeting end / shutdown).
 
-    def _stream_generate(
-        self, helper: HelperProcess, prompt: str, system: str = ""
-    ) -> Iterator[str]:
-        """Send ``summaryGenerate`` + stream the answer back.
-
-        Yields each ``summaryToken`` delta as it arrives (so chat tokens surface
-        immediately), then stops on the terminal ``summaryResult``. A helper that
-        does NOT stream (only sends ``summaryResult``) still works: its full text
-        is yielded once. ``system`` (the notetaker instructions) rides on its own
-        field so the Swift helper can pass it to Apple Foundation Models as the
-        session ``instructions`` rather than as inlined user text.
+        Optional: the idle reaper already reclaims an unused helper, so the one-shot
+        summary path is safe without ever calling this. Frees the on-device model
+        promptly when the caller knows it's done. Never raises.
         """
-        frame: dict = {"type": "summaryGenerate", "prompt": prompt}
-        if system:
-            frame["system"] = system
-        helper.send_line(json.dumps(frame))
-        streamed = False
-        # Token deltas reset the stall budget, so a long streamed answer is
-        # unbounded in length while a misbehaving/garbage helper is still capped.
-        stalls = 0
-        while stalls < _MAX_LINES:
-            raw = helper.read_line()
-            if raw is None:
-                break
-            msg = self._decode(raw)
-            if msg is None:
-                stalls += 1
-                continue
-            mtype = msg.get("type")
-            if mtype == "summaryToken":
-                delta = msg.get("delta")
-                if isinstance(delta, str) and delta:
-                    streamed = True
-                    stalls = 0
-                    yield delta
-                continue
-            if mtype == "summaryResult":
-                # Terminal. If nothing streamed (non-streaming helper), yield the
-                # full text now; if tokens already streamed, this is just the
-                # end-marker — don't double-emit.
-                text = msg.get("text")
-                if not streamed and isinstance(text, str) and text:
-                    yield text
-                return
-            if mtype == "error":
-                raise self._map_error(msg)
-            stalls += 1  # unrecognized line
-        raise ChatProviderError(
-            "provider_error",
-            f"The on-device {self._name!r} provider returned no result.",
-        )
-
-    @staticmethod
-    def _decode(raw: str) -> Optional[dict]:
-        try:
-            msg = json.loads(raw)
-        except (ValueError, TypeError):
-            return None
-        return msg if isinstance(msg, dict) else None
-
-    def _map_error(self, msg: dict) -> ChatProviderError:
-        code = str(msg.get("code") or "provider_error")
-        message = str(msg.get("message") or "on-device summary failed")
-        # Keep the helper's actionable message but never trust it as a stable code.
-        return ChatProviderError("provider_error", f"{self._name}: {message} ({code})")
+        key = (self.engine, self._model)
+        with _pool_lock:
+            warm = _warm_helpers.pop(key, None)
+        if warm is not None:
+            try:
+                warm.close()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 class NativeChatProvider(_HelperSummaryProvider):

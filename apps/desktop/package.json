@@ -1,6 +1,6 @@
 {
   "name": "@loqui/desktop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Loqui — local-first meeting transcription, notes & AI chat.",
   "author": "Joaquin Castellano and contributors",

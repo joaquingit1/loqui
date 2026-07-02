@@ -115,6 +115,46 @@
   padding-left: 0;
   padding-right: 0;
 }
+/* The assistant bubble holds a rendered markdown document, not a pre-wrapped
+   string — drop the pre-wrap and let the block elements own their whitespace. */
+.chat__bubble--md {
+  white-space: normal;
+}
+
+/* Markdown inside the assistant bubble: text-only, matching the summary
+   document (no boxes/rings). Tight vertical rhythm so a short reply reads as
+   prose, not a spaced-out article. */
+.chat__md {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.chat__md .md__h {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-body-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text);
+}
+.chat__md .md__h:first-child {
+  margin-top: 0;
+}
+.chat__md .md__p {
+  margin: 0;
+}
+.chat__md .md__ul {
+  margin: 0;
+  padding-left: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.chat__md strong {
+  font-weight: var(--weight-semibold);
+}
+/* Keep the streaming caret glued to the end of the last markdown line. */
+.chat__bubble--md .chat__caret {
+  vertical-align: text-bottom;
+}
 .chat__bubble--error {
   background: var(--red-soft);
   color: var(--text);

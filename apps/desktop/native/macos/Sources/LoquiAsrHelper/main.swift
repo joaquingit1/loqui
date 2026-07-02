@@ -92,6 +92,11 @@ while let line = readLine(strippingNewline: true) {
             let e = try makeSummaryEngine(req)
             summaryEngine = e
             emit(.summaryReady(engine: req.engine ?? "unknown", model: req.model))
+            // Prewarm the model now (before any prompt arrives) so the FIRST
+            // summaryGenerate's first token comes faster. A no-op for engines with
+            // nothing to warm (extractive / MLX). The host keeps this helper warm
+            // across chat turns, so this one-time warmup pays off for every turn.
+            e.prewarm()
         } catch let EngineError.permissionDenied(msg) {
             emit(.error(code: "permission_denied", message: msg))
         } catch let EngineError.unavailable(msg) {

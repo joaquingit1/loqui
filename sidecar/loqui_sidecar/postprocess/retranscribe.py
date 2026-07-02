@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import wave
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -89,6 +90,52 @@ def resolved_hifi_beam_size() -> int:
         return max(1, int(raw)) if raw else DEFAULT_HIFI_BEAM_SIZE
     except ValueError:
         return DEFAULT_HIFI_BEAM_SIZE
+
+
+#: Process-wide cache of the loaded hi-fi backend, keyed by (model_size, beam,
+#: language). The whisper weights are expensive to load (seconds + hundreds of MB),
+#: so back-to-back fallback re-transcriptions (e.g. several imports in a row) reuse
+#: the SAME model instead of reloading it per meeting. Postprocess runs on an
+#: executor thread, so the cache is guarded by a lock (the WhisperModel itself is
+#: safe to share across calls — the live tier already shares one across the mic +
+#: system pipelines). Keyed on ``language`` too so a request that PINS a language
+#: never poisons the common ``None`` (auto-detect-per-meeting) instance.
+_backend_cache: "dict[tuple[str, int, Optional[str]], _SegmentBackend]" = {}
+_backend_cache_lock = threading.Lock()
+
+
+def _cached_faster_whisper_backend(
+    model_size: str, beam_size: int, language: Optional[str]
+) -> "_SegmentBackend":
+    """Return a shared :class:`FasterWhisperBackend` for the key, loading it once.
+
+    Constructs (and lazily loads on first decode) the backend the first time a
+    given (model_size, beam, language) is seen, then hands the SAME instance to
+    every later meeting with the same key. Raises on construction failure so the
+    caller degrades gracefully (it already guards the build path)."""
+    key = (model_size, beam_size, language)
+    with _backend_cache_lock:
+        backend = _backend_cache.get(key)
+        if backend is not None:
+            return backend
+        from ..transcription.asr_backend import FasterWhisperBackend
+
+        backend = FasterWhisperBackend(
+            model_size=model_size,
+            language=language,
+            # VAD stays ON — it skips silence, which SPEEDS UP the pass on real
+            # meetings (less audio fed to the model), not slows it.
+            vad_filter=True,
+            beam_size=beam_size,
+        )
+        _backend_cache[key] = backend
+        return backend
+
+
+def _reset_backend_cache() -> None:
+    """Drop every cached backend (test hook; not used in production)."""
+    with _backend_cache_lock:
+        _backend_cache.clear()
 
 
 def _audio_dir(meeting_id: str) -> Path:
@@ -164,15 +211,10 @@ def re_transcribe_meeting(
             if backend_factory is not None:
                 backend = backend_factory(model_size, language)
             else:
-                from ..transcription.asr_backend import FasterWhisperBackend
-
-                backend = FasterWhisperBackend(
-                    model_size=model_size,
-                    language=language,
-                    # VAD stays ON — it skips silence, which SPEEDS UP the pass on
-                    # real meetings (less audio fed to the model), not slows it.
-                    vad_filter=True,
-                    beam_size=resolved_hifi_beam_size(),
+                # Reuse a process-wide cached model so back-to-back re-transcriptions
+                # don't reload the weights per meeting (see :data:`_backend_cache`).
+                backend = _cached_faster_whisper_backend(
+                    model_size, resolved_hifi_beam_size(), language
                 )
         except Exception:  # noqa: BLE001 - construction failure degrades gracefully.
             logger.exception("failed to construct hi-fi backend for %s", meeting_id)

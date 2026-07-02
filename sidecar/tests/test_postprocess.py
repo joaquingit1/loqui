@@ -154,33 +154,41 @@ def _job_updates(events, kind: str) -> list[dict]:
 # --- 1) FULL RUN (the happy path) ---------------------------------------------
 
 
-def test_full_run_emits_diarization_then_summary_then_done(data_dir):
-    """A full fake-backed run: diarization JobUpdates -> summary JobUpdates ->
-    one terminal postProcessDone, in order."""
+def test_full_run_emits_diarization_and_summary_then_done(data_dir):
+    """A full fake-backed run emits BOTH the diarization + summary JobUpdate pairs
+    (each running->done) and finishes with exactly one terminal postProcessDone.
+
+    The summary now runs CONCURRENTLY with diarization (it reads the raw
+    transcript, not the diarized labels), so the two stages' jobUpdates interleave
+    in a timing-dependent order — we assert the per-kind running->done sequence and
+    that postProcessDone is strictly last, NOT a fixed cross-kind total order."""
     _seed(data_dir, "m1")
     events, emit = _collect_emit()
 
     run_postprocess(_request("m1"), emit, diarizer=FakeDiarizer())
 
-    # The summary now STREAMS: ``summaryToken`` deltas are interleaved between the
-    # summary running+done jobUpdates. Assert the jobUpdate/terminal SKELETON
-    # (ignoring the token stream), then check the tokens separately below.
-    kinds = [(e, d.get("kind"), d.get("state")) for e, d in events if e != SUMMARY_TOKEN_EVENT]
-    assert kinds == [
-        (JOB_UPDATE_EVENT, JOB_KIND_DIARIZATION, "running"),
-        (JOB_UPDATE_EVENT, JOB_KIND_DIARIZATION, "done"),
-        (JOB_UPDATE_EVENT, JOB_KIND_SUMMARY, "running"),
-        (JOB_UPDATE_EVENT, JOB_KIND_SUMMARY, "done"),
-        (POSTPROCESS_DONE_EVENT, None, None),
+    # Each kind fires exactly running -> done (ignoring the interleaved token stream).
+    diar = [
+        d["state"]
+        for e, d in events
+        if e == JOB_UPDATE_EVENT and d.get("kind") == JOB_KIND_DIARIZATION
     ]
+    summ = [
+        d["state"] for e, d in events if e == JOB_UPDATE_EVENT and d.get("kind") == JOB_KIND_SUMMARY
+    ]
+    assert diar == ["running", "done"]
+    assert summ == ["running", "done"]
     # Each job carries a jobId + 0..1 progress.
     for e, d in events:
         if e == JOB_UPDATE_EVENT:
             assert d["jobId"]
             assert 0.0 <= d["progress"] <= 1.0
+    # postProcessDone is emitted exactly once and is the LAST event.
+    dones = [i for i, (e, _) in enumerate(events) if e == POSTPROCESS_DONE_EVENT]
+    assert dones == [len(events) - 1]
 
     # The streamed summary tokens arrive WHILE the summary job runs (after its
-    # "running" jobUpdate, before its "done"), each tagged with the meeting + job.
+    # "running" jobUpdate, before the terminal done), each tagged meeting + job.
     flat = [e for e, _ in events]
     tokens = [(i, d) for i, (e, d) in enumerate(events) if e == SUMMARY_TOKEN_EVENT]
     assert tokens, "expected the summary to stream at least one token"
@@ -295,6 +303,112 @@ def test_custom_turns_drive_alignment(data_dir):
     run_postprocess(_request("m1"), emit, diarizer=FakeDiarizer(turns=turns))
     done = _done(events)
     assert done["speakers"] == [f"{SPEAKER_LABEL_PREFIX} 1", f"{SPEAKER_LABEL_PREFIX} 2"]
+
+
+# --- summary runs CONCURRENTLY with diarization -------------------------------
+
+
+def test_summary_runs_concurrently_with_diarization(data_dir):
+    """The summary reads the RAW transcript (not the diarized labels), so it runs
+    in PARALLEL with diarization. A slow diarizer proves overlap: the summary's
+    "running" jobUpdate is emitted BEFORE the slow diarization completes (it would
+    be sequential-after-diarization in the old flow)."""
+    import threading
+    import time
+
+    from loqui_sidecar.postprocess.types import DiarizationResult
+
+    diar_done = threading.Event()
+
+    class _SlowDiarizer:
+        name = "slow-fake"
+
+        def diarize(self, wav_path, hf_token=None):
+            # Hold long enough that the (fast) fake summary must have started.
+            time.sleep(0.3)
+            diar_done.set()
+            return DiarizationResult(diarized=False, backend=self.name)
+
+    _seed(data_dir, "m1")
+    summary_running_before_diar_done: dict[str, bool] = {}
+
+    def emit(event, data):
+        if (
+            event == JOB_UPDATE_EVENT
+            and data.get("kind") == JOB_KIND_SUMMARY
+            and data.get("state") == "running"
+        ):
+            # If diarization is still running when summary starts, they overlap.
+            summary_running_before_diar_done["overlap"] = not diar_done.is_set()
+
+    run_postprocess(_request("m1"), emit, diarizer=_SlowDiarizer())
+    assert summary_running_before_diar_done.get("overlap") is True
+
+
+# --- speaker-bleed cleanup (authoritative post-process filter) ----------------
+
+
+def test_bleed_mic_segments_filtered_before_alignment(data_dir):
+    """A MIC segment that duplicates an overlapping SYSTEM segment (system audio
+    bled into the mic) is REMOVED before alignment, so it never lands in the
+    diarized transcript; the drop count rides on the terminal note."""
+    remote = "let's ship the Falcon release on Friday afternoon everyone"
+    records = [
+        {"segId": "s0", "source": "mic", "tStart": 0.0, "tEnd": 2.0, "text": "hello team"},
+        {"segId": "s1", "source": "system", "tStart": 5.0, "tEnd": 8.0, "text": remote},
+        # Bleed twin of s1 on the mic stream (same audio, wrongly "You") -> DROP.
+        {"segId": "s2", "source": "mic", "tStart": 5.1, "tEnd": 8.2, "text": remote + "!"},
+        # A genuine, distinct mic utterance -> KEEP.
+        {
+            "segId": "s3",
+            "source": "mic",
+            "tStart": 9.0,
+            "tEnd": 11.0,
+            "text": "sounds good I'll write the runbook tonight",
+        },
+    ]
+    mdir = _seed(data_dir, "m1", records=records)
+    events, emit = _collect_emit()
+    run_postprocess(_request("m1"), emit, diarizer=FakeDiarizer())
+
+    doc = json.loads((mdir / "transcript.diarized.json").read_text(encoding="utf-8"))
+    seg_ids = [s["segId"] for s in doc["segments"]]
+    # The bleed twin s2 is gone; the real mic + system segments remain.
+    assert "s2" not in seg_ids
+    assert seg_ids == ["s0", "s1", "s3"]
+
+    done = _done(events)
+    assert "bleed" in done["note"].lower()
+    assert "1 mic segment" in done["note"]
+
+
+def test_genuine_both_said_mic_segment_not_filtered(data_dir):
+    """A distinct mic utterance that merely OVERLAPS a system segment (different
+    text) is NOT bleed and must survive the filter — no false positives."""
+    records = [
+        {
+            "segId": "s0",
+            "source": "system",
+            "tStart": 5.0,
+            "tEnd": 8.0,
+            "text": "I think we should postpone the launch until next quarter",
+        },
+        {
+            "segId": "s1",
+            "source": "mic",
+            "tStart": 5.5,
+            "tEnd": 7.5,
+            "text": "no I really believe we are ready to go now honestly",
+        },
+    ]
+    mdir = _seed(data_dir, "m1", records=records)
+    events, emit = _collect_emit()
+    run_postprocess(_request("m1"), emit, diarizer=FakeDiarizer())
+
+    doc = json.loads((mdir / "transcript.diarized.json").read_text(encoding="utf-8"))
+    assert [s["segId"] for s in doc["segments"]] == ["s0", "s1"]
+    done = _done(events)
+    assert "bleed" not in done["note"].lower()
 
 
 # --- 2) TORCH-ABSENT / GRACEFUL DEGRADATION -----------------------------------

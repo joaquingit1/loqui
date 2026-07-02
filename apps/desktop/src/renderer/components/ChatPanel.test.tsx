@@ -112,7 +112,9 @@ describe("ChatPanel", () => {
 
     chat.emit({ kind: "token", chatId: id, delta: "We " });
     await waitFor(() =>
-      expect(screen.getByTestId("chat-bubble-assistant").textContent).toContain("We "),
+      // Rendered through the Markdown component, so a partial word shows as
+      // trimmed prose ("We"), not the raw "We " token with its trailing space.
+      expect(screen.getByTestId("chat-bubble-assistant").textContent).toContain("We"),
     );
     chat.emit({ kind: "token", chatId: id, delta: "shipped." });
     await waitFor(() =>
@@ -125,6 +127,49 @@ describe("ChatPanel", () => {
     );
     // The composer is usable again.
     expect((screen.getByTestId("chat-send") as HTMLButtonElement).textContent).toBe("Send");
+  });
+
+  it("renders the assistant reply as markdown, not raw syntax", async () => {
+    const chat = makeChat();
+    render(<ChatPanel meetingId="m1" api={chat.api} />);
+
+    fireEvent.change(screen.getByTestId("chat-input"), { target: { value: "Recap it" } });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    await waitFor(() => expect(chat.sends.length).toBe(1));
+
+    const id = lastChatId(chat);
+    chat.emit({
+      kind: "token",
+      chatId: id,
+      delta: "## Decisions\n- Ship on **Friday**.",
+    });
+
+    const bubble = await screen.findByTestId("chat-bubble-assistant");
+    // The markdown is real DOM — a heading, a bullet, and <strong> — never the
+    // literal `##`/`-`/`**` characters.
+    await waitFor(() => expect(bubble.querySelector("h3")?.textContent).toBe("Decisions"));
+    expect(bubble.querySelector("li")?.textContent).toContain("Ship on Friday.");
+    expect(bubble.querySelector("strong")?.textContent).toBe("Friday");
+    expect(bubble.textContent).not.toContain("**");
+    expect(bubble.textContent).not.toContain("## ");
+  });
+
+  it("renders the user's turn literally (never interpreted as markdown)", async () => {
+    const chat = makeChat();
+    render(<ChatPanel meetingId="m1" api={chat.api} />);
+
+    // A message that LOOKS like markdown must stay verbatim.
+    fireEvent.change(screen.getByTestId("chat-input"), {
+      target: { value: "## not a header **not bold**" },
+    });
+    fireEvent.click(screen.getByTestId("chat-send"));
+    await waitFor(() => expect(chat.sends.length).toBe(1));
+
+    const userTurn = screen.getByTestId("chat-bubble-user");
+    expect(userTurn.textContent).toBe("## not a header **not bold**");
+    // No markdown DOM was produced from the user's input.
+    expect(userTurn.querySelector("h3")).toBeNull();
+    expect(userTurn.querySelector("strong")).toBeNull();
   });
 
   it("renders an actionable error state when the stream errors", async () => {

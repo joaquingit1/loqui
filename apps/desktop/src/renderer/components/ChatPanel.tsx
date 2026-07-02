@@ -38,6 +38,7 @@ import {
   type ChatTurn,
 } from "../chat/index.js";
 import { ProviderSettings } from "./ProviderSettings.js";
+import { Markdown } from "./Markdown.js";
 import { Icon } from "./Icon.js";
 import { Kbd, modKeyLabel, RETURN_GLYPH } from "../shortcuts/index.js";
 import { HfTokenSettings } from "../summary/index.js";
@@ -288,11 +289,21 @@ function ChatBubble({ turn }: { turn: ChatTurn }): JSX.Element {
           </span>
           <span className="chat__sr">Thinking…</span>
         </p>
-      ) : (
-        <p className="chat__bubble" data-testid={`chat-bubble-${turn.role}`}>
+      ) : isUser ? (
+        // User input is NEVER interpreted as markup — render it literally so a
+        // stray `#`/`**` a person typed stays exactly as typed.
+        <p className="chat__bubble" data-testid="chat-bubble-user">
           {turn.content}
-          {turn.pending && <span className="chat__caret" aria-hidden="true" />}
         </p>
+      ) : (
+        // Assistant replies are real markdown (headers, bullets, **bold**). Reuse
+        // the summary's XSS-safe Markdown renderer; it degrades a half-open
+        // fence/emphasis mid-stream to literal text (no closing delimiter → no
+        // element), so progressive re-render never visually explodes.
+        <div className="chat__bubble chat__bubble--md" data-testid="chat-bubble-assistant">
+          <Markdown className="chat__md">{turn.content}</Markdown>
+          {turn.pending && <span className="chat__caret" aria-hidden="true" />}
+        </div>
       )}
     </div>
   );

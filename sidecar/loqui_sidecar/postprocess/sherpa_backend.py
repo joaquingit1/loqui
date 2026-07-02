@@ -49,10 +49,32 @@ logger = logging.getLogger("loqui_sidecar.postprocess.sherpa")
 #: ``sys.executable -m <module>`` needs a real interpreter; PRD-8 must preserve launch isolation.
 _WORKER_MODULE = "loqui_sidecar.postprocess.sherpa_worker"
 
-#: Hard ceiling on the isolated diarization run so a hung native call can't wedge
-#: the postprocess executor forever. A 30 s ``system.wav`` diarizes in a few
-#: seconds; a multi-hour meeting is bounded generously here.
-_WORKER_TIMEOUT_S = 1800.0
+#: Env knob to override the worker timeout (seconds); useful if a very long
+#: meeting ever needs more headroom on a slow box.
+_WORKER_TIMEOUT_ENV = "LOQUI_DIARIZATION_TIMEOUT_SEC"
+
+#: Default hard ceiling on the isolated diarization run so a hung native call
+#: can't wedge the postprocess executor forever. Diarization of even long
+#: meetings on this stack is minutes, so a wedged worker should degrade in
+#: minutes — not the previous 30 — while still leaving generous headroom.
+_WORKER_TIMEOUT_DEFAULT_S = 600.0
+
+
+def _worker_timeout_s() -> float:
+    """Resolve the worker timeout, honoring ``LOQUI_DIARIZATION_TIMEOUT_SEC``.
+
+    A missing / unparseable / non-positive override falls back to the default.
+    """
+    raw = os.environ.get(_WORKER_TIMEOUT_ENV)
+    if raw:
+        try:
+            value = float(raw)
+        except ValueError:
+            return _WORKER_TIMEOUT_DEFAULT_S
+        if value > 0:
+            return value
+    return _WORKER_TIMEOUT_DEFAULT_S
+
 
 #: Short backend identifier surfaced in ``DiarizationResult.backend`` + /health.
 SHERPA_BACKEND_NAME = "sherpa-onnx/pyannote-segmentation+campplus"
@@ -191,8 +213,13 @@ def _run_in_subprocess(
             [sys.executable, "-m", _WORKER_MODULE, payload],
             capture_output=True,
             text=True,
-            timeout=_WORKER_TIMEOUT_S,
-            # No shell, no inherited stdin; child is fully isolated.
+            timeout=_worker_timeout_s(),
+            # No shell, no inherited stdin (DEVNULL, not the parent's fd 0); the
+            # child is fully isolated. This also fails FAST — never a 10-min hang
+            # on inherited stdin — if a future frozen-``-m`` regression ever lets
+            # the worker boot the server (it blocks on stdin EOF), so it exits at
+            # once instead of wedging.
+            stdin=subprocess.DEVNULL,
         )
     except subprocess.TimeoutExpired:
         logger.warning("sherpa-onnx diarization worker timed out for %s", wav_path)

@@ -57,6 +57,32 @@ type LoadState =
   | { kind: "loaded"; summary: Summary }
   | { kind: "error"; message: string };
 
+/**
+ * Split a leading `# Title` line off the streamed summary text.
+ *
+ * The sidecar streams the RAW summary (a leading `# <Title>` line, then the
+ * markdown body); it only splits the title into the meeting header when the
+ * final `summary.json` is written. So while streaming we peel the title off
+ * ourselves — otherwise the user sees a literal `# Reunión…` at the top.
+ *
+ * While the title itself is still streaming (a first line that starts with `# `
+ * but has no newline yet), we surface it as `title` (sans the `#`) and hold the
+ * body empty, so the view never flashes a raw `# Reuni…` fragment.
+ */
+function splitStreamTitle(text: string): { title: string | null; body: string } {
+  // Ignore leading blank lines the model may emit before the title.
+  const leading = text.replace(/^\s*\n/, "");
+  const match = /^#[ \t]+(.*)$/m.exec(leading.split("\n")[0] ?? "");
+  if (!match || !leading.startsWith("#")) return { title: null, body: text };
+
+  const newline = leading.indexOf("\n");
+  if (newline === -1) {
+    // First line is the title, still arriving — show it, no body yet.
+    return { title: (match[1] ?? "").trim(), body: "" };
+  }
+  return { title: (match[1] ?? "").trim(), body: leading.slice(newline + 1).replace(/^\n+/, "") };
+}
+
 export function SummaryView({
   meetingId,
   api,
@@ -133,12 +159,26 @@ export function SummaryView({
         )}
       </div>
 
-      {showStreaming && (
-        <div className="summary__streaming" data-testid="summary-streaming" aria-live="polite">
-          <p className="summary__stream-text">{streamingText}</p>
-          <span className="summary__stream-caret" aria-hidden="true" />
-        </div>
-      )}
+      {showStreaming && (() => {
+        // Peel the leading `# Title` line so it renders as the document title
+        // (matching the finished view), not as literal `# …` text. Render the
+        // rest through the SAME Markdown component as the final overview, so the
+        // preview looks like the finished document progressively filling in.
+        const { title, body } = splitStreamTitle(streamingText);
+        return (
+          <div className="summary__streaming" data-testid="summary-streaming" aria-live="polite">
+            {title && (
+              <h2 className="summary__stream-title" data-testid="summary-stream-title">
+                {title}
+              </h2>
+            )}
+            <div className="summary__stream-body">
+              <Markdown className="summary__md">{body}</Markdown>
+              <span className="summary__stream-caret" aria-hidden="true" />
+            </div>
+          </div>
+        );
+      })()}
 
       {!showStreaming && load.kind === "loading" && (
         <p className="summary__hint" data-testid="summary-loading">

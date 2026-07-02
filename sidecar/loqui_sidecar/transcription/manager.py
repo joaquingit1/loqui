@@ -28,11 +28,13 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Callable, Optional, Protocol
 
 from ..audio_ingest import DecodedFrame
+from ..dedup import is_bleed_duplicate_env
 from .fake_backend import FakeAsrBackend
 from .types import AsrBackend, SegmentEmitter, TranscriptSegment
 
@@ -48,6 +50,24 @@ FAKE_ASR_ENV = "LOQUI_FAKE_ASR"
 def _fake_asr_enabled() -> bool:
     val = os.environ.get(FAKE_ASR_ENV)
     return bool(val) and val not in ("0", "false", "False", "")
+
+
+#: How far back (seconds, by segment t_end) we keep SYSTEM finals in the per-meeting
+#: bleed ring buffer. A mic final is compared only against system finals whose end is
+#: within this window of the mic final's end — long enough to cover a system final that
+#: arrives slightly before its mic bleed twin, short enough to bound memory. Env-tunable.
+BLEED_RING_SECONDS_ENV = "LOQUI_BLEED_RING_SECONDS"
+DEFAULT_BLEED_RING_SECONDS = 30.0
+
+
+def _bleed_ring_seconds() -> float:
+    raw = (os.environ.get(BLEED_RING_SECONDS_ENV) or "").strip()
+    if not raw:
+        return DEFAULT_BLEED_RING_SECONDS
+    try:
+        return float(raw)
+    except ValueError:
+        return DEFAULT_BLEED_RING_SECONDS
 
 
 @dataclass
@@ -196,9 +216,22 @@ class TranscriptionManager:
         self._pipelines: dict[tuple[str, str], TranscriptionPipeline] = {}
         self._pipeline_backends: dict[tuple[str, str], AsrBackend] = {}
         self._lock = threading.Lock()
+        # Speaker-bleed suppression (best-effort, live): a per-meeting ring buffer of
+        # recent SYSTEM final segments (text + t_start/t_end). When a MIC final is
+        # about to emit we drop it if it duplicates any buffered system final (the
+        # user played meeting audio on speakers, so the remote speaker bled into the
+        # mic). Guarded by ``_bleed_lock`` because system + mic finals emit from
+        # DIFFERENT per-source finalizer executor threads. Cleared per meeting on stop.
+        # KNOWN LIMITATION: if the mic final arrives BEFORE its system counterpart the
+        # live copy slips through (nothing to match against yet) — the authoritative
+        # order-independent cleanup is the post-process pass in postprocess/runner.py.
+        self._bleed_ring: dict[str, deque[tuple[float, float, str]]] = {}
+        self._bleed_lock = threading.Lock()
         #: Diagnostic counters (parity with AudioIngest; handy in tests).
         self.frames_seen = 0
         self.segments_emitted = 0
+        #: Count of live MIC finals suppressed as system-audio bleed (diagnostics).
+        self.bleed_suppressed = 0
 
     # -- introspection --------------------------------------------------------
 
@@ -268,6 +301,14 @@ class TranscriptionManager:
                 # persisted before the meeting tears down / post-process runs.
                 self._safe_finish(pipeline, backend)
             self._drain_finalizer(finalizer)
+            # Drop the meeting's bleed ring only once BOTH sources have stopped +
+            # drained (draining above may have emitted the last mic final that still
+            # needed the system ring to filter against).
+            with self._lock:
+                meeting_still_active = any(mid == meeting_id for (mid, _src) in self._pipelines)
+            if not meeting_still_active:
+                with self._bleed_lock:
+                    self._bleed_ring.pop(meeting_id, None)
         except Exception:  # noqa: BLE001 - transcription must never raise.
             logger.exception("transcription on_stop failed for %s/%s", meeting_id, source)
 
@@ -284,11 +325,21 @@ class TranscriptionManager:
         for _key, pipeline, backend, finalizer in items:
             self._safe_finish(pipeline, backend)
             self._drain_finalizer(finalizer)
+        with self._bleed_lock:
+            self._bleed_ring.clear()
 
     # -- internals ------------------------------------------------------------
 
     def _guarded_emit(self, segment: TranscriptSegment) -> None:
-        """Emit one segment via the wired emitter; swallow+log any error."""
+        """Emit one segment via the wired emitter; swallow+log any error.
+
+        This is the single seam every pipeline's :data:`SegmentEmitter` routes
+        through, so the live bleed filter lives here: SYSTEM finals are recorded in
+        the per-meeting ring buffer, and a MIC final that duplicates a buffered
+        system final is DROPPED (not emitted) rather than reaching the WS. Partials
+        pass straight through (only committed finals persist / can be bleed)."""
+        if not self._admit_segment(segment):
+            return
         try:
             self._emit(segment)
             self.segments_emitted += 1
@@ -296,6 +347,61 @@ class TranscriptionManager:
             logger.exception(
                 "transcription emit failed for %s/%s", segment.meeting_id, segment.source
             )
+
+    def _admit_segment(self, segment: TranscriptSegment) -> bool:
+        """Apply the live speaker-bleed filter; return True to emit, False to drop.
+
+        Only FINALS participate (partials are interim + never persisted): a system
+        final is buffered, and a mic final matching any buffered system final is
+        dropped. Non-final segments always pass. Never raises — a filter error
+        degrades to emitting the segment (fail-open, so we never lose real speech)."""
+        if segment.status != "final":
+            return True
+        try:
+            if segment.source == "system":
+                self._record_system_final(segment)
+                return True
+            if segment.source == "mic" and self._is_mic_bleed(segment):
+                self.bleed_suppressed += 1
+                logger.debug(
+                    "suppressed live mic bleed for %s: %r",
+                    segment.meeting_id,
+                    segment.text,
+                )
+                return False
+        except Exception:  # noqa: BLE001 - a filter error must never drop real speech.
+            logger.exception("bleed filter failed for %s/%s", segment.meeting_id, segment.source)
+        return True
+
+    def _record_system_final(self, segment: TranscriptSegment) -> None:
+        """Append a system final to the meeting's ring buffer, evicting olds."""
+        cutoff = segment.t_end - _bleed_ring_seconds()
+        with self._bleed_lock:
+            ring = self._bleed_ring.get(segment.meeting_id)
+            if ring is None:
+                ring = deque()
+                self._bleed_ring[segment.meeting_id] = ring
+            ring.append((segment.t_start, segment.t_end, segment.text))
+            # Evict system finals whose end is older than the retention window
+            # relative to THIS final (both sources share the meeting timeline).
+            while ring and ring[0][1] < cutoff:
+                ring.popleft()
+
+    def _is_mic_bleed(self, segment: TranscriptSegment) -> bool:
+        """True when this mic final duplicates any buffered system final."""
+        with self._bleed_lock:
+            candidates = list(self._bleed_ring.get(segment.meeting_id, ()))
+        for sys_start, sys_end, sys_text in candidates:
+            if is_bleed_duplicate_env(
+                segment.text,
+                segment.t_start,
+                segment.t_end,
+                sys_text,
+                sys_start,
+                sys_end,
+            ):
+                return True
+        return False
 
     def _backend_for_pipeline(self) -> AsrBackend:
         if self._backend_shareable or self._backend_factory is None:

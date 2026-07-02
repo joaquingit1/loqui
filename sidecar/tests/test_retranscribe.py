@@ -22,6 +22,9 @@ from loqui_sidecar.postprocess import runner as runner_mod
 from loqui_sidecar.postprocess.request import PostProcessRequest
 from loqui_sidecar.postprocess.retranscribe import (
     RetranscribeResult,
+    _backend_cache,
+    _cached_faster_whisper_backend,
+    _reset_backend_cache,
     re_transcribe_meeting,
 )
 from loqui_sidecar.postprocess.runner import _read_structured_transcript, run_postprocess
@@ -206,14 +209,14 @@ def test_read_structured_prefers_hifi_over_live(data_dir):
 
 
 def test_runner_emits_transcription_job_before_diarization(data_dir, monkeypatch):
-    _seed_live(
-        data_dir,
-        "m1",
-        [{"segId": "s0", "source": "mic", "tStart": 0.0, "tEnd": 1.0, "text": "live"}],
-    )
+    # NO live finals (transcription produced nothing) -> the re-transcription pass
+    # is the only way to get a transcript, so it genuinely RUNS here.
+    _seed_live(data_dir, "m1", [])
+    called = {"n": 0}
 
     def fake_retranscribe(meeting_id, **kw):
         # Stand in for a successful pass (no real model in the gate).
+        called["n"] += 1
         from loqui_sidecar.postprocess.writers import write_hifi_transcript
 
         write_hifi_transcript(
@@ -233,12 +236,93 @@ def test_runner_emits_transcription_job_before_diarization(data_dir, monkeypatch
         lambda e, d: events.append((e, d)),
     )
 
+    assert called["n"] == 1  # the pass actually ran (no live finals to trust)
     kinds = [d.get("kind") for e, d in events if e == "jobUpdate"]
     # transcription job is emitted, and BEFORE diarization.
     assert "transcription" in kinds
     assert kinds.index("transcription") < kinds.index("diarization")
     tx = [d for e, d in events if e == "jobUpdate" and d.get("kind") == "transcription"]
     assert [d["state"] for d in tx] == ["running", "done"]
+
+
+def test_runner_skips_retranscription_when_live_finals_exist(data_dir, monkeypatch):
+    """The big win: when the live transcript already holds accurate finals, the
+    re-transcription pass is SKIPPED entirely (it is strictly lower quality than
+    the live finals) — but the transcription JOB still terminates running->done so
+    the UI never hangs on a phantom stage, and alignment/summary run on the live
+    finals."""
+    _seed_live(
+        data_dir,
+        "m1",
+        [
+            {
+                "segId": "s0",
+                "source": "mic",
+                "tStart": 0.0,
+                "tEnd": 1.0,
+                "text": "accurate live text",
+            }
+        ],
+    )
+    called = {"n": 0}
+
+    def fake_retranscribe(meeting_id, **kw):
+        called["n"] += 1
+        return RetranscribeResult(produced=True)
+
+    monkeypatch.setattr(runner_mod, "re_transcribe_meeting", fake_retranscribe)
+    monkeypatch.setenv("LOQUI_FAKE_DIARIZER", "1")
+
+    events: list[tuple[str, dict]] = []
+    run_postprocess(
+        PostProcessRequest(
+            meeting_id="m1", config=ProviderConfig(provider="fake"), re_transcribe=True
+        ),
+        lambda e, d: events.append((e, d)),
+    )
+
+    # The expensive pass was NOT invoked...
+    assert called["n"] == 0
+    # ...yet the transcription JOB still fired running -> done (no phantom stage).
+    tx = [d for e, d in events if e == "jobUpdate" and d.get("kind") == "transcription"]
+    assert [d["state"] for d in tx] == ["running", "done"]
+    # No hi-fi transcript was written; alignment used the live finals.
+    assert not hifi_jsonl_path("m1").exists()
+    done = [d for e, d in events if e == "postProcessDone"][0]
+    assert "skipped" in done["note"]
+    # The live finals reached the diarized output (proves alignment ran on them).
+    from loqui_sidecar.postprocess.writers import diarized_json_path
+
+    doc = json.loads(diarized_json_path("m1").read_text(encoding="utf-8"))
+    assert [s["text"] for s in doc["segments"]] == ["accurate live text"]
+
+
+def test_runner_retranscribes_when_live_finals_are_empty(data_dir, monkeypatch):
+    """Edge case: a meeting whose live transcription produced only empty/whitespace
+    records is NOT trustworthy -> the re-transcription pass still runs as the
+    fallback (so we never ship an empty transcript when audio exists)."""
+    _seed_live(
+        data_dir,
+        "m1",
+        [{"segId": "s0", "source": "mic", "tStart": 0.0, "tEnd": 1.0, "text": "   "}],
+    )
+    called = {"n": 0}
+
+    def fake_retranscribe(meeting_id, **kw):
+        called["n"] += 1
+        return RetranscribeResult(produced=True)
+
+    monkeypatch.setattr(runner_mod, "re_transcribe_meeting", fake_retranscribe)
+    monkeypatch.setenv("LOQUI_FAKE_DIARIZER", "1")
+
+    events: list[tuple[str, dict]] = []
+    run_postprocess(
+        PostProcessRequest(
+            meeting_id="m1", config=ProviderConfig(provider="fake"), re_transcribe=True
+        ),
+        lambda e, d: events.append((e, d)),
+    )
+    assert called["n"] == 1  # whitespace-only finals don't count -> pass runs
 
 
 def test_runner_skips_retranscription_when_flag_off(data_dir, monkeypatch):
@@ -266,3 +350,102 @@ def test_runner_skips_retranscription_when_flag_off(data_dir, monkeypatch):
     assert called["n"] == 0
     kinds = [d.get("kind") for e, d in events if e == "jobUpdate"]
     assert "transcription" not in kinds
+
+
+def test_runner_import_path_never_retranscribes(data_dir, monkeypatch):
+    """The import contract: file imports call run_postprocess with re_transcribe
+    False (the importer transcribed the file up front), so the re-transcription
+    pass NEVER runs from run_postprocess even though there are live finals — the
+    skip predicate is irrelevant on that path."""
+    _seed_live(
+        data_dir,
+        "m1",
+        [{"segId": "s0", "source": "mic", "tStart": 0.0, "tEnd": 1.0, "text": "imported text"}],
+    )
+    called = {"n": 0}
+
+    def fake_retranscribe(meeting_id, **kw):
+        called["n"] += 1
+        return RetranscribeResult(produced=True)
+
+    monkeypatch.setattr(runner_mod, "re_transcribe_meeting", fake_retranscribe)
+    monkeypatch.setenv("LOQUI_FAKE_DIARIZER", "1")
+
+    events: list[tuple[str, dict]] = []
+    # Mirror the importer's PostProcessRequest (re_transcribe defaults False).
+    run_postprocess(
+        PostProcessRequest(meeting_id="m1", config=ProviderConfig(provider="fake")),
+        lambda e, d: events.append((e, d)),
+    )
+    assert called["n"] == 0
+    # No transcription jobUpdate at all (the pass is not part of this path).
+    assert "transcription" not in [d.get("kind") for e, d in events if e == "jobUpdate"]
+
+
+# --- hi-fi model cache (fallback re-transcription reuses the loaded model) ----
+
+
+def test_backend_cache_reuses_one_instance_per_key(monkeypatch):
+    """Back-to-back fallback re-transcriptions with the same (model, beam, lang)
+    reuse the SAME cached backend instead of reloading the whisper weights."""
+    _reset_backend_cache()
+    built: list[tuple] = []
+
+    class _StubBackend:
+        def __init__(self, **kw):
+            built.append((kw.get("model_size"), kw.get("beam_size"), kw.get("language")))
+
+        def transcribe_segments(self, pcm, *, language=None):  # pragma: no cover - unused
+            return [], language
+
+    import loqui_sidecar.transcription.asr_backend as asr
+
+    monkeypatch.setattr(asr, "FasterWhisperBackend", _StubBackend)
+
+    try:
+        b1 = _cached_faster_whisper_backend("small", 3, None)
+        b2 = _cached_faster_whisper_backend("small", 3, None)
+        assert b1 is b2  # same instance -> loaded once
+        assert len(built) == 1
+
+        # A DIFFERENT key (pinned language) gets its own instance (never poisons
+        # the common auto-detect None instance).
+        b3 = _cached_faster_whisper_backend("small", 3, "es")
+        assert b3 is not b1
+        assert len(built) == 2
+    finally:
+        _reset_backend_cache()
+
+
+def test_re_transcribe_uses_the_cache_by_default(data_dir, monkeypatch):
+    """re_transcribe_meeting (no injected backend) pulls from the shared cache, so
+    two meetings back-to-back share one loaded model."""
+    _reset_backend_cache()
+
+    class _StubBackend:
+        instances = 0
+
+        def __init__(self, **kw):
+            type(self).instances += 1
+
+        def transcribe_segments(self, pcm, *, language=None):
+            return [(0.0, 1.0, "hi")], "en"
+
+    import loqui_sidecar.transcription.asr_backend as asr
+
+    monkeypatch.setattr(asr, "FasterWhisperBackend", _StubBackend)
+
+    adir1 = _audio_dir(data_dir, "c1")
+    _write_wav(adir1 / "mic.wav")
+    adir2 = _audio_dir(data_dir, "c2")
+    _write_wav(adir2 / "mic.wav")
+
+    try:
+        r1 = re_transcribe_meeting("c1")
+        r2 = re_transcribe_meeting("c2")
+        assert r1.produced and r2.produced
+        # Exactly ONE model constructed across both meetings (cache reuse).
+        assert _StubBackend.instances == 1
+        assert len(_backend_cache) == 1
+    finally:
+        _reset_backend_cache()

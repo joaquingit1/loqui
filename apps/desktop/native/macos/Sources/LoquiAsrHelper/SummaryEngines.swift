@@ -42,6 +42,12 @@ protocol SummaryEngine {
         instructions: String?,
         onToken: @escaping (String) -> Void
     ) throws -> String
+    /// Warm up the engine so the FIRST generation's first token comes faster.
+    /// Called by the host loop right after `summaryReady` (before any prompt is
+    /// known), so it must be a no-op or a cheap resource load. The default does
+    /// nothing (extractive/MLX engines have nothing to prewarm); the Apple
+    /// Foundation Models engine overrides it to load the model into memory.
+    func prewarm()
     func stop()
 }
 
@@ -55,6 +61,8 @@ extension SummaryEngine {
         if !text.isEmpty { onToken(text) }
         return text
     }
+
+    func prewarm() {}
 }
 
 // MARK: - Apple Foundation Models (generative, on-device) — -DFOUNDATION_MODELS
@@ -70,6 +78,15 @@ import FoundationModels
 @available(macOS 26.0, *)
 final class AppleFoundationEngine: SummaryEngine {
     private let model: SystemLanguageModel
+    /// A persistent, prewarmed session kept alive for the life of the engine so the
+    /// model's resources stay RESIDENT across turns (the host reuses this engine's
+    /// helper process across chat turns now). We do NOT reuse it as the generation
+    /// session because the host re-sends the FULL conversation history every turn —
+    /// reusing a session would append that history on top of the session's own
+    /// accumulated transcript and double the context. So each `respond`/`stream`
+    /// uses a FRESH session built with this turn's instructions; the warm session
+    /// exists purely to keep the model loaded (and it's prewarmed on `prewarm()`).
+    private var warmSession: LanguageModelSession?
 
     init() throws {
         let model = SystemLanguageModel.default
@@ -79,6 +96,32 @@ final class AppleFoundationEngine: SummaryEngine {
         case let .unavailable(reason):
             throw EngineError.unavailable("Apple Foundation Models unavailable: \(reason)")
         }
+    }
+
+    /// Build a fresh generation session for this turn (with the notetaker
+    /// `instructions` on the system channel), and `prewarm()` it so the first token
+    /// comes faster. Instructions vary per request, so this is per-turn; the model
+    /// weights themselves are already resident thanks to the warm session.
+    private func makeSession(_ instructions: String?) -> LanguageModelSession {
+        let session: LanguageModelSession
+        if let instructions = instructions, !instructions.isEmpty {
+            session = LanguageModelSession(model: self.model) { instructions }
+        } else {
+            session = LanguageModelSession(model: self.model)
+        }
+        // Warm this session's resources ahead of the respond/stream call.
+        session.prewarm()
+        return session
+    }
+
+    /// Load the model into memory ahead of the first prompt (called by the host
+    /// right after `summaryReady`). Creates + prewarms a persistent session so the
+    /// weights are resident when the first `summaryGenerate` arrives.
+    func prewarm() {
+        if warmSession == nil {
+            warmSession = LanguageModelSession(model: self.model)
+        }
+        warmSession?.prewarm()
     }
 
     func generate(_ prompt: String, instructions: String?) throws -> String {
@@ -92,12 +135,7 @@ final class AppleFoundationEngine: SummaryEngine {
                 // it largely ignored, defaulting to a short English paragraph). The
                 // transcript + ask ride as the user `prompt`. A generous token
                 // budget gives room for a full multi-section document.
-                let session: LanguageModelSession
-                if let instructions = instructions, !instructions.isEmpty {
-                    session = LanguageModelSession(model: self.model) { instructions }
-                } else {
-                    session = LanguageModelSession(model: self.model)
-                }
+                let session = self.makeSession(instructions)
                 let options = GenerationOptions(maximumResponseTokens: 4000)
                 let response = try await session.respond(to: prompt, options: options)
                 out = response.content
@@ -128,12 +166,7 @@ final class AppleFoundationEngine: SummaryEngine {
         var failure: Error?
         Task {
             do {
-                let session: LanguageModelSession
-                if let instructions = instructions, !instructions.isEmpty {
-                    session = LanguageModelSession(model: self.model) { instructions }
-                } else {
-                    session = LanguageModelSession(model: self.model)
-                }
+                let session = self.makeSession(instructions)
                 let options = GenerationOptions(maximumResponseTokens: 4000)
                 var emitted = ""
                 let stream = session.streamResponse(to: prompt, options: options)
@@ -159,7 +192,7 @@ final class AppleFoundationEngine: SummaryEngine {
         return out
     }
 
-    func stop() {}
+    func stop() { warmSession = nil }
 }
 #endif
 

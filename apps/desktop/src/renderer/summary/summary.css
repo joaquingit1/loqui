@@ -170,19 +170,29 @@
 }
 
 /* The live summary preview while it generates (PRD-2 streamed summary). The
-   text grows token-by-token; a soft blinking caret signals it's still writing. */
+   text grows token-by-token, rendered through the SAME Markdown component as the
+   finished overview so it reads as the document progressively filling in — the
+   leading `# Title` line is peeled off into a serif doc title (matching the
+   finished header), not shown as literal `# …`. A soft blinking caret trails the
+   last line to signal it's still writing. */
 .summary__streaming {
   display: flex;
-  align-items: flex-end;
-  gap: 2px;
+  flex-direction: column;
+  gap: var(--space-3);
 }
-.summary__stream-text {
+/* Match the finished document title (.mdoc__title): serif, large, calm. */
+.summary__stream-title {
   margin: 0;
-  font-size: var(--text-body-lg);
-  line-height: 1.6;
+  font-family: var(--font-serif);
+  font-size: var(--text-title);
+  font-weight: var(--weight-regular);
+  letter-spacing: -0.012em;
+  line-height: 1.15;
   color: var(--text);
-  white-space: pre-wrap;
-  word-break: break-word;
+}
+/* Caret trails the streamed markdown inline at the end of its last line. */
+.summary__stream-body {
+  display: inline;
 }
 .summary__stream-caret {
   display: inline-block;

@@ -89,17 +89,16 @@ def build_context_message(reader: TranscriptReader, meeting_id: str) -> Optional
         # Foundation fallback: keep the most-recent tail (the build unit swaps in
         # chunk+keyword retrieval). Documented threshold = CONTEXT_CHAR_BUDGET.
         text = text[-CONTEXT_CHAR_BUDGET:]
+    # DEPTH first, then grounding, then the transcript. On Apple Foundation Models
+    # the whole system message rides the dedicated `instructions` channel (via
+    # split_system_user), so putting the thoroughness directive FIRST — ahead of the
+    # long transcript blob — keeps it a strong, un-buried signal instead of a stray
+    # sentence the model reads after ~10k chars of transcript.
     content = (
-        SPEAKER_LEGEND + "\n\n"
+        DEPTH_INSTRUCTION + "\n\n" + SPEAKER_LEGEND + "\n\n"
         "You are a knowledgeable assistant answering questions about a meeting. "
         "Use ONLY the following transcript as ground truth; do not invent facts. "
         "The transcript is read-only context.\n\n"
-        "Answer THOROUGHLY and in depth. Fully address every part of the user's "
-        "question, explain your reasoning, and cite the relevant moments or "
-        "details from the transcript. Prefer several sentences, multiple "
-        "paragraphs, or bullet points over a one-line reply — do not be terse. "
-        "If the transcript doesn't contain the answer, say so and explain what is "
-        "and isn't covered.\n\n"
         "<transcript>\n" + relabel_speakers(text) + "\n</transcript>"
     )
     return ChatMessage(role="system", content=content)
@@ -116,6 +115,22 @@ def relabel_speakers(text: str) -> str:
     text = text.replace("] You said:", "] [ME] said:").replace("] They said:", "] [OTHER] said:")
     text = text.replace("] You:", "] [ME]:").replace("] They:", "] [OTHER]:")
     return text
+
+
+#: The thoroughness/depth directive. Kept as a STANDALONE, forceful instruction so
+#: it lands prominently on the model's system/instructions channel (Apple Foundation
+#: Models follows an `instructions` directive far more reliably than a sentence
+#: buried in the grounding blob). Concrete guidance: depth + reasoning + specifics
+#: from the transcript, structure when useful, and no reflexive one-liners.
+DEPTH_INSTRUCTION = (
+    "Answer THOROUGHLY and in depth. Fully address every part of the question, "
+    "explain your reasoning, and back it with specific details, quotes, and moments "
+    "from the transcript. Use multiple paragraphs, and bullet points or short "
+    "sections when they make the answer clearer. Do NOT give a one-line answer "
+    "unless the question is trivially factual (e.g. a single date or name). If the "
+    "transcript doesn't contain the answer, say so and explain what is and isn't "
+    "covered."
+)
 
 
 #: A third-person legend (no "you" pronoun, to avoid colliding with the assistant's
@@ -235,13 +250,18 @@ def handle_chat(
         )
         messages: list[ChatMessage] = []
         if context is not None:
-            # Merge the directive into the single grounding system message (keeps
-            # one system turn — also what lands on the native model's instructions).
+            # Merge the language directive into the single grounding system message
+            # (keeps one system turn — also what lands on the native model's
+            # instructions channel; the depth directive is already inside context).
             messages.append(
                 ChatMessage(role="system", content=context.content + "\n\n" + directive)
             )
         else:
-            messages.append(ChatMessage(role="system", content=directive))
+            # No transcript yet: still push the depth guidance so a no-context chat
+            # is thorough, plus the language directive.
+            messages.append(
+                ChatMessage(role="system", content=DEPTH_INSTRUCTION + "\n\n" + directive)
+            )
         messages.extend(request.messages)
 
         provider = selector(request.config)

@@ -109,6 +109,49 @@ describe("SummaryView", () => {
     expect(screen.queryByTestId("summary-absent")).toBeNull();
   });
 
+  it("renders the streamed summary as markdown (not raw syntax)", async () => {
+    const api = makeApi({ getSummary: vi.fn(async () => null) });
+    const stream = "## Budget\n- Q2 budget is **finalized** at $1.2M.";
+    render(<SummaryView meetingId="m1" api={api} streamingText={stream} />);
+
+    await waitFor(() => expect(screen.getByTestId("summary-streaming")).toBeTruthy());
+    const streaming = screen.getByTestId("summary-streaming");
+    // The header/bullet/bold are real DOM, not literal `##`/`-`/`**`.
+    expect(streaming.querySelector("h3")?.textContent).toBe("Budget");
+    expect(streaming.querySelector("li")?.textContent).toContain("Q2 budget is finalized at $1.2M.");
+    expect(streaming.querySelector("strong")?.textContent).toBe("finalized");
+    expect(streaming.textContent).not.toContain("**");
+    expect(streaming.textContent).not.toContain("## ");
+  });
+
+  it("peels the leading `# Title` line off the stream into a document title", async () => {
+    const api = makeApi({ getSummary: vi.fn(async () => null) });
+    const stream = "# Reunión de Planificación\n\n## Overview\n- We shipped.";
+    render(<SummaryView meetingId="m1" api={api} streamingText={stream} />);
+
+    await waitFor(() => expect(screen.getByTestId("summary-stream-title")).toBeTruthy());
+    const title = screen.getByTestId("summary-stream-title");
+    // The title text shows WITHOUT the leading hash.
+    expect(title.textContent).toBe("Reunión de Planificación");
+    expect(title.textContent).not.toContain("#");
+    // The `# Title` line is not repeated in the streamed body.
+    const streaming = screen.getByTestId("summary-streaming");
+    expect(streaming.textContent).not.toContain("# Reunión");
+    // The body still renders (as markdown).
+    expect(streaming.querySelector("h3")?.textContent).toBe("Overview");
+  });
+
+  it("shows a still-streaming title (no newline yet) without a raw `#` fragment", async () => {
+    const api = makeApi({ getSummary: vi.fn(async () => null) });
+    // The title is mid-stream: `# ` + partial text, no trailing newline yet.
+    render(<SummaryView meetingId="m1" api={api} streamingText="# Reunión de Plan" />);
+
+    await waitFor(() => expect(screen.getByTestId("summary-stream-title")).toBeTruthy());
+    expect(screen.getByTestId("summary-stream-title").textContent).toBe("Reunión de Plan");
+    // No literal `#` leaks into the preview while the title is still arriving.
+    expect(screen.getByTestId("summary-streaming").textContent).not.toContain("#");
+  });
+
   it("prefers the parsed summary over the stream once it has loaded", async () => {
     const api = makeApi(); // returns the full SUMMARY
     render(<SummaryView meetingId="m1" api={api} streamingText="partial stream…" />);
